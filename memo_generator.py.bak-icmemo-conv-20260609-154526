@@ -1,0 +1,412 @@
+"""
+memo_generator.py - IC Memo generation for Nextones.finance
+Generates Markdown Investment Committee memos from agent results and portfolio state.
+"""
+import json
+import sqlite3
+from datetime import datetime
+from models import get_db, log_event
+
+
+# ---------------------------------------------------------------------------
+# Memo Sections
+# ---------------------------------------------------------------------------
+
+def _build_header(date_str: str, portfolio_state: dict) -> str:
+    total_value = portfolio_state.get("total_value", 0)
+    total_pnl   = portfolio_state.get("total_pnl", 0)
+    total_pnl_pct = portfolio_state.get("total_pnl_pct", 0)
+    var_95      = portfolio_state.get("var_95", 0)
+    cash        = portfolio_state.get("cash", 0)
+
+    return f"""# Nextones IC Memo – {date_str}
+**Generated:** {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}
+**Mode:** Paper Trading | **Disclaimer:** Not investment advice. Research and execution automation under user control.
+
+---
+
+## Portfolio Snapshot
+
+| Metric | Value |
+|--------|-------|
+| Total AUM | ${total_value:,.2f} |
+| Cash | ${cash:,.2f} ({cash / total_value * 100:.1f}% of AUM) |
+| Total P&L | ${total_pnl:+,.2f} ({total_pnl_pct:+.2f}%) |
+| VAR (95%, 1-day) | {var_95:.2f}% of AUM |
+
+"""
+
+
+def _build_macro_section(macro_result: dict) -> str:
+    if not macro_result:
+        return "## Macro Outlook\n\n*No macro data available.*\n\n"
+
+    stance     = macro_result.get("stance", "neutral").upper()
+    conviction = macro_result.get("conviction", 0)
+    proposed   = macro_result.get("proposed_action", "")
+    signals    = macro_result.get("signals", {})
+
+    lines = [
+        "## Macro Outlook",
+        "",
+        f"**Stance:** {stance} | **Conviction:** {conviction}/10",
+        "",
+        "### Market Indicators",
+        "",
+        "| Index ETF | Price | SMA50 | SMA200 | Cross | RSI(14) | 20d Momentum |",
+        "|-----------|-------|-------|--------|-------|---------|--------------|",
+    ]
+
+    for ticker, sig in signals.items():
+        lines.append(
+            f"| {ticker} | ${sig.get('current_price', 0):.2f} | "
+            f"${sig.get('sma50', 0) or 0:.2f} | "
+            f"${sig.get('sma200', 0) or 0:.2f} | "
+            f"{sig.get('cross', 'N/A')} | "
+            f"{sig.get('rsi14', 0) or 0:.1f} | "
+            f"{sig.get('momentum_20d', 0):+.1f}% |"
+        )
+
+    lines += [
+        "",
+        f"**Recommended posture:** {proposed}",
+        "",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _build_factor_section(factor_results: list) -> str:
+    if not factor_results:
+        return "## Factor Tilts\n\n*No factor data available.*\n\n"
+
+    overweight  = [f for f in factor_results if f.get("tilt") == "overweight"]
+    underweight = [f for f in factor_results if f.get("tilt") == "underweight"]
+    neutral     = [f for f in factor_results if f.get("tilt") == "neutral"]
+
+    lines = [
+        "## Factor Tilts",
+        "",
+        f"**Overweight:** {', '.join(f['ticker'] for f in overweight) or 'None'}",
+        f"**Underweight:** {', '.join(f['ticker'] for f in underweight) or 'None'}",
+        f"**Neutral:** {', '.join(f['ticker'] for f in neutral) or 'None'}",
+        "",
+        "### Factor Scores",
+        "",
+        "| Ticker | Composite Score | Tilt | Conviction | Proposed Action |",
+        "|--------|----------------|------|------------|----------------|",
+    ]
+
+    for f in factor_results[:10]:  # Top 10
+        lines.append(
+            f"| {f['ticker']} | {f.get('combined_score', 0):.2f}/10 | "
+            f"**{f.get('tilt', 'neutral')}** | "
+            f"{f.get('conviction', 0):.1f} | "
+            f"{f.get('proposed_action', '')[:60]}... |"
+        )
+
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _build_thesis_section(conn: sqlite3.Connection, agent_results: dict) -> str:
+    lines = [
+        "## Active Thesis Summaries",
+        "",
+    ]
+
+    # Get most recent theses per agent type
+    theses = conn.execute(
+        """SELECT t.id, t.agent_type, t.thesis_text, t.conviction_score, t.horizon,
+                  t.proposed_action, i.ticker, i.name
+           FROM theses t
+           LEFT JOIN instruments i ON i.id = t.instrument_id
+           WHERE t.status = 'active'
+           ORDER BY t.conviction_score DESC, t.updated_at DESC
+           LIMIT 20"""
+    ).fetchall()
+
+    if not theses:
+        return "## Active Thesis Summaries\n\n*No active theses.*\n\n"
+
+    for t in theses:
+        ticker_str = f"**{t['ticker']}** – " if t['ticker'] else ""
+        lines += [
+            f"### {ticker_str}{t['agent_type']} | Conviction: {t['conviction_score']:.1f}/10 | Horizon: {t['horizon']}",
+            "",
+            f"*Thesis ID #{t['id']}*",
+            "",
+            f"{t['proposed_action']}",
+            "",
+            "---",
+            "",
+        ]
+
+    return "\n".join(lines)
+
+
+def _build_proposed_changes_section(conn: sqlite3.Connection) -> str:
+    """Show orders created in this cycle."""
+    orders = conn.execute(
+        """SELECT o.id, o.side, o.quantity, o.status, o.risk_check_result,
+                  i.ticker, i.name,
+                  f.fill_price, f.slippage, f.fees
+           FROM orders o
+           JOIN instruments i ON i.id = o.instrument_id
+           LEFT JOIN fills f ON f.order_id = o.id
+           ORDER BY o.created_at DESC
+           LIMIT 10"""
+    ).fetchall()
+
+    if not orders:
+        return "## Proposed Changes & Executions\n\n*No orders in this cycle.*\n\n"
+
+    lines = [
+        "## Proposed Changes & Executions",
+        "",
+        "| Order ID | Ticker | Side | Qty | Status | Fill Price | Slippage | Risk Notes |",
+        "|----------|--------|------|-----|--------|------------|----------|------------|",
+    ]
+
+    for o in orders:
+        risk_check = {}
+        try:
+            risk_check = json.loads(o["risk_check_result"]) if o["risk_check_result"] else {}
+        except Exception:
+            pass
+
+        risk_notes = risk_check.get("action", "N/A")
+        fill_str = f"${o['fill_price']:.2f}" if o["fill_price"] else "–"
+        slip_str = f"${o['slippage']:.2f}" if o["slippage"] else "–"
+
+        lines.append(
+            f"| #{o['id']} | {o['ticker']} | {o['side'].upper()} | "
+            f"{int(o['quantity'])} | {o['status']} | "
+            f"{fill_str} | {slip_str} | {risk_notes} |"
+        )
+
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _build_audit_trail_section(conn: sqlite3.Connection) -> str:
+    events = conn.execute(
+        """SELECT event_type, entity_type, entity_id, agent, created_at, details
+           FROM event_log
+           ORDER BY created_at DESC LIMIT 20"""
+    ).fetchall()
+
+    lines = [
+        "## Audit Trail",
+        "",
+        "| Timestamp (UTC) | Event | Agent | Entity | Details |",
+        "|----------------|-------|-------|--------|---------|",
+    ]
+
+    for e in events:
+        details_str = ""
+        try:
+            d = json.loads(e["details"]) if e["details"] else {}
+            # Show key=value for first 2 items
+            details_str = "; ".join(f"{k}={v}" for k, v in list(d.items())[:2])
+        except Exception:
+            pass
+
+        lines.append(
+            f"| {e['created_at'][:19]} | {e['event_type']} | "
+            f"{e['agent'] or '–'} | "
+            f"{e['entity_type'] or '–'}#{e['entity_id'] or '–'} | "
+            f"{details_str[:60]} |"
+        )
+
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Main Generator
+# ---------------------------------------------------------------------------
+
+
+
+# [RISK_V2_WIRED] Pre-trade controls section
+def _build_risk_v2_section(conn: sqlite3.Connection) -> str:
+    """Render the pre-trade [RISK_V2] controls table for the current cycle's orders."""
+    orders = conn.execute(
+        """SELECT o.id, o.side, o.quantity, o.status, o.risk_check_result, i.ticker
+           FROM orders o JOIN instruments i ON i.id = o.instrument_id
+           ORDER BY o.created_at DESC LIMIT 10"""
+    ).fetchall()
+    if not orders:
+        return ""
+
+    rows_seen = 0
+    body = []
+    for o in orders:
+        try:
+            rc = json.loads(o["risk_check_result"]) if o["risk_check_result"] else {}
+        except Exception:
+            rc = {}
+        v2 = rc.get("risk_v2")
+        if not v2:
+            continue
+        rows_seen += 1
+        d = v2.get("details", {})
+        c = d.get("concentration", {}) or {}
+        v = d.get("var", {}) or {}
+        cor = d.get("correlation", {}) or {}
+
+        blocked = v2.get("blocked_by")
+        passed = v2.get("passed", True)
+        verdict = "PASS" if passed else f"BLOCK ({blocked})"
+
+        new_pct = c.get("new_pct")
+        new_pct_str = f"{(new_pct*100):.2f}%" if isinstance(new_pct, (int, float)) else "n/a"
+
+        var_dm = v.get("delta_marginal_pct")
+        var_dm_str = f"{(var_dm*100):.3f}%" if isinstance(var_dm, (int, float)) else (v.get("note", "n/a"))
+
+        cor_max = cor.get("max_correl_value")
+        cor_sym = cor.get("max_correl_symbol", "")
+        cor_str = (f"{cor_max:.2f} vs {cor_sym}" if isinstance(cor_max, (int, float))
+                   else (cor.get("note", "n/a")))
+
+        body.append(
+            f"| #{o['id']} | {o['ticker']} | {o['side'].upper()} | "
+            f"{int(o['quantity'])} | {verdict} | {new_pct_str} | {var_dm_str} | {cor_str} |"
+        )
+
+    if rows_seen == 0:
+        return ""
+
+    head = [
+        "## Pre-trade Controls [RISK_V2]",
+        "",
+        "Controls: Concentration 15% per name (BLOCK), VaR historical 99%/1d budget+marginal (WARN), Pearson correlation 60d (WARN).",
+        "",
+        "| Order | Ticker | Side | Qty | Verdict | Concentration | Delta VaR | Max Correlation |",
+        "|-------|--------|------|-----|---------|---------------|-----------|------------------|",
+    ]
+    return "\n".join(head + body) + "\n\n"
+
+
+# ============================================================
+# [ICMEMO_DIFF_V1] Section "Ce qui a change" (J-1 / J-7)
+# ============================================================
+def _build_diff_section(conn) -> str:
+    """Construit la section markdown 'Ce qui a change' pour le memo IC.
+    Lecture seule. Fail-safe : retourne un placeholder si diff_engine indispo
+    ou si pas assez de cycles historiques.
+    """
+    try:
+        from diff_engine import compute_cycle_diff, render_diff_markdown
+    except ImportError as _e_icmd:
+        return f"## Ce qui a change\n\n*Module diff_engine indisponible ({_e_icmd}).*\n\n"
+    try:
+        _row_icmd = conn.execute(
+            "SELECT cycle_id FROM regime_log ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if not _row_icmd:
+            return "## Ce qui a change\n\n*Aucun cycle disponible dans regime_log.*\n\n"
+        _cid_icmd = _row_icmd[0] if not hasattr(_row_icmd, "keys") else _row_icmd["cycle_id"]
+        _d1_icmd = compute_cycle_diff(conn, _cid_icmd, ref="J-1")
+        _d7_icmd = compute_cycle_diff(conn, _cid_icmd, ref="J-7")
+        return render_diff_markdown(_d1_icmd, _d7_icmd) + "\n"
+    except Exception as _e_icmd:
+        return f"## Ce qui a change\n\n*Erreur calcul diff : {_e_icmd}*\n\n"
+# ============================================================
+
+
+def generate_ic_memo(conn: sqlite3.Connection, agent_results: dict | None = None) -> int:
+    """
+    Build a complete IC memo from current state and store in DB.
+    Returns the memo ID.
+    """
+    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+    title    = f"Nextones IC Memo – {date_str}"
+
+    portfolio_state = conn.execute("SELECT * FROM portfolio_state WHERE id = 1").fetchone()
+    ps = dict(portfolio_state) if portfolio_state else {}
+
+    macro_result   = agent_results.get("macro", {})   if agent_results else {}
+    factor_results = agent_results.get("factor", [])  if agent_results else []
+    micro_results  = agent_results.get("microstructure", []) if agent_results else []
+    alt_results    = agent_results.get("altdata", [])  if agent_results else []
+
+    # Build full markdown
+    sections = [
+        _build_header(date_str, ps),
+        _build_diff_section(conn),  # [ICMEMO_DIFF_V1]
+        _build_macro_section(macro_result),
+        _build_factor_section(factor_results),
+        _build_thesis_section(conn, agent_results or {}),
+        _build_proposed_changes_section(conn),
+        _build_risk_v2_section(conn),  # [RISK_V2_WIRED]
+        _build_audit_trail_section(conn),
+        "\n---\n*This memo was automatically generated by Nextones.finance. Not investment advice.*\n",
+    ]
+    full_markdown = "\n".join(sections)
+
+    # Prepare JSON summaries
+    macro_summary = macro_result.get("stance", "neutral") if macro_result else "not available"
+    factor_tilts  = {
+        "overweight":  [f["ticker"] for f in factor_results if f.get("tilt") == "overweight"],
+        "underweight": [f["ticker"] for f in factor_results if f.get("tilt") == "underweight"],
+    }
+
+    thesis_summaries = [
+        {
+            "ticker":    t.get("ticker"),
+            "agent":     t.get("agent_type") if hasattr(t, "get") else "",
+            "conviction": t.get("conviction", t.get("conviction_score", 0)) if hasattr(t, "get") else 0,
+            "action":    t.get("proposed_action"),
+        }
+        for t in (
+            list(factor_results[:5]) +
+            [{"ticker": m.get("ticker"), "agent_type": "MicrostructureAgent",
+              "conviction": m.get("conviction"), "proposed_action": m.get("proposed_action")}
+             for m in micro_results[:5]]
+        )
+        if t
+    ]
+
+    proposed_changes_rows = conn.execute(
+        """SELECT o.id, o.side, o.quantity, o.status, i.ticker
+           FROM orders o JOIN instruments i ON i.id = o.instrument_id
+           ORDER BY o.created_at DESC LIMIT 10"""
+    ).fetchall()
+    proposed_changes = [
+        {"order_id": r["id"], "ticker": r["ticker"], "side": r["side"],
+         "quantity": r["quantity"], "status": r["status"]}
+        for r in proposed_changes_rows
+    ]
+
+    cur = conn.execute(
+        """INSERT INTO ic_memos
+               (date, title, macro_summary, factor_tilts, thesis_summaries,
+                proposed_changes, full_markdown)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            date_str, title, macro_summary,
+            json.dumps(factor_tilts),
+            json.dumps(thesis_summaries),
+            json.dumps(proposed_changes),
+            full_markdown,
+        )
+    )
+    memo_id = cur.lastrowid
+
+    log_event(conn, "ic_memo_generated", "ic_memo", memo_id,
+              {"date": date_str, "title": title, "sections": len(sections)},
+              agent="MemoGenerator")
+
+    return memo_id
+
+
+if __name__ == "__main__":
+    from models import init_db
+    init_db()
+    conn = get_db()
+    memo_id = generate_ic_memo(conn)
+    conn.commit()
+    print(f"Memo generated with ID {memo_id}")
+    conn.close()

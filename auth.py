@@ -1,0 +1,319 @@
+"""
+auth.py - Authentication module for Thesium Desk
+JWT-based authentication with password hashing.
+"""
+import sqlite3
+import secrets
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional
+
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from fastapi import HTTPException, Depends, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
+
+from models import get_db
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+_SECRET_FILE = Path(__file__).parent / ".jwt_secret"
+if _SECRET_FILE.exists():
+    SECRET_KEY = _SECRET_FILE.read_text().strip()
+else:
+    SECRET_KEY = secrets.token_hex(32)
+    _SECRET_FILE.write_text(SECRET_KEY)
+
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_HOURS = 24
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBearer(auto_error=False)
+
+
+# ---------------------------------------------------------------------------
+# Pydantic models
+# ---------------------------------------------------------------------------
+
+class UserCreate(BaseModel):
+    username: str
+    email: str
+    password: str
+    full_name: str = ""
+    role: str = "analyst"  # viewer, analyst, manager, admin
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+    email: str
+    full_name: str
+    role: str
+    created_at: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
+
+
+# ---------------------------------------------------------------------------
+# DB init
+# ---------------------------------------------------------------------------
+
+def init_users_table():
+    """Create users table if it doesn't exist."""
+    conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            username    TEXT UNIQUE NOT NULL,
+            email       TEXT UNIQUE NOT NULL,
+            full_name   TEXT DEFAULT '',
+            role        TEXT DEFAULT 'analyst' CHECK(role IN ('viewer','analyst','manager','admin')),
+            password_hash TEXT NOT NULL,
+            is_active   INTEGER DEFAULT 1,
+            created_at  TEXT DEFAULT (datetime('now')),
+            last_login  TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Password helpers
+# ---------------------------------------------------------------------------
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
+
+
+# ---------------------------------------------------------------------------
+# Token helpers
+# ---------------------------------------------------------------------------
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def decode_token(token: str) -> dict:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token invalide ou expiré")
+
+
+# ---------------------------------------------------------------------------
+# User CRUD
+# ---------------------------------------------------------------------------
+
+def create_user(username: str, email: str, password: str, full_name: str = "", role: str = "analyst") -> dict:
+    """Create a new user. Returns user dict (without password)."""
+    conn = get_db()
+    try:
+        # Check duplicates
+        existing = conn.execute(
+            "SELECT id FROM users WHERE username = ? OR email = ?",
+            (username, email)
+        ).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail="Nom d'utilisateur ou email déjà utilisé")
+
+        pw_hash = hash_password(password)
+        cur = conn.execute(
+            """INSERT INTO users (username, email, full_name, role, password_hash)
+               VALUES (?, ?, ?, ?, ?)""",
+            (username, email, full_name, role, pw_hash)
+        )
+        conn.commit()
+        user_id = cur.lastrowid
+
+        user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return _user_to_dict(user)
+    finally:
+        conn.close()
+
+
+def authenticate_user(username: str, password: str) -> dict:
+    """Verify credentials and return user dict or raise 401."""
+    conn = get_db()
+    try:
+        # [FIX_DB_LOCK_AUTH_V1]
+        try:
+            conn.execute("PRAGMA busy_timeout=30000")
+        except Exception:
+            pass
+        user = conn.execute(
+            "SELECT * FROM users WHERE username = ? AND is_active = 1",
+            (username,)
+        ).fetchone()
+        if not user or not verify_password(password, user["password_hash"]):
+            raise HTTPException(status_code=401, detail="Identifiants incorrects")
+
+        # Update last_login
+        conn.execute(
+            "UPDATE users SET last_login = datetime('now') WHERE id = ?",
+            (user["id"],)
+        )
+        conn.commit()
+        return _user_to_dict(user)
+    finally:
+        conn.close()
+
+
+def get_user_by_id(user_id: int) -> Optional[dict]:
+    conn = get_db()
+    try:
+        user = conn.execute("SELECT * FROM users WHERE id = ? AND is_active = 1", (user_id,)).fetchone()
+        return _user_to_dict(user) if user else None
+    finally:
+        conn.close()
+
+
+def _user_to_dict(row) -> dict:
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "username": row["username"],
+        "email": row["email"],
+        "full_name": row["full_name"],
+        "role": row["role"],
+        "created_at": row["created_at"],
+        "last_login": row["last_login"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# FastAPI dependency: get current user from token
+# ---------------------------------------------------------------------------
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    """Extract and validate JWT from Authorization header. Returns user dict."""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Authentification requise")
+
+    payload = decode_token(credentials.credentials)
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token invalide")
+
+    user = get_user_by_id(int(user_id))
+    if not user:
+        raise HTTPException(status_code=401, detail="Utilisateur introuvable")
+    return user
+
+
+# ---------------------------------------------------------------------------
+# Role-based access helpers
+# ---------------------------------------------------------------------------
+
+ROLE_HIERARCHY = {'viewer': 0, 'analyst': 1, 'manager': 2, 'admin': 3}
+
+
+def require_role(minimum_role: str):
+    """FastAPI dependency: require minimum role level."""
+    min_level = ROLE_HIERARCHY.get(minimum_role, 0)
+
+    async def checker(user: dict = Depends(get_current_user)) -> dict:
+        user_level = ROLE_HIERARCHY.get(user.get('role', 'viewer'), 0)
+        if user_level < min_level:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Acc\u00e8s refus\u00e9 \u2014 r\u00f4le minimum requis : {minimum_role}"
+            )
+        return user
+
+    return checker
+
+
+# Convenience dependencies
+require_admin   = require_role('admin')
+require_manager = require_role('manager')
+require_analyst = require_role('analyst')
+
+
+# ---------------------------------------------------------------------------
+# User management (admin-only)
+# ---------------------------------------------------------------------------
+
+def list_users() -> list[dict]:
+    """Return all users (without password hashes)."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, username, email, full_name, role, is_active, created_at, last_login "
+            "FROM users ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def update_user(user_id: int, *, role: str = None, is_active: int = None, full_name: str = None) -> dict:
+    """Update user fields. Returns updated user dict."""
+    conn = get_db()
+    try:
+        user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+
+        updates = []
+        params = []
+        if role is not None:
+            if role not in ROLE_HIERARCHY:
+                raise HTTPException(status_code=400, detail=f"R\u00f4le invalide : {role}")
+            updates.append("role = ?")
+            params.append(role)
+        if is_active is not None:
+            updates.append("is_active = ?")
+            params.append(int(is_active))
+        if full_name is not None:
+            updates.append("full_name = ?")
+            params.append(full_name)
+
+        if updates:
+            params.append(user_id)
+            conn.execute(
+                f"UPDATE users SET {', '.join(updates)} WHERE id = ?",
+                params
+            )
+            conn.commit()
+
+        updated = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return _user_to_dict(updated)
+    finally:
+        conn.close()
+
+
+def reset_user_password(user_id: int, new_password: str) -> bool:
+    """Reset a user's password (admin action)."""
+    conn = get_db()
+    try:
+        user = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+        pw_hash = hash_password(new_password)
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (pw_hash, user_id))
+        conn.commit()
+        return True
+    finally:
+        conn.close()

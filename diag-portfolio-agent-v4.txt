@@ -1,0 +1,415 @@
+﻿==============================================================================
+FILE : C:\Users\RichardGUELIN\Prod\ThesiumDesk\portfolio_construction_agent.py (1088 lignes)
+==============================================================================
+
+HEAD (150 lignes) :
+------------------------------------------------------------------------------
+    L1     """
+    L2     portfolio_construction_agent_jalon2.py \u2014 Jalon 2
+    L3     =================================================
+    L4     
+    L5     PortfolioConstructionAgent v2 \u2014 d\xe9termine dynamiquement portfolio_targets
+    L6     \xe0 partir d'une fonction d'utilit\xe9 multi-facteurs.
+    L7     
+    L8     JALON 2 : activation des composantes Macro, Vol Penalty et Diversification.
+    L9     
+    L10    Composantes actives :
+    L11      C (conviction)     : ACTIVE depuis Jalon 1 (conviction moyenne pond\xe9r\xe9e)
+    L12      M (macro affinity) : ACTIVE depuis Jalon 2 (r\xe9gime portefeuille \u2192 bucket)
+    L13      V (vol penalty)    : ACTIVE depuis Jalon 2 (sigma 90j normalis\xe9e)
+    L14      D (diversif)       : ACTIVE depuis Jalon 2 (corr\xe9lation avec positions)
+    L15      R (realized)       : Stub \u2014 activ\xe9 en Jalon 3
+    L16    
+    L17    Fonction d'utilit\xe9 :
+    L18      score_total = w_conv*C + w_real*R + w_macro*M + w_diversif*D - lambda_vol*V
+    L19      (toutes composantes normalis\xe9es via z-score + sigmoid avant composition)
+    L20    
+    L21    Cycle de vie :
+    L22      1. Charge target_universe (tickers candidats actifs)
+    L23      2. Charge target_construction_config (pond\xe9rations)
+    L24      3. D\xe9tection r\xe9gime macro via regime_log
+    L25      4. Pour chaque ticker \u2192 calcule composantes brutes (C, M, V, D)
+    L26      5. Normalise (z-score \u2192 sigmoid)
+    L27      6. Score composite S_i
+    L28      7. Exclusion : tickers sous seuil \u2192 target = 0
+    L29      8. Allocation soft-max born\xe9e par le budget de r\xe9gime
+    L30      9. Application caps/floors par ticker
+    L31     10. Smoothing vs targets pr\xe9c\xe9dents (anti-churn)
+    L32     11. \xc9criture portfolio_targets + snapshot portfolio_targets_history
+    L33    
+    L34    Compatible avec execution_engine v6.5 :
+    L35      - Lit/\xe9crit portfolio_targets (m\xeames colonnes que v6.1+)
+    L36      - Respecte le flag agent_decided=0 \u2192 ne touche pas aux targets manuels
+    L37    
+    L38    Usage standalone :
+    L39        py -3.13 portfolio_construction_agent_jalon2.py
+    L40        py -3.13 portfolio_construction_agent_jalon2.py --dry-run
+    L41        py -3.13 portfolio_construction_agent_jalon2.py --force
+    L42    
+    L43    Usage programmatique :
+    L44        from portfolio_construction_agent_jalon2 import run_construction_agent
+    L45        result = run_construction_agent(conn, cycle_id="20260524-150000",
+    L46                                        regime_info={"regime":"BUILD"})
+    L47    """
+    L48    from __future__ import annotations
+    L49    
+    L50    import argparse
+    L51    import json
+    L52    import math
+    L53    import sqlite3
+    L54    import sys
+    L55    import uuid
+    L56    from datetime import datetime
+    L57    from pathlib import Path
+    L58    from typing import Optional
+    L59    
+    L60    # Numpy facultatif (fallback pur Python si absent)
+    L61    try:
+    L62        import numpy as np
+    L63        _NUMPY_OK = True
+    L64    except ImportError:
+    L65        _NUMPY_OK = False
+    L66        import statistics as _stats
+    L67    
+    L68    
+    L69    # =============================================================================
+    L70    # Configuration par d\xe9faut (ins\xe9r\xe9e dans target_construction_config si absente)
+    L71    # =============================================================================
+    L72    DEFAULT_CONFIG = {
+    L73        # Pond\xe9rations des composantes (somme libre, c'est le score qui est born\xe9)
+    L74        "w_conviction":   0.40,
+    L75        "w_realized":     0.15,
+    L76        "w_macro":        0.20,
+    L77        "w_diversif":     0.15,
+    L78        "lambda_vol":     0.10,
+    L79        # Temp\xe9rature softmax \u2014 \xe9lev\xe9 = concentr\xe9, faible = diversifi\xe9
+    L80        "beta_temp":      3.0,
+    L81        # Budget total allou\xe9 selon le r\xe9gime portefeuille
+    L82        "budget_build":     0.30,   # max 30 % NAV allou\xe9s en BUILD
+    L83        "budget_maintain":  0.70,
+    L84        "budget_rebalance": 0.90,
+    L85        # Seuil d'inclusion : sous cette valeur de S_i, ticker exclu
+    L86        "min_score_inclusion": 0.30,
+    L87        # Lissage anti-churn : variation max par recalcul, en points de % NAV
+    L88        "smoothing_max_delta_pct": 0.50,
+    L89        # Demi-vie pour pond\xe9ration fra\xeecheur conviction (en jours)
+    L90        "conviction_halflife_days": 14.0,
+    L91        # Fen\xeatre d'analyse des th\xe8ses
+    L92        "conviction_lookback_days": 90,
+    L93        # Fen\xeatre d'analyse des prix pour vol + diversif (en jours)
+    L94        "price_lookback_days": 90,
+    L95        # Jalon 2 : macro, vol et diversif activ\xe9s ; realized r\xe9serv\xe9 Jalon 3
+    L96        "enable_realized":    0,  # Jalon 3
+    L97        "enable_macro":       1,  # ACTIVE Jalon 2
+    L98        "enable_diversif":    1,  # ACTIVE Jalon 2
+    L99        "enable_vol_penalty": 1,  # ACTIVE Jalon 2
+    L100   }
+    L101   
+    L102   # Univers par d\xe9faut (seeded si target_universe vide)
+    L103   # Cal\xe9 sur ce que tu suis effectivement aujourd'hui (META/LINK/ETH/BTC en cibles
+    L104   # actives) + \xe9largi pour donner au bot un univers \xe0 explorer.
+    L105   DEFAULT_UNIVERSE = [
+    L106       # ticker, asset_class, sector, max_w, min_w
+    L107       ("META",  "equity", "tech",        5.0, 0.5),
+    L108       ("AAPL",  "equity", "tech",        5.0, 0.5),
+    L109       ("MSFT",  "equity", "tech",        5.0, 0.5),
+    L110       ("NVDA",  "equity", "tech",        5.0, 0.5),
+    L111       ("GOOGL", "equity", "tech",        5.0, 0.5),
+    L112       ("TSLA",  "equity", "auto_tech",   3.0, 0.5),
+    L113       ("AMZN",  "equity", "consumer",    5.0, 0.5),
+    L114       ("BTC",   "crypto", "store_value", 3.0, 0.5),
+    L115       ("ETH",   "crypto", "smart_chain", 3.0, 0.5),
+    L116       ("LINK",  "crypto", "oracle",      2.0, 0.5),
+    L117       ("SOL",   "crypto", "smart_chain", 2.0, 0.5),
+    L118   ]
+    L119   
+    L120   
+    L121   # =============================================================================
+    L122   # Bootstrap : tables + config + univers
+    L123   # =============================================================================
+    L124   def ensure_construction_tables(conn: sqlite3.Connection) -> None:
+    L125       """Cr\xe9e toutes les tables du Jalon 1 (idempotent)."""
+    L126       conn.execute("""
+    L127           CREATE TABLE IF NOT EXISTS target_universe (
+    L128               id INTEGER PRIMARY KEY AUTOINCREMENT,
+    L129               ticker TEXT UNIQUE NOT NULL,
+    L130               asset_class TEXT,
+    L131               sector TEXT,
+    L132               is_active INTEGER NOT NULL DEFAULT 1,
+    L133               max_weight_pct REAL NOT NULL DEFAULT 5.0,
+    L134               min_weight_pct REAL NOT NULL DEFAULT 0.5,
+    L135               added_at TEXT DEFAULT (datetime('now'))
+    L136           )
+    L137       """)
+    L138       conn.execute("""
+    L139           CREATE TABLE IF NOT EXISTS target_construction_config (
+    L140               id INTEGER PRIMARY KEY,
+    L141               params_json TEXT NOT NULL,
+    L142               updated_at TEXT DEFAULT (datetime('now'))
+    L143           )
+    L144       """)
+    L145       conn.execute("""
+    L146           CREATE TABLE IF NOT EXISTS portfolio_targets_history (
+    L147               id INTEGER PRIMARY KEY AUTOINCREMENT,
+    L148               snapshot_id TEXT NOT NULL,
+    L149               cycle_id TEXT,
+    L150               ticker TEXT NOT NULL,
+    ... (1088 lignes total)
+
+==============================================================================
+CLASSES :
+==============================================================================
+
+==============================================================================
+FUNCTIONS top-level (indent 0) :
+==============================================================================
+--- L124 ---
+    >>> L124   def ensure_construction_tables(conn: sqlite3.Connection) -> None:
+--- L178 ---
+    >>> L178   def seed_universe_if_empty(conn: sqlite3.Connection) -> int:
+--- L192 ---
+    >>> L192   def seed_config_if_empty(conn: sqlite3.Connection) -> bool:
+--- L205 ---
+    >>> L205   def load_config(conn: sqlite3.Connection) -> dict:
+--- L221 ---
+    >>> L221   def load_universe(conn: sqlite3.Connection) -> list[dict]:
+--- L236 ---
+    >>> L236   def compute_avg_conviction(conn: sqlite3.Connection, ticker: str,
+--- L272 ---
+    >>> L272   def _fetch_log_returns(conn, ticker: str, days: int = 90):
+--- L295 ---
+    >>> L295   def compute_realized_score(conn, ticker: str, days: int = 90) -> float:
+--- L329 ---
+    >>> L329   def _get_portfolio_macro_env(conn) -> str:
+--- L357 ---
+    >>> L357   def _ticker_macro_bucket(asset_class: str, sector: str) -> str:
+--- L390 ---
+    >>> L390   def compute_macro_affinity(
+--- L430 ---
+    >>> L430   def _fetch_log_returns(conn, ticker: str, days: int = 90) -> list[float]:
+--- L455 ---
+    >>> L455   def _std_of(values: list[float]) -> float:
+--- L467 ---
+    >>> L467   def compute_vol_penalty(
+--- L497 ---
+    >>> L497   def _compute_vol_score(sigma: float, universe_sigma: float,
+--- L515 ---
+    >>> L515   def _pearson_corr(xs: list[float], ys: list[float]) -> float:
+--- L537 ---
+    >>> L537   def compute_diversification(
+--- L582 ---
+    >>> L582   def _sigmoid(x: float) -> float:
+--- L590 ---
+    >>> L590   def normalize_components(rows: list[dict]) -> list[dict]:
+--- L617 ---
+    >>> L617   def softmax_allocate(rows: list[dict], budget: float, beta: float) -> dict:
+--- L633 ---
+    >>> L633   def apply_caps_floors(allocations: dict, universe: list[dict],
+--- L665 ---
+    >>> L665   def smooth_vs_previous(new_targets: dict, prev_targets: dict,
+--- L686 ---
+    >>> L686   def _load_current_targets_split(conn: sqlite3.Connection) -> tuple[dict, dict]:
+--- L711 ---
+    >>> L711   def write_targets(conn: sqlite3.Connection, targets: dict, scores: dict,
+--- L761 ---
+    >>> L761   def write_history(conn: sqlite3.Connection, snapshot_id: str,
+--- L802 ---
+    >>> L802   def run_construction_agent(conn: sqlite3.Connection,
+--- L1027 ---
+    >>> L1027  def reset_agent_targets(conn: sqlite3.Connection) -> int:
+--- L1041 ---
+    >>> L1041  def _detect_db_path() -> Path:
+--- L1049 ---
+    >>> L1049  def main():
+
+==============================================================================
+Occurrences PortfolioConstructionAgent :
+==============================================================================
+--- L5 ---
+        L2     portfolio_construction_agent_jalon2.py \u2014 Jalon 2
+        L3     =================================================
+        L4     
+    >>> L5     PortfolioConstructionAgent v2 \u2014 d\xe9termine dynamiquement portfolio_targets
+        L6     \xe0 partir d'une fonction d'utilit\xe9 multi-facteurs.
+        L7     
+        L8     JALON 2 : activation des composantes Macro, Vol Penalty et Diversification.
+--- L977 ---
+        L974   
+        L975       # ---- Rapport ----
+        L976       total_alloc = sum(smoothed.values())
+    >>> L977       print(f"\n=== PortfolioConstructionAgent v2 \u2014 Jalon 2 ===")
+        L978       print(f"R\xe9gime      : {regime}  (budget {budget*100:.1f} % NAV)")
+        L979       print(f"Macro env   : {macro_env}")
+        L980       print(f"Univers     : {len(universe)} tickers")
+--- L1051 ---
+        L1048  
+        L1049  def main():
+        L1050      parser = argparse.ArgumentParser(
+    >>> L1051          description="PortfolioConstructionAgent v2 \u2014 Jalon 2"
+        L1052      )
+        L1053      parser.add_argument("--dry-run", action="store_true",
+        L1054                          help="Calcul sans \xe9criture (ni portfolio_targets ni history)")
+
+==============================================================================
+INSERT INTO :
+==============================================================================
+--- L184 ---
+        L180       row = conn.execute("SELECT COUNT(*) AS n FROM target_universe").fetchone()
+        L181       if row and row["n"] > 0:
+        L182           return 0
+        L183       conn.executemany("""
+    >>> L184           INSERT INTO target_universe
+        L185             (ticker, asset_class, sector, max_weight_pct, min_weight_pct)
+        L186           VALUES (?, ?, ?, ?, ?)
+        L187       """, DEFAULT_UNIVERSE)
+        L188       conn.commit()
+--- L198 ---
+        L194       row = conn.execute("SELECT id FROM target_construction_config WHERE id=1").fetchone()
+        L195       if row:
+        L196           return False
+        L197       conn.execute("""
+    >>> L198           INSERT INTO target_construction_config (id, params_json)
+        L199           VALUES (1, ?)
+        L200       """, (json.dumps(DEFAULT_CONFIG),))
+        L201       conn.commit()
+        L202       return True
+--- L731 ---
+        L727           if is_manual:
+        L728               continue  # on respecte un target verrouill\xe9 manuel
+        L729   
+        L730           conn.execute("""
+    >>> L731               INSERT INTO portfolio_targets
+        L732                 (ticker, target_weight_pct, active, source, updated_at,
+        L733                  snapshot_id, score, agent_decided)
+        L734               VALUES (?, ?, 1, 'agent_v1', datetime('now'), ?, ?, 1)
+        L735               ON CONFLICT(ticker) DO UPDATE SET
+--- L790 ---
+        L786               cap_floor_log.get(t, ""),
+        L787           ))
+        L788       if payload:
+        L789           conn.executemany("""
+    >>> L790               INSERT INTO portfolio_targets_history
+        L791                 (snapshot_id, cycle_id, ticker, score,
+        L792                  target_weight_pct, prev_target_weight_pct,
+        L793                  components_json, regime, included, cap_floor_applied)
+        L794               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+
+==============================================================================
+target_weight :
+==============================================================================
+--- L152 ---
+        L148               snapshot_id TEXT NOT NULL,
+        L149               cycle_id TEXT,
+        L150               ticker TEXT NOT NULL,
+        L151               score REAL,
+    >>> L152               target_weight_pct REAL,
+        L153               prev_target_weight_pct REAL,
+        L154               components_json TEXT,
+        L155               regime TEXT,
+        L156               included INTEGER,
+--- L153 ---
+        L149               cycle_id TEXT,
+        L150               ticker TEXT NOT NULL,
+        L151               score REAL,
+        L152               target_weight_pct REAL,
+    >>> L153               prev_target_weight_pct REAL,
+        L154               components_json TEXT,
+        L155               regime TEXT,
+        L156               included INTEGER,
+        L157               cap_floor_applied TEXT,
+--- L696 ---
+        L692       manual = {}
+        L693       agent = {}
+        L694       try:
+        L695           rows = conn.execute("""
+    >>> L696               SELECT ticker, target_weight_pct,
+        L697                      COALESCE(agent_decided, 0) AS agent_decided
+        L698               FROM portfolio_targets
+        L699               WHERE active = 1
+        L700           """).fetchall()
+--- L703 ---
+        L699               WHERE active = 1
+        L700           """).fetchall()
+        L701           for r in rows:
+        L702               if r["agent_decided"]:
+    >>> L703                   agent[r["ticker"]] = float(r["target_weight_pct"])
+        L704               else:
+        L705                   manual[r["ticker"]] = float(r["target_weight_pct"])
+        L706       except sqlite3.OperationalError:
+        L707           pass
+--- L705 ---
+        L701           for r in rows:
+        L702               if r["agent_decided"]:
+        L703                   agent[r["ticker"]] = float(r["target_weight_pct"])
+        L704               else:
+    >>> L705                   manual[r["ticker"]] = float(r["target_weight_pct"])
+        L706       except sqlite3.OperationalError:
+        L707           pass
+        L708       return manual, agent
+        L709   
+--- L732 ---
+        L728               continue  # on respecte un target verrouill\xe9 manuel
+        L729   
+        L730           conn.execute("""
+        L731               INSERT INTO portfolio_targets
+    >>> L732                 (ticker, target_weight_pct, active, source, updated_at,
+        L733                  snapshot_id, score, agent_decided)
+        L734               VALUES (?, ?, 1, 'agent_v1', datetime('now'), ?, ?, 1)
+        L735               ON CONFLICT(ticker) DO UPDATE SET
+        L736                 target_weight_pct = excluded.target_weight_pct,
+--- L736 ---
+        L732                 (ticker, target_weight_pct, active, source, updated_at,
+        L733                  snapshot_id, score, agent_decided)
+        L734               VALUES (?, ?, 1, 'agent_v1', datetime('now'), ?, ?, 1)
+        L735               ON CONFLICT(ticker) DO UPDATE SET
+    >>> L736                 target_weight_pct = excluded.target_weight_pct,
+        L737                 active            = 1,
+        L738                 source            = 'agent_v1',
+        L739                 updated_at        = datetime('now'),
+        L740                 snapshot_id       = excluded.snapshot_id,
+--- L792 ---
+        L788       if payload:
+        L789           conn.executemany("""
+        L790               INSERT INTO portfolio_targets_history
+        L791                 (snapshot_id, cycle_id, ticker, score,
+    >>> L792                  target_weight_pct, prev_target_weight_pct,
+        L793                  components_json, regime, included, cap_floor_applied)
+        L794               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        L795           """, payload)
+        L796           conn.commit()
+
+==============================================================================
+conviction (top 10) :
+==============================================================================
+--- L11 ---
+        L9     
+        L10    Composantes actives :
+    >>> L11      C (conviction)     : ACTIVE depuis Jalon 1 (conviction moyenne pond\xe9r\xe9e)
+        L12      M (macro affinity) : ACTIVE depuis Jalon 2 (r\xe9gime portefeuille \u2192 bucket)
+        L13      V (vol penalty)    : ACTIVE depuis Jalon 2 (sigma 90j normalis\xe9e)
+--- L89 ---
+        L87        # Lissage anti-churn : variation max par recalcul, en points de % NAV
+        L88        "smoothing_max_delta_pct": 0.50,
+    >>> L89        # Demi-vie pour pond\xe9ration fra\xeecheur conviction (en jours)
+        L90        "conviction_halflife_days": 14.0,
+        L91        # Fen\xeatre d'analyse des th\xe8ses
+--- L234 ---
+        L232   
+        L233   # =============================================================================
+    >>> L234   # Composantes du score (Jalon 1 : conviction seule, autres stubs)
+        L235   # =============================================================================
+        L236   def compute_avg_conviction(conn: sqlite3.Connection, ticker: str,
+--- L239 ---
+        L237                               halflife_days: float = 14.0,
+        L238                               lookback_days: int = 90) -> float:
+    >>> L239       """Conviction moyenne pond\xe9r\xe9e par fra\xeecheur (d\xe9croissance exponentielle).
+        L240   
+        L241       Lecture : table theses, jointure instruments.ticker.
+
+==============================================================================
+agent_type :
+==============================================================================
+
+==============================================================================
+DONE
+==============================================================================

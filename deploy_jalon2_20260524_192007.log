@@ -1,0 +1,145 @@
+[19:20:07] [INFO] ==== DEPLOIEMENT JALON 2 + v6.5 + FIX UI ====
+[19:20:07] [INFO] Project: C:\Users\RichardGUELIN\Prod\ThesiumDesk
+[19:20:07] [INFO] Backup:  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon2_20260524_192007
+[19:20:07] [INFO] Log:     C:\Users\RichardGUELIN\Prod\ThesiumDesk\deploy_jalon2_20260524_192007.log
+[19:20:07] [INFO] Tous les fichiers source sont presents (5/5)
+[19:20:07] [WARN] Aucun HTML standard trouve, recherche elargie...
+[19:20:07] [INFO] HTML detecte automatiquement: .\index.html
+[19:20:07] [INFO] Backup: api_server_with_static.py
+[19:20:07] [INFO] Backup: thesium.db
+[19:20:07] [INFO] Backup: execution_engine.py
+[19:20:07] [INFO] Backup: portfolio_construction_agent.py
+[19:20:07] [INFO] Backup: .\index.html
+[19:20:07] [INFO] Arret du serveur uvicorn sur le port 8000...
+[19:20:08] [INFO]   aucun serveur en cours sur 8000
+[19:20:08] [INFO] Verify Jalon 2 (dry-run) - mode non bloquant...
+--- verify_jalon2 output ---
+[verify_jalon2] DB : thesium.db
+[verify_jalon2] NAV = $999,338  |  Cash = $819,956
+[verify_jalon2] Positions detenues (9) : ['LINK', 'ETH', 'META', 'AAPL', 'AMZN', 'GOOGL', 'MSFT', 'NVDA', 'TSLA']
+[verify_jalon2] Environnement macro detecte : risk_on
+
+==============================================================================
+JOURS DE PRIX DISPONIBLES PAR TICKER
+==============================================================================
+  AAPL   :   44 jours  <-- ATTENTION : seulement 44j < 90j requis
+  AMZN   :   44 jours  <-- ATTENTION : seulement 44j < 90j requis
+  BTC    :   62 jours  <-- ATTENTION : seulement 62j < 90j requis
+  ETH    :   62 jours  <-- ATTENTION : seulement 62j < 90j requis
+  GOOGL  :   44 jours  <-- ATTENTION : seulement 44j < 90j requis
+  LINK   :   62 jours  <-- ATTENTION : seulement 62j < 90j requis
+  META   :   44 jours  <-- ATTENTION : seulement 44j < 90j requis
+  MSFT   :   44 jours  <-- ATTENTION : seulement 44j < 90j requis
+  NVDA   :   44 jours  <-- ATTENTION : seulement 44j < 90j requis
+  SOL    :    0 jours  <-- ATTENTION : seulement 0j < 90j requis
+  TSLA   :   44 jours  <-- ATTENTION : seulement 44j < 90j requis
+
+[verify_jalon2] Sigma univers moyen : 0.025349 (sur 10/11 tickers avec prix)
+
+==============================================================================
+COMPOSANTES JALON 2 PAR TICKER
+==============================================================================
+TICKER      C_raw      M BUCKET          SIGMA  V_score  D_score ENV     
+------------------------------------------------------------------------------
+AAPL        5.983  1.000 risk_on      0.021705   0.9179   1.0000 risk_on 
+AMZN        5.522  1.000 risk_on      0.017907   0.9318   1.0000 risk_on 
+BTC         5.350  1.000 risk_on      0.039382   0.8561   1.0000 risk_on 
+ETH         5.783  1.000 risk_on      0.045416   0.8360   0.9828 risk_on 
+GOOGL       5.489  1.000 risk_on      0.018374   0.9301   1.0000 risk_on 
+LINK        6.051  1.000 risk_on      0.038347   0.8596   1.0000 risk_on 
+META        6.206  1.000 risk_on      0.021457   0.9188   0.9817 risk_on 
+MSFT        4.900  1.000 risk_on      0.018547   0.9294   1.0000 risk_on 
+NVDA        5.873  1.000 risk_on      0.015223   0.9417   0.9939 risk_on 
+SOL         0.000  1.000 risk_on      0.000000   1.0000   0.5000 risk_on 
+TSLA        5.543  1.000 risk_on      0.017131   0.9347   0.9637 risk_on 
+
+==============================================================================
+COMPARAISON SCORE BRUT : JALON 1 (conviction seule) vs JALON 2 (complet)
+==============================================================================
+Poids : w_conv=0.4 | w_macro=0.2 | w_diversif=0.15 | lambda_vol=0.1
+
+TICKER     J1_score   J2_score    Delta  EFFET JALON 2
+-----------------------------------------------------------------
+META         2.4824     2.7378  +0.2554  + booste (M=1.00 bucket=risk_on)
+LINK         2.4204     2.6844  +0.2640  + booste (M=1.00 bucket=risk_on)
+AAPL         2.3932     2.6514  +0.2582  + booste (M=1.00 bucket=risk_on)
+NVDA         2.3493     2.6042  +0.2549  + booste (M=1.00 bucket=risk_on)
+ETH          2.3131     2.5770  +0.2638  + booste (M=1.00 bucket=risk_on)
+TSLA         2.2173     2.4684  +0.2511  + booste (M=1.00 bucket=risk_on)
+AMZN         2.2089     2.4657  +0.2568  + booste (M=1.00 bucket=risk_on)
+GOOGL        2.1958     2.4528  +0.2570  + booste (M=1.00 bucket=risk_on)
+BTC          2.1400     2.4044  +0.2644  + booste (M=1.00 bucket=risk_on)
+MSFT         1.9599     2.2169  +0.2571  + booste (M=1.00 bucket=risk_on)
+SOL          0.0000     0.1750  +0.1750  + booste (M=1.00 bucket=risk_on)
+
+==============================================================================
+DRY-RUN run_construction_agent (Jalon 2) ù aucune ecriture
+==============================================================================
+[pca_jalon2] Environnement macro dÚtectÚ : neutral
+[pca_jalon2] Positions dÚtenues (9) : ['LINK', 'ETH', 'META', 'AAPL', 'AMZN', 'GOOGL', 'MSFT', 'NVDA', 'TSLA']
+[construction] DRY-RUN ù aucune Úcriture
+
+=== PortfolioConstructionAgent v2 ù Jalon 2 ===
+RÚgime      : BUILD  (budget 30.0 % NAV)
+Macro env   : neutral
+Univers     : 11 tickers
+py.exe : Traceback (most recent call last):
+Au caractère C:\Users\RichardGUELIN\Prod\ThesiumDesk\deploy_jalon2.ps1:161 : 18
++     $verifyOut = & py -3.13 _verify_jalon2.py 2>&1 | Out-String
++                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "C:\Users\RichardGUELIN\Prod\ThesiumDesk\_verify_jalon2.py", line 262, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\RichardGUELIN\Prod\ThesiumDesk\_verify_jalon2.py", line 229, in main
+    result = run_construction_agent(
+        conn,
+    ...<2 lines>...
+        dry_run=True,
+    )
+  File "C:\Users\RichardGUELIN\Prod\ThesiumDesk\portfolio_construction_agent_jalon2.py", line 933, in 
+run_construction_agent
+    print(f"Inclus      : {len(included)} tickers (seuil score \u2265 {min_inclusion})")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\RichardGUELIN\AppData\Local\Programs\Python\Python313\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2265' in position 38: character maps to <undefined>
+
+--- end verify ---
+[19:20:09] [WARN] verify_jalon2 a renvoye code 1 - non bloquant, on continue
+[19:20:09] [INFO] On poursuit avec l'installation effective.
+[19:20:09] [INFO] Installation execution_engine v6.5...
+[19:20:09] [INFO]   execution_engine.py -> execution_engine_v6_4_backup.py
+[19:20:09] [INFO]   execution_engine_v6_5.py -> execution_engine.py
+--- import execution_engine ---
+OK
+
+---
+[19:20:09] [INFO]   import OK
+[19:20:09] [INFO] Installation portfolio_construction_agent Jalon 2...
+[19:20:09] [INFO]   portfolio_construction_agent_jalon2.py -> portfolio_construction_agent.py
+--- import PCA Jalon 2 ---
+OK
+
+---
+[19:20:10] [INFO]   import OK
+[19:20:10] [INFO] Patch api_server_with_static.py...
+[19:20:10] [INFO]   routes /api/construction/* deja presentes - skip
+--- compile api_server ---
+OK
+
+---
+[19:20:10] [INFO]   compile OK
+[19:20:10] [INFO] Patch UI panel (.\index.html)...
+[19:20:10] [INFO]   patch UI applique
+[19:20:10] [INFO] Demarrage uvicorn en arriere-plan...
+[19:20:11] [INFO]   PID uvicorn: 38872
+[19:20:11] [INFO]   attente readiness (10s)...
+[19:20:21] [INFO] Test endpoints...
+[19:20:23] [ERROR]   GET /api/construction/targets ECHEC: Internal Server Error
+[19:20:24] [INFO]   GET /  -> 200 OK (UI servie)
+[19:20:24] [INFO] ==== FIN DEPLOIEMENT ====
+[19:20:24] [WARN] DEPLOIEMENT PARTIEL - certains tests ont echoue

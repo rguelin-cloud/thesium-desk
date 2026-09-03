@@ -1,0 +1,302 @@
+# -*- coding: utf-8 -*-
+# [NEXTONES-BROKER-SHADOW-EXECUTOR-V1]
+# Execute en mode "shadow" (paper) les ordres acceptes par le translator :
+#   - INSERT dans broker_shadow_orders avec entry_price, est_notional,
+#     est_margin (option B2 : extended)
+#   - JAMAIS d'envoi PineConnector ni MetaAPI execute_order
+#   - mark-to-market sur demande via snapshot_pnl()
+#
+# Dependances:
+#   - nextones-order-translator.py (translate)
+#   - metaapi_provider.py (optionnel, pour entry_price)
+#       -> si absent, on accepte un prix injecte ou on stocke entry_price=NULL
+#
+# Hypotheses de calcul :
+#   notional = volume_lots * contract_size * entry_price
+#   margin   = notional / leverage_assumed
+#       leverage_assumed defaut par classe (cf. LEVERAGE_DEFAULTS)
+#
+# API publique:
+#   execute_shadow(thesium_ticker, side, qty, *,
+#                  cycle_id=None, asset_class=None,
+#                  entry_price=None, leverage=None,
+#                  sl=None, tp=None) -> dict
+#   snapshot_pnl(open_only=True) -> int     # nb lignes inserees
+#
+# Usage CLI:
+#   py -3.13 nextones-broker-shadow-executor.py exec CSCO buy 166 --cycle 20260530-1025
+#   py -3.13 nextones-broker-shadow-executor.py snapshot
+
+import os
+import sys
+import json
+import sqlite3
+import importlib.util
+from datetime import datetime, timezone
+from typing import Optional, Dict, Any
+
+# [NEXTONES-BROKER-DB-HARDENED-V1]
+import sqlite3 as _sq_nx_h
+def _nx_open_db(_p, **_kw):
+    _kw.setdefault('timeout', 10.0)
+    _c = _sq_nx_h.connect(_p, **_kw)
+    try:
+        _c.execute('PRAGMA busy_timeout=10000')
+    except Exception:
+        pass
+    return _c
+
+
+DB_PATH = os.environ.get(
+    "THESIUM_DB",
+    r"C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db",
+)
+
+_TRANSLATOR_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "nextones-order-translator.py",
+)
+
+_T = None
+_MP = None  # metaapi_provider
+
+LEVERAGE_DEFAULTS = {
+    "equity_us": 5.0,
+    "etf_us": 5.0,
+    "crypto": 2.0,
+    "fx": 30.0,
+    "metal": 20.0,
+    "index": 20.0,
+    "energy": 10.0,
+    "soft": 10.0,
+}
+
+
+def _translator():
+    global _T
+    if _T is None:
+        spec = importlib.util.spec_from_file_location(
+            "_nx_order_translator", _TRANSLATOR_PATH
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _T = mod
+    return _T
+
+
+def _metaapi():
+    global _MP
+    if _MP is False:
+        return None
+    if _MP is not None:
+        return _MP
+    try:
+        import metaapi_provider as mp
+        if hasattr(mp, "is_configured") and mp.is_configured():
+            _MP = mp
+            return mp
+    except Exception:
+        pass
+    _MP = False
+    return None
+
+
+def _entry_price(broker_symbol: str,
+                 explicit: Optional[float] = None) -> Optional[float]:
+    """Recupere le prix entree : explicit > MetaAPI getCurrentPrice > None."""
+    if explicit is not None:
+        try:
+            return float(explicit)
+        except Exception:
+            return None
+    mp = _metaapi()
+    if mp is None:
+        return None
+    try:
+        p = mp.get_current_price(broker_symbol)
+        if isinstance(p, dict):
+            # tente ask pour buy / bid pour sell -- ici on prend ask par defaut
+            return float(p.get("ask") or p.get("bid") or p.get("price"))
+        return float(p) if p is not None else None
+    except Exception as e:
+        print("[WARN] entry_price " + broker_symbol + ": " + str(e))
+        return None
+
+
+def _audit(con, action: str, cycle_id, ticker, broker_symbol, payload, notes):
+    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    cur = con.cursor()
+    cur.execute(
+        "INSERT INTO broker_shadow_audit(ts, action, cycle_id, thesium_ticker, "
+        "broker_symbol, payload_json, notes) VALUES(?, ?, ?, ?, ?, ?, ?)",
+        (ts, action, cycle_id, ticker, broker_symbol,
+         json.dumps(payload, default=str)[:4000], notes),
+    )
+
+
+def execute_shadow(thesium_ticker: str,
+                   side: str,
+                   qty: float,
+                   cycle_id: Optional[str] = None,
+                   asset_class: Optional[str] = None,
+                   entry_price: Optional[float] = None,
+                   leverage: Optional[float] = None,
+                   sl: Optional[float] = None,
+                   tp: Optional[float] = None,
+                   db_path: Optional[str] = None) -> Dict[str, Any]:
+    """Insere un ordre shadow et renvoie le dict resultat."""
+    T = _translator()
+    tr = T.translate(thesium_ticker, qty, side, asset_class=asset_class,
+                     sl=sl, tp=tp)
+    path = db_path or DB_PATH
+
+    if not tr.accepted:
+        try:
+            con = _nx_open_db(path)
+            _audit(con, "shadow_reject", cycle_id, thesium_ticker,
+                   tr.broker_symbol, tr.to_dict(), tr.reason or "reject")
+            con.commit()
+            con.close()
+        except Exception as e:
+            print("[WARN] audit reject: " + str(e))
+        return {"shadow_order_id": None, "accepted": False,
+                "reason": tr.reason, "translator": tr.to_dict()}
+
+    ac = (tr.diagnostics or {}).get("asset_class") or asset_class
+    specs = (tr.diagnostics or {}).get("specs") or {}
+    contract_size = float(specs.get("contract_size", 1.0))
+    lev = float(leverage) if leverage else LEVERAGE_DEFAULTS.get(ac, 5.0)
+
+    ep = _entry_price(tr.broker_symbol, entry_price)
+    notional = None
+    margin = None
+    if ep is not None:
+        notional = tr.volume_lots * contract_size * ep
+        if lev > 0:
+            margin = notional / lev
+
+    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    con = _nx_open_db(path)
+    try:
+        cur = con.cursor()
+        cur.execute(
+            "INSERT INTO broker_shadow_orders("
+            "  ts, cycle_id, thesium_ticker, broker_symbol, side,"
+            "  qty_requested, volume_lots, rounding_gap_pct, asset_class,"
+            "  quote_ccy, contract_size, lot_step, entry_price_metaapi,"
+            "  est_notional, est_margin, leverage_assumed, sl, tp,"
+            "  status, notes"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                ts, cycle_id, thesium_ticker, tr.broker_symbol, side.lower(),
+                float(qty), tr.volume_lots, tr.rounding_gap_pct, ac,
+                (tr.diagnostics or {}).get("quote_ccy"),
+                contract_size, specs.get("lot_step"), ep,
+                notional, margin, lev, sl, tp,
+                "open", "shadow_phase2_v1",
+            ),
+        )
+        shadow_id = cur.lastrowid
+        _audit(con, "shadow_accept", cycle_id, thesium_ticker,
+               tr.broker_symbol,
+               {"shadow_order_id": shadow_id, "entry_price": ep,
+                "notional": notional, "margin": margin, "leverage": lev,
+                "translator": tr.to_dict()},
+               "ok")
+        con.commit()
+    finally:
+        con.close()
+
+    return {
+        "shadow_order_id": shadow_id,
+        "accepted": True,
+        "broker_symbol": tr.broker_symbol,
+        "volume_lots": tr.volume_lots,
+        "entry_price": ep,
+        "est_notional": notional,
+        "est_margin": margin,
+        "leverage_assumed": lev,
+    }
+
+
+# ----------------------------------------------------------------------
+# Snapshot P&L (mark-to-market)
+# ----------------------------------------------------------------------
+
+def snapshot_pnl(open_only: bool = True,
+                 db_path: Optional[str] = None) -> int:
+    """
+    Pour chaque shadow order ouvert, recalcule le P&L au prix MetaAPI
+    courant et insere une ligne dans broker_shadow_pnl.
+    Retourne le nombre de lignes inserees.
+    """
+    path = db_path or DB_PATH
+    con = _nx_open_db(path)
+    cur = con.cursor()
+    where = "WHERE status='open'" if open_only else ""
+    cur.execute(
+        "SELECT id, broker_symbol, side, volume_lots, entry_price_metaapi, "
+        "       contract_size, quote_ccy "
+        "FROM broker_shadow_orders " + where
+    )
+    rows = cur.fetchall()
+    n = 0
+    snap_ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    for (oid, sym, side, vol, entry, csize, ccy) in rows:
+        mark = _entry_price(sym, None)
+        if mark is None or entry is None:
+            continue
+        # P&L direction-aware
+        direction = 1.0 if side == "buy" else -1.0
+        pnl_q = direction * vol * (csize or 1.0) * (mark - entry)
+        # conversion en EUR best-effort (suppose ccy=USD => taux ~1.07; en
+        # absence de FX live, on stocke pnl_quote_ccy uniquement et on laisse
+        # pnl_eur=NULL pour ne pas mentir)
+        cur.execute(
+            "INSERT INTO broker_shadow_pnl(snapshot_ts, shadow_order_id, "
+            "broker_symbol, side, volume_lots, entry_price, mark_price, "
+            "pnl_quote_ccy, pnl_eur, slippage_vs_thesium, notes) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (snap_ts, oid, sym, side, vol, entry, mark, pnl_q, None, None,
+             "snapshot_v1_quote_only"),
+        )
+        n += 1
+    con.commit()
+    con.close()
+    return n
+
+
+# ----------------------------------------------------------------------
+# CLI
+# ----------------------------------------------------------------------
+
+def _main_cli():
+    if len(sys.argv) < 2:
+        print("Usage:")
+        print("  exec <ticker> <side> <qty> [--cycle ID] [--price P] [--lev L]")
+        print("  snapshot")
+        sys.exit(1)
+    cmd = sys.argv[1]
+    if cmd == "exec":
+        if len(sys.argv) < 5:
+            print("Usage: exec <ticker> <side> <qty>"); sys.exit(1)
+        tkr = sys.argv[2]; side = sys.argv[3]; qty = float(sys.argv[4])
+        cycle = None; price = None; lev = None
+        if "--cycle" in sys.argv:
+            cycle = sys.argv[sys.argv.index("--cycle") + 1]
+        if "--price" in sys.argv:
+            price = float(sys.argv[sys.argv.index("--price") + 1])
+        if "--lev" in sys.argv:
+            lev = float(sys.argv[sys.argv.index("--lev") + 1])
+        r = execute_shadow(tkr, side, qty, cycle_id=cycle,
+                           entry_price=price, leverage=lev)
+        print(json.dumps(r, indent=2, default=str))
+    elif cmd == "snapshot":
+        n = snapshot_pnl()
+        print("[OK] " + str(n) + " lignes pnl inserees")
+    else:
+        print("Commande inconnue: " + cmd); sys.exit(1)
+
+
+if __name__ == "__main__":
+    _main_cli()

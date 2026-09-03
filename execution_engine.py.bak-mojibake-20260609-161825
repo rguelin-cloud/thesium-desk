@@ -1,0 +1,2257 @@
+"""
+execution_engine.py — v6.5 — Paper-trading execution engine for Thesium.finance / Nextones Desk
+
+PATCH 2026-05-22 — Corrections critiques :
+  - SELL uniquement sur positions détenues (no involuntary short selling)
+  - Conviction threshold = 5
+  - FactorAgent : tilt overweightâ†’BUY / underweightâ†’SELL
+  - Quantité SELL plafonnée à la position détenue
+
+PATCH 2026-05-24 (a) — OrderReconciler intégré :
+  - Conflits BUY+SELL sur même ticker â†’ garde côté conviction max
+  - Signaux <0,3 % NAV â†’ DROP (bruit non rentable)
+  - Ordres opposés au delta cible â†’ DROP
+  - Conviction >= 9 â†’ BYPASS tous les filtres
+  - Trace dans table cycle_reconciliation_log
+
+PATCH 2026-05-24 (b) — ExitAgent intégré (v5) :
+  - STOP-LOSS -5 % / TAKE-PROFIT +15 % / DRIFT 25 % / TIME-DECAY 30j (alerte)
+  - Trace dans table exit_decisions_log
+
+PATCH 2026-05-24 (c) — PortfolioRegime adaptatif (v6) :
+  - Détecte régime BUILD / MAINTAIN / REBALANCE selon % investi du NAV
+      * BUILD       : invested < 20 %  â†’ privilégie LT, atténue ST, désactive Exit
+      * MAINTAIN    : 20 â‰¤ invested < 80 % â†’ comportement normal (Ã—1.0 partout)
+      * REBALANCE   : invested â‰¥ 80 %  â†’ priorité au DRIFT, Micro pour timing
+  - Multiplicateur de conviction par couple (régime Ã— agent_type)
+  - Plafonnement de la taille SELL en % de la position détenue (pas en % NAV)
+      * BUILD : max 25 % de la position vendue par cycle
+      * MAINTAIN : 50 % | REBALANCE : 100 %
+  - Plafonnement des BUY au target Ã— overshoot (BUILD Ã—1.1, MAINTAIN Ã—1.2, REBAL Ã—1.5)
+  - Trace dans table regime_log (un row par cycle)
+
+PATCH 2026-05-24 (d) — v6.1 — Fix Reconciler / target_weights persistants :
+  - Création + auto-seed de la table portfolio_targets (LINK 1.0, ETH 0.8,
+    META 2.0, BTC 1.0) la première fois que le moteur tourne
+  - _load_target_weights() lit en priorité portfolio_targets (legacy theses
+    en fallback) â†’ fini les target=0 partout
+  - OrderReconciler reçoit maintenant `regime` :
+      * En BUILD, un BUY de conviction >= 6.0 peut by-passer le filtre
+        "sens opposé au target" (le plafond BUY = target Ã— 1.10 du Régime
+        garde l'exposition sous contrôle)
+  - Helper set_target_weight(conn, ticker, pct) pour brancher POST /api/targets
+
+PATCH 2026-05-24 (e) — v6.2 — Déblocage accumulation BUILD :
+  - MAX_OVERSHOOT_TARGET_MULT[BUILD] : 1.10 â†’ 1.50 (accélère l'accumulation
+    quand on est sous-investi globalement, même si un ticker individuel
+    dépasse son target)
+  - Plancher minimum BUY en BUILD : si un BUY conv >= 6.0 est plafonné sous
+    MIN_BUY_PCT_FLOOR (0.35 % NAV), on remonte la qty à ce plancher pour
+    éviter de dropper sur "signal trop petit" — indispensable pour les
+    cryptos chères (ETH ~ 2100 $) avec un tout petit cap d'overshoot.
+  - OrderReconciler : en BUILD avec qty >= 1 et conv >= 6.0, le filtre
+    "signal trop petit" est by-passé (l'agent assume une petite ligne plutôt
+    que rien). Loggué KEPT_BUILD_MIN_SIZE.
+
+PATCH 2026-05-24 (f) — v6.3 — Déblocage final FILTRE 3 :
+  - En BUILD avec conv >= 6.0, on n'applique plus "Portfolio d\u00e9j\u00e0 \u00e0 la cible".
+    Rationale : en phase de construction (<20 % investi), on veut sur-pondérer
+    les convictions fortes au-delà du target, et le ceiling target Ã— 1.50 déjà
+    appliqué par PortfolioRegime protege contre la sur-exposition.
+  - Loggué KEPT_BUILD_ACCUMULATE.
+
+PATCH 2026-05-24 (g) — v6.4 — TargetGap synthesizer :
+  - Avant le Reconciler, on lit portfolio_targets (cibles de PortfolioConstructionAgent)
+    et on calcule le delta = cible âˆ’ actuel pour CHAQUE ticker actif.
+  - Pour chaque |delta| > TARGET_GAP_MIN_DELTA_PCT (0.30 % NAV), on injecte
+    une proposition synthétique side=buy (gap positif) ou side=sell (gap négatif)
+    de source='TargetGap', conviction=8.0, qty = delta entier en 1 cycle.
+  - Si un agent tactique a déjà émis une proposition sur le même ticker dans
+    le même sens, on FUSIONNE : on garde celle des deux qui a la plus grosse
+    qty. Cela évite les doublons.
+  - Le tag SELL synthétique est autorisé dans TOUS les régimes (rebalance
+    strict vers la cible). Le BUY synthétique passe ensuite par les caps de
+    PortfolioRegime et par le Reconciler comme n'importe quel autre BUY.
+  - Loggué [target_gap] {n_buy_inj} BUY, {n_sell_inj} SELL, {n_merged} fusions.
+  - Comble enfin l'écart entre portfolio_targets (10 tickers à 1.5 % chacun)
+    et le portefeuille réel (3 positions META/LINK/ETH) sans dépendre des
+    convictions des 6 agents tactiques.
+
+PATCH 2026-05-24 (h) — v6.5 — Cleanup dédup BUY agents / SELL TargetGap :
+  - Évite les doublons dans Orders & Fills observés en v6.4
+  - Si TargetGap SELL et agent BUY conflictueux â†’ résolution par conviction
+    avant la phase Reconciler (au lieu de laisser le Reconciler dropper l'un)
+  - Loggué [target_gap_dedup]
+"""
+import json
+import math
+import sqlite3
+from datetime import datetime, timedelta
+from typing import Protocol
+
+from models import get_db, log_event
+from risk_engine import check_order, refresh_portfolio_state
+
+
+# =============================================================================
+# PortfolioRegime — détection du régime de portefeuille et pondérations
+# =============================================================================
+#
+# BUILD     : invested < 20 %  â†’ le portefeuille est en construction, on privilégie
+#             les convictions LT (Factor, AltData), on atténue le bruit ST
+#             (Microstructure), on désactive quasiment ExitAgent (pas de panic-SL
+#             sur des positions à peine ouvertes).
+# MAINTAIN  : 20 â‰¤ invested < 80 % â†’ régime normal, tout = Ã—1.0 (comportement v5).
+# REBALANCE : invested â‰¥ 80 %    â†’ le book est plein, on privilégie le drift et le
+#             timing d'exécution (Microstructure) pour rester aligné sur la cible.
+# =============================================================================
+
+# Seuils de classification
+BUILD_INVESTED_THRESHOLD     = 20.0   # % du NAV investi en dessous duquel on est BUILD
+MAINTAIN_INVESTED_THRESHOLD  = 80.0   # … en dessous duquel on est MAINTAIN, au-dessus REBALANCE
+
+# Multiplicateurs de conviction par (régime, agent_type)
+# La conviction effective = conviction brute Ã— multiplicateur
+AGENT_REGIME_WEIGHTS = {
+    "BUILD": {
+        "FactorAgent":         1.5,   # boost LT
+        "AltDataAgent":        1.3,   # boost fundamental / sentiment
+        "MacroAgent":          1.2,
+        "CryptoAgent":         1.0,
+        "MicrostructureAgent": 0.5,   # bruit ST atténué
+        "ExitAgent":           0.3,   # quasi désactivé (pas de panic-SL en build)
+    },
+    "MAINTAIN": {
+        "FactorAgent":         1.0,
+        "AltDataAgent":        1.0,
+        "MacroAgent":          1.0,
+        "CryptoAgent":         1.0,
+        "MicrostructureAgent": 1.0,
+        "ExitAgent":           1.0,
+    },
+    "REBALANCE": {
+        "FactorAgent":         0.8,
+        "AltDataAgent":        0.9,
+        "MacroAgent":          0.9,
+        "CryptoAgent":         0.9,
+        "MicrostructureAgent": 1.3,   # timing d'exécution privilégié
+        "ExitAgent":           1.2,   # priorité au drift / TP
+    },
+}
+DEFAULT_AGENT_MULT = 1.0  # multiplicateur si agent_type inconnu
+
+# Plafonnement de la taille des SELL : ratio max de la position détenue vendable
+# par cycle. Évite de liquider 100 % d'une position fraîchement ouverte sur un
+# signal court terme isolé.
+MAX_SELL_RATIO_BY_REGIME = {
+    "BUILD":     0.25,   # 25 % de la position max
+    "MAINTAIN":  0.50,
+    "REBALANCE": 1.00,
+}
+
+# Plafonnement des BUY : multiplicateur du target en % de NAV.
+# v6.2 : en BUILD on accepte désormais 150 % du target (rationale : tant que
+# le portefeuille global est sous-investi <20 %, le risque systémique est
+# faible, on autorise les convictions fortes à sur-pondérer temporairement).
+MAX_OVERSHOOT_TARGET_MULT = {
+    "BUILD":     1.50,   # était 1.10 en v6.1 — trop strict pour accumuler
+    "MAINTAIN":  1.20,
+    "REBALANCE": 1.50,
+}
+
+# v6.2 — Plancher minimum d'une ligne BUY en régime BUILD, en % NAV.
+# Évite qu'un BUY de forte conviction soit ramené par les caps à une taille
+# infra-tradable (qty=0 pour ETH, qty=129 pour LINK à cause du cap target
+# étroit qui ne laisse passer que 0.10 % NAV). Si la conviction dépasse
+# BUILD_MIN_BUY_CONV_THRESHOLD et que le cap aboutit en dessous de
+# BUILD_MIN_BUY_FLOOR_PCT, on remonte la taille à ce plancher.
+BUILD_MIN_BUY_FLOOR_PCT       = 0.35   # 0.35 % NAV minimum
+BUILD_MIN_BUY_CONV_THRESHOLD  = 6.0    # conviction effective requise
+
+# v6.4 — TargetGap synthesizer
+# Seuil minimal de delta (en % NAV) pour déclencher un BUY/SELL synthétique
+# qui rapproche le portefeuille de portfolio_targets. En dessous on ignore
+# (bruit, cohérent avec le filtre Reconciler v6.3 "signal trop petit").
+TARGET_GAP_MIN_DELTA_PCT      = 0.30   # 0.30 % NAV
+# Conviction assignée aux propositions synthétiques. Suffisamment haute pour
+# passer les filtres BUILD overrides du Reconciler (>= 6.0), mais en dessous
+# du bypass total (9.0) pour rester soumise aux caps de PortfolioRegime.
+TARGET_GAP_CONVICTION         = 8.0
+
+
+def _ensure_regime_log_table(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS regime_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cycle_id TEXT,
+            regime TEXT,                 -- 'BUILD' | 'MAINTAIN' | 'REBALANCE'
+            invested_pct REAL,
+            nav REAL,
+            cash REAL,
+            n_positions INTEGER,
+            n_proposals_in INTEGER,
+            n_proposals_attenuated INTEGER,
+            n_sell_capped INTEGER,
+            n_buy_capped INTEGER,
+            notes TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.commit()
+
+
+def detect_portfolio_regime(conn) -> dict:
+    """Retourne {regime, invested_pct, nav, cash, n_positions}.
+
+    Le régime est calculé sur le ratio (NAV - cash) / NAV, c.à.d. la part
+    réellement investie hors liquidités.
+    """
+    row = conn.execute(
+        "SELECT total_value, cash FROM portfolio_state WHERE id = 1"
+    ).fetchone()
+    if not row:
+        return {"regime": "MAINTAIN", "invested_pct": 0.0,
+                "nav": 1_000_000, "cash": 1_000_000, "n_positions": 0}
+
+    nav = float(row["total_value"] or 0)
+    cash = float(row["cash"] or 0)
+    if nav <= 0:
+        return {"regime": "MAINTAIN", "invested_pct": 0.0,
+                "nav": nav, "cash": cash, "n_positions": 0}
+
+    invested_pct = max(0.0, (nav - cash) / nav * 100.0)
+
+    if invested_pct < BUILD_INVESTED_THRESHOLD:
+        regime = "BUILD"
+    elif invested_pct < MAINTAIN_INVESTED_THRESHOLD:
+        regime = "MAINTAIN"
+    else:
+        regime = "REBALANCE"
+
+    n_pos = conn.execute(
+        "SELECT COUNT(*) FROM portfolio_positions WHERE quantity > 0"
+    ).fetchone()[0]
+
+    return {"regime": regime, "invested_pct": invested_pct,
+            "nav": nav, "cash": cash, "n_positions": int(n_pos)}
+
+
+def _get_agent_type_from_thesis(conn, thesis_id) -> str:
+    """Retourne l'agent_type associé à une thèse, ou chaîne vide."""
+    if not thesis_id:
+        return ""
+    try:
+        row = conn.execute(
+            "SELECT agent_type FROM theses WHERE id = ?", (thesis_id,)
+        ).fetchone()
+        return (row["agent_type"] if row and row["agent_type"] else "") or ""
+    except Exception:
+        return ""
+
+
+def _infer_agent_type_from_source(source) -> str:
+    """Fallback : devine l'agent_type à partir du champ 'source' du proposal."""
+    s = (source or "").lower()
+    if "factor" in s:        return "FactorAgent"
+    if "micro" in s:         return "MicrostructureAgent"
+    if "altdata" in s or "alt_data" in s or "alt-data" in s:
+                             return "AltDataAgent"
+    if "macro" in s:         return "MacroAgent"
+    if "crypto" in s:        return "CryptoAgent"
+    if "exit" in s:          return "ExitAgent"
+    return ""
+
+
+def apply_regime_to_proposals(conn, proposals, regime_info, target_weights=None):
+    """Applique les multiplicateurs de conviction et les plafonds de taille.
+
+    Mute (en place) chaque proposal :
+      - 'conviction_raw'         : conviction d'origine
+      - 'conviction'             : conviction effective (raw Ã— mult)
+      - 'agent_type'             : type d'agent résolu
+      - 'regime_mult'            : multiplicateur appliqué
+      - 'quantity_pct_raw'       : taille demandée d'origine
+      - 'quantity_pct'           : taille après plafonnement
+      - 'cap_reason'             : raison du plafonnement (si appliqué)
+
+    Retourne un dict de statistiques pour log.
+    """
+    regime = regime_info["regime"]
+    nav = regime_info["nav"]
+    weights = AGENT_REGIME_WEIGHTS.get(regime, AGENT_REGIME_WEIGHTS["MAINTAIN"])
+    max_sell_ratio = MAX_SELL_RATIO_BY_REGIME.get(regime, 1.0)
+    max_overshoot = MAX_OVERSHOOT_TARGET_MULT.get(regime, 1.5)
+    target_weights = target_weights or {}
+
+    # Cache des positions actuelles (qty + prix) pour le plafonnement SELL
+    pos_rows = conn.execute("""
+        SELECT i.ticker, p.quantity, p.current_price
+        FROM portfolio_positions p
+        JOIN instruments i ON i.id = p.instrument_id
+        WHERE p.quantity > 0
+    """).fetchall()
+    positions = {r["ticker"]: (float(r["quantity"] or 0),
+                               float(r["current_price"] or 0))
+                 for r in pos_rows}
+
+    n_attenuated = 0
+    n_sell_capped = 0
+    n_buy_capped = 0
+
+    for p in proposals:
+        # 1) Résoudre l'agent_type
+        agent_type = (p.get("agent_type")
+                      or _get_agent_type_from_thesis(conn, p.get("thesis_id"))
+                      or _infer_agent_type_from_source(p.get("source"))
+                      or "")
+        p["agent_type"] = agent_type
+
+        # 2) Multiplicateur de conviction
+        mult = weights.get(agent_type, DEFAULT_AGENT_MULT)
+        raw_conv = float(p.get("conviction", 0) or 0)
+        eff_conv = raw_conv * mult
+        p["conviction_raw"] = raw_conv
+        p["conviction"] = eff_conv
+        p["regime_mult"] = mult
+        if abs(mult - 1.0) > 1e-9:
+            n_attenuated += 1
+
+        # 3) Plafonnement de taille
+        ticker = p.get("ticker")
+        side = (p.get("side") or "").lower()
+        qpct_raw = float(p.get("quantity_pct", 0) or 0)
+        p["quantity_pct_raw"] = qpct_raw
+        cap_reason = None
+
+        if side == "sell" and ticker in positions:
+            held_qty, price = positions[ticker]
+            if held_qty > 0 and price > 0 and nav > 0:
+                held_value = held_qty * price
+                held_pct_of_nav = (held_value / nav) * 100.0
+                # Le SELL demandé (en % NAV) est converti en % de la position
+                # vendue : si qpct_raw == held_pct_of_nav, on vend 100 % position.
+                if held_pct_of_nav > 0:
+                    sell_ratio = min(1.0, qpct_raw / held_pct_of_nav)
+                    if sell_ratio > max_sell_ratio:
+                        new_qpct = held_pct_of_nav * max_sell_ratio
+                        cap_reason = (f"SELL plafonné à {max_sell_ratio*100:.0f} %"
+                                      f" de la position (régime {regime}) :"
+                                      f" {qpct_raw:.2f} % â†’ {new_qpct:.2f} % NAV")
+                        p["quantity_pct"] = new_qpct
+                        # max_qty plafonné aussi
+                        capped_qty = max(1, int(held_qty * max_sell_ratio))
+                        p["max_qty"] = min(p.get("max_qty", held_qty), capped_qty)
+                        n_sell_capped += 1
+
+        elif side == "buy" and ticker:
+            target_w = float(target_weights.get(ticker, 0) or 0)
+            if target_w > 0:
+                # Position actuelle en % NAV
+                held_qty, price = positions.get(ticker, (0.0, 0.0))
+                current_w = (held_qty * price / nav) * 100.0 if nav > 0 else 0
+                # Après ce BUY on serait à current_w + qpct_raw
+                projected_w = current_w + qpct_raw
+                ceiling_w = target_w * max_overshoot
+                if projected_w > ceiling_w:
+                    new_qpct = max(0.0, ceiling_w - current_w)
+                    cap_reason = (f"BUY plafonné à target Ã— {max_overshoot:.2f}"
+                                  f" (régime {regime}) : "
+                                  f"{qpct_raw:.2f} % â†’ {new_qpct:.2f} % NAV")
+                    p["quantity_pct"] = new_qpct
+                    n_buy_capped += 1
+
+                # v6.2 : PLANCHER en BUILD pour les fortes convictions.
+                # Si on est en BUILD, que la conviction effective dépasse le
+                # seuil et que la taille finale tombe sous le plancher, on
+                # remonte la qty pour garantir une ligne tradable.
+                if (regime == "BUILD"
+                        and eff_conv >= BUILD_MIN_BUY_CONV_THRESHOLD
+                        and float(p["quantity_pct"]) < BUILD_MIN_BUY_FLOOR_PCT):
+                    # Marge disponible avant le ceiling (target Ã— overshoot)
+                    max_room = max(0.0, ceiling_w - current_w)
+                    # Ne remonter que si on a au moins un peu de place
+                    if max_room > 0:
+                        bumped = min(BUILD_MIN_BUY_FLOOR_PCT, max_room)
+                    else:
+                        bumped = float(p["quantity_pct"])  # pas de place â†’ inchangé
+                    if bumped > float(p["quantity_pct"]):
+                        prev_reason = cap_reason or ""
+                        cap_reason = (
+                            f"BUILD floor : conv {eff_conv:.1f} â‰¥ "
+                            f"{BUILD_MIN_BUY_CONV_THRESHOLD:.1f}, taille remont\u00e9e "
+                            f"{float(p['quantity_pct']):.3f} % â†’ {bumped:.2f} % NAV"
+                            + (f" [apr\u00e8s cap : {prev_reason}]" if prev_reason else "")
+                        )
+                        p["quantity_pct"] = bumped
+
+        if cap_reason:
+            p["cap_reason"] = cap_reason
+
+    return {
+        "n_proposals_in": len(proposals),
+        "n_attenuated": n_attenuated,
+        "n_sell_capped": n_sell_capped,
+        "n_buy_capped": n_buy_capped,
+    }
+
+
+def log_regime(conn, cycle_id, regime_info, stats, notes=""):
+    _ensure_regime_log_table(conn)
+    conn.execute("""
+        INSERT INTO regime_log
+          (cycle_id, regime, invested_pct, nav, cash, n_positions,
+           n_proposals_in, n_proposals_attenuated, n_sell_capped, n_buy_capped, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        str(cycle_id or ""),
+        regime_info["regime"],
+        round(regime_info["invested_pct"], 4),
+        round(regime_info["nav"], 2),
+        round(regime_info["cash"], 2),
+        int(regime_info["n_positions"]),
+        int(stats.get("n_proposals_in", 0)),
+        int(stats.get("n_attenuated", 0)),
+        int(stats.get("n_sell_capped", 0)),
+        int(stats.get("n_buy_capped", 0)),
+        notes,
+    ))
+    conn.commit()
+
+# =============================================================================
+# Fin PortfolioRegime
+# =============================================================================
+
+
+# =============================================================================
+# OrderReconciler — anti contradictions/bruit dans les proposals d'un cycle
+# =============================================================================
+class OrderReconciler:
+    """Réconcilie les proposals au sein d'un même cycle.
+
+    Travaille DIRECTEMENT sur le format natif de proposals utilisé par
+    run_decision_cycle() :
+        {thesis_id, ticker, side ('buy'|'sell'), quantity_pct, source,
+         max_qty (optionnel), conviction (ajoutée par run_decision_cycle)}
+
+    Élimine :
+      - Conflits BUY/SELL sur même ticker
+      - Signaux < 0,3 % NAV (bruit)
+      - Signaux opposés au delta cible vs portfolio idéal
+
+    Bypass : conviction >= HIGH_CONVICTION_BYPASS.
+    """
+
+    MIN_TRADE_WEIGHT_PCT = 0.3      # En dessous de 0,3 % NAV â†’ DROP
+    DRIFT_TOLERANCE_PCT = 0.3       # Tolérance vs target weight
+    HIGH_CONVICTION_BYPASS = 9      # >= 9 â†’ bypass tous les filtres
+    # v6.1 — conviction min pour by-passer le filtre "sens opposé au target"
+    # en régime BUILD (accélère l'accumulation sur signaux forts).
+    BUILD_TARGET_OVERRIDE_CONV = 6.0
+    # v6.2 — en BUILD, si conviction >= ce seuil ET qty >= 1, on by-passe le
+    # filtre "signal trop petit". Évite que les cryptos chères (ETH ~ 2100 $)
+    # ou les caps target-overshoot étroits ne tuent une conviction forte.
+    BUILD_MIN_SIZE_OVERRIDE_CONV = 6.0
+
+    def __init__(self, conn, nav, current_positions, target_weights, prices,
+                 regime: str = "MAINTAIN"):
+        self.conn = conn
+        self.nav = max(float(nav or 0), 1.0)
+        self.current_positions = current_positions or {}
+        self.target_weights = target_weights or {}
+        self.prices = prices or {}
+        # v6.1 : connaissance du régime portefeuille (BUILD / MAINTAIN / REBALANCE)
+        self.regime = (regime or "MAINTAIN").upper()
+        self._ensure_log_table()
+        self.log_entries = []
+
+    def _ensure_log_table(self):
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS cycle_reconciliation_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cycle_id TEXT,
+                ticker TEXT,
+                action TEXT,
+                reason TEXT,
+                signals_in INTEGER,
+                qty_in REAL,
+                side_in TEXT,
+                conviction_max REAL,
+                delta_signal_pct REAL,
+                delta_target_pct REAL,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        self.conn.commit()
+
+    def reconcile(self, proposals, cycle_id=None):
+        """Filtre la liste de proposals. Retourne la liste survivante."""
+        if not proposals:
+            return []
+
+        # GROUP BY ticker
+        by_ticker = {}
+        for p in proposals:
+            by_ticker.setdefault(p["ticker"], []).append(p)
+
+        kept = []
+        for ticker, group in by_ticker.items():
+            result = self._reconcile_ticker(ticker, group, cycle_id)
+            if result is not None:
+                kept.append(result)
+
+        self._flush_logs()
+        return kept
+
+    def _qty_for_proposal(self, p):
+        # Jalon 3 - qty fractionnaire crypto-aware
+        CRYPTO = {'BTC', 'ETH', 'LINK', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX'}
+        ticker = p.get('ticker', '')
+        is_crypto = ticker in CRYPTO
+        qpct = float(p.get('quantity_pct', 0) or 0)
+        price = float(self.prices.get(ticker, 0) or 0)
+        if price <= 0 or qpct <= 0:
+            return 0.0 if is_crypto else 0
+        signal_value = qpct / 100.0 * self.nav
+        if is_crypto:
+            qty = round(signal_value / price, 6)
+        else:
+            import math as _m
+            qty = _m.floor(signal_value / price)
+        return max(qty, 0.0 if is_crypto else 0)
+    def _reconcile_ticker(self, ticker, group, cycle_id):
+        max_conv = max(p.get("conviction", 0) for p in group)
+        buys = [p for p in group if p.get("side", "").lower() == "buy"]
+        sells = [p for p in group if p.get("side", "").lower() == "sell"]
+        sides_count = (1 if buys else 0) + (1 if sells else 0)
+
+        # --- CAS 1 : signaux contradictoires ---
+        if sides_count == 2:
+            buy_max = max(p.get("conviction", 0) for p in buys)
+            sell_max = max(p.get("conviction", 0) for p in sells)
+            if buy_max == sell_max:
+                self._log(cycle_id, ticker, "DROPPED",
+                          f"Conflit BUY/SELL conviction égale ({buy_max}) â†’ ambiguïté",
+                          len(group), 0, "MIXED", max_conv, 0, 0)
+                return None
+            winning = buys if buy_max > sell_max else sells
+            losing_side = "SELL" if buy_max > sell_max else "BUY"
+            self._log(cycle_id, ticker, "AGGREGATED",
+                      f"Conflit résolu : {winning[0]['side'].upper()} gagne "
+                      f"(conv {max(buy_max, sell_max)} vs {min(buy_max, sell_max)}, "
+                      f"{losing_side} droppé)",
+                      len(group), sum(self._qty_for_proposal(p) for p in winning),
+                      winning[0]["side"].upper(), max_conv, 0, 0)
+            group = winning
+
+        # — ce stade : tous du même côté
+        side = group[0]["side"].lower()
+        conv_max = max(p.get("conviction", 0) for p in group)
+        price = self.prices.get(ticker, 0)
+
+        # Agréger : on additionne les quantity_pct (et garde le max conviction pour cohérence)
+        total_pct = sum(p.get("quantity_pct", 0) for p in group)
+        qty_net = sum(self._qty_for_proposal(p) for p in group)
+
+        # --- BYPASS conviction très forte ---
+        if conv_max >= self.HIGH_CONVICTION_BYPASS:
+            self._log(cycle_id, ticker, "KEPT",
+                      f"BYPASS (conviction {conv_max} >= {self.HIGH_CONVICTION_BYPASS})",
+                      len(group), qty_net, side.upper(), conv_max, 0, 0)
+            return self._merge_group(group, total_pct)
+
+        # --- Calcul deltas ---
+        signal_value = qty_net * price
+        delta_signal_pct = (signal_value / self.nav * 100) * (1 if side == "buy" else -1)
+
+        current_qty = self.current_positions.get(ticker, 0)
+        current_weight_pct = (current_qty * price / self.nav * 100) if price else 0
+        target_weight_pct = self.target_weights.get(ticker, 0)
+        delta_target_pct = target_weight_pct - current_weight_pct
+        # --- CAP v6.5.1 : ne jamais depasser le delta target (anti-overshoot) ---
+        # Empeche les agents aggreges (ex: ExitAgent + AltDataAgent) de surdimensionner
+        # un BUY/SELL au-dela du gap reel position-vs-target.
+        # Applique seulement si le ticker a une target connue ET un gap significatif.
+        if ticker in self.target_weights and abs(delta_target_pct) > self.DRIFT_TOLERANCE_PCT:
+            max_allowed_pct = abs(delta_target_pct) * 1.10  # tolerance +10%
+            if abs(delta_signal_pct) > max_allowed_pct and price > 0:
+                old_qty = qty_net
+                old_pct = total_pct
+                # Rescale au cap
+                capped_value = max_allowed_pct / 100 * self.nav
+                qty_net = max(1, int(capped_value / price))
+                total_pct = max_allowed_pct
+                signal_value = qty_net * price
+                delta_signal_pct = (signal_value / self.nav * 100) * (1 if side == "buy" else -1)
+                self._log(cycle_id, ticker, "CAPPED",
+                          f"Reduit qty={old_qty}->{qty_net} (signal {old_pct:.2f}%->"
+                          f"{total_pct:.2f}% NAV, cap=delta_target x 1.10)",
+                          len(group), qty_net, side.upper(), conv_max,
+                          delta_signal_pct, delta_target_pct)
+
+
+        # --- FILTRE 1 : bruit ---
+        # v6.2 : en BUILD, un BUY conv >= BUILD_MIN_SIZE_OVERRIDE_CONV avec
+        # qty >= 1 ne doit PAS être droppé même si < MIN_TRADE_WEIGHT_PCT.
+        # Rationale : le PortfolioRegime a déjà plafonné la taille à ce qui
+        # est raisonnable vs target + ceiling ; mieux vaut une petite ligne
+        # cumulative que de bloquer l'accumulation cycle après cycle.
+        # Jalon 3 - bypass crypto si qty fractionnaire valide
+        CRYPTO_BYPASS = {'BTC', 'ETH', 'LINK', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX'}
+        if ticker in CRYPTO_BYPASS and qty_net >= 0.0001:
+            pass  # ne pas filtrer les crypto fractionnaires
+        elif abs(delta_signal_pct) < self.MIN_TRADE_WEIGHT_PCT:
+            build_min_override = (
+                self.regime == "BUILD"
+                and side == "buy"
+                and qty_net >= 1
+                and conv_max >= self.BUILD_MIN_SIZE_OVERRIDE_CONV
+            )
+            if build_min_override:
+                self._log(cycle_id, ticker, "KEPT_BUILD_MIN_SIZE",
+                          f"BUILD override : BUY conv {conv_max:.1f} qty={qty_net} "
+                          f"({abs(delta_signal_pct):.3f} % NAV < "
+                          f"{self.MIN_TRADE_WEIGHT_PCT} %) — accumul\u00e9 quand m\u00eame",
+                          len(group), qty_net, side.upper(), conv_max,
+                          delta_signal_pct, delta_target_pct)
+                # On NE return pas â†’ le proposal continue vers les filtres suivants
+            else:
+                self._log(cycle_id, ticker, "DROPPED",
+                          f"Signal trop petit ({abs(delta_signal_pct):.3f} % NAV < "
+                          f"{self.MIN_TRADE_WEIGHT_PCT} %)",
+                          len(group), qty_net, side.upper(), conv_max,
+                          delta_signal_pct, delta_target_pct)
+                return None
+
+        # --- FILTRE 2 : sens opposé au target (uniquement si target significatif) ---
+        # v6.1 : en régime BUILD, on tolère les BUY "opposés au target" si la
+        # conviction est forte. Rationale : en phase de construction (<20 %
+        # investi), il faut accumuler. Le plafond BUY = target Ã— 1.10 déjà
+        # appliqué par apply_regime_to_proposals() empêche la sur-exposition.
+        # On ne touche pas aux SELL pour ne pas casser la protection.
+        if abs(delta_target_pct) > self.DRIFT_TOLERANCE_PCT:
+            if (delta_signal_pct > 0) != (delta_target_pct > 0):
+                build_override = (
+                    self.regime == "BUILD"
+                    and side == "buy"
+                    and conv_max >= self.BUILD_TARGET_OVERRIDE_CONV
+                )
+                if build_override:
+                    self._log(cycle_id, ticker, "KEPT_BUILD_OVERRIDE",
+                              f"BUILD override : BUY conv {conv_max:.1f} "
+                              f">= {self.BUILD_TARGET_OVERRIDE_CONV} malgr\u00e9 "
+                              f"\u0394target {delta_target_pct:+.2f} %",
+                              len(group), qty_net, side.upper(), conv_max,
+                              delta_signal_pct, delta_target_pct)
+                    # On NE return pas â†’ le proposal continue vers FILTRE 3
+                else:
+                    self._log(cycle_id, ticker, "DROPPED",
+                              f"Sens oppos\u00e9 au target (signal {delta_signal_pct:+.2f} % "
+                              f"vs target \u0394{delta_target_pct:+.2f} %)",
+                              len(group), qty_net, side.upper(), conv_max,
+                              delta_signal_pct, delta_target_pct)
+                    return None
+
+        # --- FILTRE 3 : portfolio déjà à la cible ---
+        # IMPORTANT : ne s'applique que si le ticker a une target définie (existe dans target_weights)
+        # Sans target connue (ex. nouvelle position envisagée), on laisse passer.
+        # v6.3 : en BUILD avec conviction forte, on n'applique PAS ce filtre.
+        # Rationale : en phase d'accumulation globale (<20 % investi), être
+        # à 100 % du target individuel ne doit pas bloquer une sur-pondération
+        # opportuniste sur signal fort. Le ceiling target Ã— 1.50 du Regime
+        # plafonne déjà la sur-exposition maximale par ticker.
+        if ticker in self.target_weights and abs(delta_target_pct) < self.DRIFT_TOLERANCE_PCT:
+            build_accumulate = (
+                self.regime == "BUILD"
+                and side == "buy"
+                and conv_max >= self.BUILD_TARGET_OVERRIDE_CONV
+            )
+            if build_accumulate:
+                self._log(cycle_id, ticker, "KEPT_BUILD_ACCUMULATE",
+                          f"BUILD accumulate : BUY conv {conv_max:.1f} "
+                          f"\u2265 {self.BUILD_TARGET_OVERRIDE_CONV:.1f} "
+                          f"\u2014 portfolio \u00e0 target (\u0394{delta_target_pct:+.2f} %) "
+                          f"mais ceiling \u00d7 1.50 non atteint",
+                          len(group), qty_net, side.upper(), conv_max,
+                          delta_signal_pct, delta_target_pct)
+                # On NE return pas â†’ le proposal sort en KEPT/AGGREGATED
+            else:
+                self._log(cycle_id, ticker, "DROPPED",
+                          f"Portfolio d\u00e9j\u00e0 \u00e0 la cible (\u0394target {delta_target_pct:+.2f} % "
+                          f"< {self.DRIFT_TOLERANCE_PCT} %)",
+                          len(group), qty_net, side.upper(), conv_max,
+                          delta_signal_pct, delta_target_pct)
+                return None
+
+        # --- KEPT ---
+        action = "KEPT" if len(group) == 1 else "AGGREGATED"
+        self._log(cycle_id, ticker, action,
+                  f"Ordre net émis : {side.upper()} qty={qty_net} ({total_pct:.2f} % NAV)",
+                  len(group), qty_net, side.upper(), conv_max,
+                  delta_signal_pct, delta_target_pct)
+        return self._merge_group(group, total_pct)
+
+    def _merge_group(self, group, total_pct):
+        """Fusionne un groupe en un proposal unique."""
+        best = max(group, key=lambda p: p.get("conviction", 0))
+        merged = dict(best)
+        merged["quantity_pct"] = total_pct
+        # Si SELL, plafonner max_qty au max disponible parmi les proposals
+        if merged.get("side", "").lower() == "sell":
+            max_qtys = [p["max_qty"] for p in group if "max_qty" in p]
+            if max_qtys:
+                merged["max_qty"] = max(max_qtys)
+        # Trace les sources agrégées
+        sources = sorted({p.get("source", "?") for p in group})
+        merged["source"] = "+".join(sources)
+        return merged
+
+    def _log(self, cycle_id, ticker, action, reason, signals_in,
+             qty_in, side_in, conv_max, delta_signal, delta_target):
+        self.log_entries.append((
+            str(cycle_id or ""), ticker, action, reason, signals_in,
+            round(float(qty_in or 0), 4), side_in, float(conv_max or 0),
+            round(float(delta_signal or 0), 4), round(float(delta_target or 0), 4)
+        ))
+
+    def _flush_logs(self):
+        if not self.log_entries:
+            return
+        self.conn.executemany("""
+            INSERT INTO cycle_reconciliation_log
+              (cycle_id, ticker, action, reason, signals_in,
+               qty_in, side_in, conviction_max,
+               delta_signal_pct, delta_target_pct)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, self.log_entries)
+        self.conn.commit()
+        self.log_entries = []
+# =============================================================================
+# Fin OrderReconciler
+# =============================================================================
+
+
+# =============================================================================
+# ExitAgent — règles de sortie temporelles (v5)
+# =============================================================================
+#
+# Examine toutes les positions ouvertes et émet des signaux de sortie selon
+# 4 règles. Les signaux sont ajoutés à proposals puis passent par le Reconciler
+# (donc dédoublonnés avec les agents "entry" en cas de conflit).
+# =============================================================================
+
+EXIT_STOP_LOSS_PCT          = -5.0    # P&L â‰¤ -5 % â†’ SELL
+EXIT_STOP_LOSS_SELL_RATIO   = 0.50    # … 50 % de la position
+EXIT_TAKE_PROFIT_PCT        = 15.0    # P&L â‰¥ +15 % â†’ SELL
+EXIT_TAKE_PROFIT_SELL_RATIO = 0.50    # … 50 % de la position
+EXIT_DRIFT_REL_PCT          = 25.0    # |drift relatif| â‰¥ 25 % vs target â†’ rebalance
+EXIT_DRIFT_MIN_ABS_PCT      = 0.5     # … ET drift absolu â‰¥ 0,5 % NAV
+EXIT_TIME_DECAY_DAYS        = 30      # â‰¥ 30 jours sans signal â†’ alerte
+EXIT_TIME_DECAY_EMIT_SELL   = False   # False = alerte seule, True = SELL défensif
+EXIT_CONVICTION             = 7       # Conviction SL/TP
+
+
+def _exit_ensure_log_table(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS exit_decisions_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cycle_id TEXT,
+            ticker TEXT,
+            rule TEXT,             -- 'STOP_LOSS' | 'TAKE_PROFIT' | 'DRIFT' | 'TIME_DECAY' | 'NONE'
+            action TEXT,           -- 'SELL' | 'BUY' | 'ALERT' | 'NO_ACTION'
+            pnl_pct REAL,
+            current_weight_pct REAL,
+            target_weight_pct REAL,
+            drift_rel_pct REAL,
+            days_held INTEGER,
+            qty_proposed REAL,
+            reason TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.commit()
+
+
+def _exit_get_or_create_thesis(conn, ticker, instrument_id, rule, reason) -> int:
+    """Crée une thèse synthétique pour l'exit signal. Tolérant aux variantes de schema."""
+    try:
+        cur = conn.execute(
+            """INSERT INTO theses (instrument_id, agent_type, conviction_score, proposed_action, thesis_text, created_at)
+               VALUES (?, ?, ?, ?, ?, datetime('now'))""",
+            (instrument_id, "ExitAgent", EXIT_CONVICTION, rule, reason)
+        )
+        return cur.lastrowid
+    except Exception:
+        pass
+    try:
+        cur = conn.execute(
+            "INSERT INTO theses (instrument_id, agent) VALUES (?, ?)",
+            (instrument_id, "ExitAgent")
+        )
+        return cur.lastrowid
+    except Exception:
+        return 0
+
+
+def _exit_days_since(date_str) -> int:
+    if not date_str:
+        return 0
+    try:
+        if " " in date_str:
+            dt = datetime.strptime(date_str.split(".")[0], "%Y-%m-%d %H:%M:%S")
+        else:
+            dt = datetime.fromisoformat(date_str.replace("Z", ""))
+        return (datetime.utcnow() - dt).days
+    except Exception:
+        return 0
+
+
+def _exit_log_decision(conn, cycle_id, ticker, rule, action, pnl_pct,
+                       current_w, target_w, drift_rel, days_held, qty, reason):
+    conn.execute("""
+        INSERT INTO exit_decisions_log
+          (cycle_id, ticker, rule, action, pnl_pct,
+           current_weight_pct, target_weight_pct, drift_rel_pct,
+           days_held, qty_proposed, reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (str(cycle_id or ""), ticker, rule, action,
+          round(pnl_pct or 0, 4),
+          round(current_w or 0, 4),
+          round(target_w or 0, 4),
+          round(drift_rel or 0, 4),
+          int(days_held or 0),
+          round(qty or 0, 4),
+          reason))
+
+
+def run_exit_agent(conn: sqlite3.Connection, cycle_id: str = None,
+                   targets: dict = None, nav: float = None) -> list:
+    """Examine les positions ouvertes et émet des signaux de sortie.
+
+    Retourne une liste de proposals au format natif execution_engine.
+    `targets` et `nav` peuvent être précalculés par l'appelant pour éviter
+    les requêtes redondantes.
+    """
+    _exit_ensure_log_table(conn)
+    cycle_id = cycle_id or datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+
+    # NAV
+    if nav is None:
+        ps = conn.execute(
+            "SELECT total_value FROM portfolio_state WHERE id = 1"
+        ).fetchone()
+        nav = ps["total_value"] if ps else 1_000_000
+    if not nav or nav <= 0:
+        return []
+
+    # Targets
+    if targets is None:
+        targets = _load_target_weights(conn)
+    targets = targets or {}
+
+    positions = conn.execute("""
+        SELECT p.id AS pos_id, p.instrument_id, i.ticker,
+               p.quantity, p.avg_cost, p.current_price,
+               p.unrealized_pnl, p.weight_pct, p.updated_at
+        FROM portfolio_positions p
+        JOIN instruments i ON p.instrument_id = i.id
+        WHERE p.quantity > 0
+    """).fetchall()
+
+    proposals = []
+    for pos in positions:
+        pos = dict(pos)
+        ticker = pos["ticker"]
+        qty = pos["quantity"] or 0
+        avg_cost = pos["avg_cost"] or 0
+        current_price = pos["current_price"] or 0
+        if qty <= 0 or avg_cost <= 0 or current_price <= 0:
+            continue
+
+        pnl_pct = ((current_price - avg_cost) / avg_cost) * 100
+        mv = qty * current_price
+        current_w = (mv / nav) * 100
+
+        target_w = targets.get(ticker)
+        if target_w and target_w > 0:
+            drift_abs = current_w - target_w
+            drift_rel = (drift_abs / target_w) * 100
+        else:
+            drift_abs = current_w
+            drift_rel = None
+
+        days_held = _exit_days_since(pos.get("updated_at"))
+
+        # --- RÈGLE 1 : STOP-LOSS ---
+        if pnl_pct <= EXIT_STOP_LOSS_PCT:
+            sell_qty = max(1, int(qty * EXIT_STOP_LOSS_SELL_RATIO))
+            sell_pct = (sell_qty * current_price / nav) * 100
+            tid = _exit_get_or_create_thesis(
+                conn, ticker, pos["instrument_id"], "STOP_LOSS",
+                f"P&L {pnl_pct:+.2f} % â‰¤ seuil {EXIT_STOP_LOSS_PCT} % â†’ SELL "
+                f"{EXIT_STOP_LOSS_SELL_RATIO*100:.0f} %"
+            )
+            proposals.append({
+                "thesis_id": tid, "ticker": ticker,
+                "side": "sell", "quantity_pct": sell_pct,
+                "source": "ExitAgent/STOP_LOSS",
+                "max_qty": qty,
+                "conviction": EXIT_CONVICTION,
+            })
+            _exit_log_decision(conn, cycle_id, ticker, "STOP_LOSS", "SELL",
+                               pnl_pct, current_w, target_w or 0, drift_rel or 0,
+                               days_held, sell_qty,
+                               f"P&L {pnl_pct:+.2f} % â‰¤ {EXIT_STOP_LOSS_PCT} %")
+            continue
+
+        # --- RÈGLE 2 : TAKE-PROFIT ---
+        if pnl_pct >= EXIT_TAKE_PROFIT_PCT:
+            sell_qty = max(1, int(qty * EXIT_TAKE_PROFIT_SELL_RATIO))
+            sell_pct = (sell_qty * current_price / nav) * 100
+            tid = _exit_get_or_create_thesis(
+                conn, ticker, pos["instrument_id"], "TAKE_PROFIT",
+                f"P&L {pnl_pct:+.2f} % â‰¥ seuil {EXIT_TAKE_PROFIT_PCT} % â†’ SELL "
+                f"{EXIT_TAKE_PROFIT_SELL_RATIO*100:.0f} %"
+            )
+            proposals.append({
+                "thesis_id": tid, "ticker": ticker,
+                "side": "sell", "quantity_pct": sell_pct,
+                "source": "ExitAgent/TAKE_PROFIT",
+                "max_qty": qty,
+                "conviction": EXIT_CONVICTION,
+            })
+            _exit_log_decision(conn, cycle_id, ticker, "TAKE_PROFIT", "SELL",
+                               pnl_pct, current_w, target_w or 0, drift_rel or 0,
+                               days_held, sell_qty,
+                               f"P&L {pnl_pct:+.2f} % â‰¥ {EXIT_TAKE_PROFIT_PCT} %")
+            continue
+
+        # --- RÈGLE 3 : DRIFT cible ---
+        if (drift_rel is not None
+            and abs(drift_rel) >= EXIT_DRIFT_REL_PCT
+            and abs(drift_abs) >= EXIT_DRIFT_MIN_ABS_PCT):
+
+            if drift_abs > 0:
+                target_qty = (target_w / 100) * nav / current_price
+                sell_qty = max(1, int(qty - target_qty))
+                sell_pct = (sell_qty * current_price / nav) * 100
+                tid = _exit_get_or_create_thesis(
+                    conn, ticker, pos["instrument_id"], "DRIFT",
+                    f"Poids {current_w:.2f} % vs cible {target_w:.2f} % "
+                    f"(drift {drift_rel:+.1f} %) â†’ rebalance SELL"
+                )
+                proposals.append({
+                    "thesis_id": tid, "ticker": ticker,
+                    "side": "sell", "quantity_pct": sell_pct,
+                    "source": "ExitAgent/DRIFT",
+                    "max_qty": qty,
+                    "conviction": EXIT_CONVICTION - 1,  # 6
+                })
+                _exit_log_decision(conn, cycle_id, ticker, "DRIFT", "SELL",
+                                   pnl_pct, current_w, target_w, drift_rel,
+                                   days_held, sell_qty,
+                                   f"Drift {drift_rel:+.1f} % — rebalance SELL")
+            else:
+                target_qty = (target_w / 100) * nav / current_price
+                buy_qty = max(1, int(target_qty - qty))
+                buy_pct = (buy_qty * current_price / nav) * 100
+                tid = _exit_get_or_create_thesis(
+                    conn, ticker, pos["instrument_id"], "DRIFT",
+                    f"Poids {current_w:.2f} % vs cible {target_w:.2f} % "
+                    f"(drift {drift_rel:+.1f} %) â†’ rebalance BUY"
+                )
+                proposals.append({
+                    "thesis_id": tid, "ticker": ticker,
+                    "side": "buy", "quantity_pct": buy_pct,
+                    "source": "ExitAgent/DRIFT",
+                    "conviction": EXIT_CONVICTION - 1,
+                })
+                _exit_log_decision(conn, cycle_id, ticker, "DRIFT", "BUY",
+                                   pnl_pct, current_w, target_w, drift_rel,
+                                   days_held, buy_qty,
+                                   f"Drift {drift_rel:+.1f} % — rebalance BUY")
+            continue
+
+        # --- RÈGLE 4 : TIME-DECAY (alerte seule par défaut) ---
+        if days_held >= EXIT_TIME_DECAY_DAYS:
+            if EXIT_TIME_DECAY_EMIT_SELL:
+                sell_qty = max(1, int(qty * 0.50))
+                sell_pct = (sell_qty * current_price / nav) * 100
+                tid = _exit_get_or_create_thesis(
+                    conn, ticker, pos["instrument_id"], "TIME_DECAY",
+                    f"Détenu {days_held} jours sans signal â†’ réduction défensive"
+                )
+                proposals.append({
+                    "thesis_id": tid, "ticker": ticker,
+                    "side": "sell", "quantity_pct": sell_pct,
+                    "source": "ExitAgent/TIME_DECAY",
+                    "max_qty": qty,
+                    "conviction": EXIT_CONVICTION - 2,  # 5
+                })
+                _exit_log_decision(conn, cycle_id, ticker, "TIME_DECAY", "SELL",
+                                   pnl_pct, current_w, target_w or 0, drift_rel or 0,
+                                   days_held, sell_qty,
+                                   f"Détenu {days_held}j â†’ SELL défensif")
+            else:
+                _exit_log_decision(conn, cycle_id, ticker, "TIME_DECAY", "ALERT",
+                                   pnl_pct, current_w, target_w or 0, drift_rel or 0,
+                                   days_held, 0,
+                                   f"Détenu {days_held}j — réévaluation conseillée")
+            continue
+
+        # --- Aucune règle déclenchée â†’ audit ---
+        _exit_log_decision(conn, cycle_id, ticker, "NONE", "NO_ACTION",
+                           pnl_pct, current_w, target_w or 0, drift_rel or 0,
+                           days_held, 0,
+                           f"P&L {pnl_pct:+.2f} %, drift_rel "
+                           f"{('%.1f' % drift_rel) if drift_rel is not None else 'N/A'} %")
+
+    conn.commit()
+    print(f"[exit_agent] {len(proposals)} signal(s) émis sur "
+          f"{len(positions)} position(s) (cycle_id={cycle_id})")
+    return proposals
+# =============================================================================
+# Fin ExitAgent
+# =============================================================================
+
+
+# ---------------------------------------------------------------------------
+# Constantes
+# ---------------------------------------------------------------------------
+
+CONVICTION_THRESHOLD = 5            # Modif mars 2026 (était 7)
+FACTOR_POSITION_PCT  = 2.0          # 2 % du NAV pour FactorAgent
+MICRO_POSITION_PCT   = 1.0          # 1 % du NAV pour MicrostructureAgent
+
+
+# ---------------------------------------------------------------------------
+# BrokerAdapter Protocol
+# ---------------------------------------------------------------------------
+
+class BrokerAdapter(Protocol):
+    slippage_model: float
+
+    def execute_order(self, conn, order_id, instrument_id, side, quantity,
+                      order_type, limit_price, current_price): ...
+
+
+# ---------------------------------------------------------------------------
+# Paper Broker
+# ---------------------------------------------------------------------------
+
+class PaperBroker:
+    def __init__(self, slippage_pct: float = 0.001, fee_per_share: float = 0.005):
+        self.slippage_pct = slippage_pct
+        self.fee_per_share = fee_per_share
+
+    def _calculate_fill_price(self, price: float, side: str) -> float:
+        if side == "buy":
+            return round(price * (1 + self.slippage_pct), 4)
+        else:
+            return round(price * (1 - self.slippage_pct), 4)
+
+    def execute_order(self, conn, order_id, instrument_id, side, quantity,
+                      order_type, limit_price, current_price) -> dict:
+        fill_price = self._calculate_fill_price(current_price, side)
+        slippage   = abs(fill_price - current_price) * quantity
+        fees       = round(quantity * self.fee_per_share, 4)
+        filled_at  = datetime.utcnow().isoformat()
+
+        if order_type == "limit" and limit_price is not None:
+            if side == "buy" and current_price > limit_price:
+                return {"success": False, "reason": "Limit price not reached (buy above limit)"}
+            if side == "sell" and current_price < limit_price:
+                return {"success": False, "reason": "Limit price not reached (sell below limit)"}
+
+        cur = conn.execute(
+            """INSERT INTO fills (order_id, fill_price, fill_quantity, slippage, fees, filled_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (order_id, fill_price, quantity, round(slippage, 4), fees, filled_at)
+        )
+        fill_id = cur.lastrowid
+
+        conn.execute("UPDATE orders SET status = 'filled' WHERE id = ?", (order_id,))
+
+        self._update_position(conn, instrument_id, side, quantity, fill_price)
+
+        trade_value = quantity * fill_price
+        if side == "buy":
+            conn.execute(
+                "UPDATE portfolio_state SET cash = cash - ? - ? WHERE id = 1",
+                (trade_value, fees)
+            )
+        else:
+            conn.execute(
+                "UPDATE portfolio_state SET cash = cash + ? - ? WHERE id = 1",
+                (trade_value, fees)
+            )
+
+        refresh_portfolio_state(conn)
+
+        log_event(conn, "order_filled", "fill", fill_id, {
+            "order_id": order_id, "instrument_id": instrument_id, "side": side,
+            "quantity": quantity, "fill_price": fill_price,
+            "slippage": round(slippage, 4), "fees": fees,
+        }, agent="PaperBroker")
+
+        return {
+            "success": True, "fill_id": fill_id, "fill_price": fill_price,
+            "fill_quantity": quantity, "slippage": round(slippage, 4),
+            "fees": fees, "filled_at": filled_at,
+        }
+
+    def _update_position(self, conn, instrument_id, side, quantity, fill_price):
+        existing = conn.execute(
+            "SELECT id, quantity, avg_cost FROM portfolio_positions WHERE instrument_id = ?",
+            (instrument_id,)
+        ).fetchone()
+
+        if side == "buy":
+            if existing:
+                old_qty  = existing["quantity"]
+                old_cost = existing["avg_cost"]
+                new_qty  = old_qty + quantity
+                new_cost = (old_qty * old_cost + quantity * fill_price) / new_qty
+                conn.execute(
+                    """UPDATE portfolio_positions
+                       SET quantity = ?, avg_cost = ?, current_price = ?,
+                           unrealized_pnl = (? - ?) * ?, updated_at = datetime('now')
+                       WHERE instrument_id = ?""",
+                    (new_qty, round(new_cost, 4), fill_price,
+                     fill_price, round(new_cost, 4), new_qty, instrument_id)
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO portfolio_positions
+                           (instrument_id, quantity, avg_cost, current_price, unrealized_pnl, weight_pct)
+                       VALUES (?, ?, ?, ?, 0, 0)""",
+                    (instrument_id, quantity, round(fill_price, 4), fill_price)
+                )
+
+        else:  # sell
+            if existing:
+                new_qty = existing["quantity"] - quantity
+                if new_qty <= 0:
+                    conn.execute(
+                        "DELETE FROM portfolio_positions WHERE instrument_id = ?",
+                        (instrument_id,)
+                    )
+                else:
+                    conn.execute(
+                        """UPDATE portfolio_positions
+                           SET quantity = ?, current_price = ?,
+                               unrealized_pnl = (? - avg_cost) * ?,
+                               updated_at = datetime('now')
+                           WHERE instrument_id = ?""",
+                        (new_qty, fill_price, fill_price, new_qty, instrument_id)
+                    )
+            # Pas de position existante â†’ ne fait rien (risk_engine devrait bloquer amont)
+
+
+# ---------------------------------------------------------------------------
+# Helper : position détenue ?
+# ---------------------------------------------------------------------------
+
+def get_position_qty(conn: sqlite3.Connection, ticker: str) -> float:
+    """Retourne la quantité détenue (0 si pas de position)."""
+    row = conn.execute(
+        """SELECT pp.quantity FROM portfolio_positions pp
+           JOIN instruments i ON i.id = pp.instrument_id
+           WHERE i.ticker = ?""",
+        (ticker,)
+    ).fetchone()
+    return row["quantity"] if row else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Execution Cycle
+# ---------------------------------------------------------------------------
+
+DEFAULT_BROKER = PaperBroker(slippage_pct=0.001, fee_per_share=0.005)
+
+
+def create_and_execute_order(conn, instrument_id, thesis_id, side, quantity,
+                              order_type="market", limit_price=None,
+                              broker=DEFAULT_BROKER) -> dict:
+    price_row = conn.execute(
+        """SELECT p.close FROM prices p
+           JOIN instruments i ON i.id = p.instrument_id
+           WHERE p.instrument_id = ?
+           ORDER BY p.date DESC LIMIT 1""",
+        (instrument_id,)
+    ).fetchone()
+
+    if not price_row:
+        return {"success": False, "reason": "No price data for instrument"}
+
+    current_price   = price_row[0]
+    effective_price = limit_price if (order_type == "limit" and limit_price) else current_price
+
+    risk_result = check_order(conn, instrument_id, thesis_id, side, quantity, effective_price)
+
+    # [RISK_V2_WIRED] gate hybride - Concentration (block) / VaR + Correlation (warn)
+    try:
+        # Resolve ticker pour le module risk_pretrade (qui attend ticker, pas instrument_id)
+        _rv2_ticker_row = conn.execute(
+            "SELECT ticker FROM instruments WHERE id = ?", (instrument_id,)
+        ).fetchone()
+        _rv2_ticker = _rv2_ticker_row[0] if _rv2_ticker_row else None
+        if _rv2_ticker:
+            from risk_pretrade import run_pretrade_checks as _rv2_run
+            _rv2 = _rv2_run(_rv2_ticker, quantity, effective_price, side)
+            # Inject dans le risk_result existant
+            if isinstance(risk_result, dict):
+                risk_result.setdefault("warnings", [])
+                risk_result["risk_v2"] = _rv2
+                _rv2_blocked = _rv2.get("blocked_by")
+                if _rv2_blocked == "concentration":
+                    # BLOCK DUR concentration
+                    risk_result["approved"] = False
+                    risk_result["action"] = "rejected_concentration_v2"
+                    risk_result.setdefault("reasons", []).append(
+                        f"[RISK_V2] BLOCK concentration: new_pct={_rv2.get('details',{}).get('concentration',{}).get('new_pct')} cap=15%"
+                    )
+                elif _rv2_blocked in ("var_budget", "var_marginal", "correlation"):
+                    # WARNING (mode hybride - ordre passe)
+                    risk_result["warnings"].append({
+                        "source": "[RISK_V2]",
+                        "code": _rv2_blocked,
+                        "details": _rv2.get("details", {}).get(
+                            "correlation" if _rv2_blocked == "correlation" else "var", {}
+                        ),
+                    })
+    except Exception as _rv2_err:
+        # Fail-safe : ne bloque pas la prod si le module risk_pretrade plante
+        if isinstance(risk_result, dict):
+            risk_result.setdefault("warnings", []).append({
+                "source": "[RISK_V2]",
+                "code": "risk_v2_error",
+                "message": str(_rv2_err)[:160],
+            })
+
+
+    order_id = conn.execute(
+        """INSERT INTO orders
+               (instrument_id, thesis_id, side, quantity, order_type, limit_price,
+                status, risk_check_result)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (instrument_id, thesis_id, side, quantity, order_type, limit_price,
+         "pending_validation" if risk_result["approved"] else "rejected",
+         json.dumps(risk_result))
+    ).lastrowid
+
+    log_event(conn, "order_created", "order", order_id, {
+        "instrument_id": instrument_id, "side": side, "quantity": quantity,
+        "risk_action": risk_result["action"],
+    }, agent="ExecutionEngine")
+
+    if not risk_result["approved"]:
+        conn.execute("UPDATE orders SET status = 'rejected' WHERE id = ?", (order_id,))
+        return {
+            "success": False, "order_id": order_id,
+            "reason": "Risk check rejected order", "risk_check": risk_result,
+        }
+
+    approved_qty = risk_result["approved_quantity"]
+    conn.execute("UPDATE orders SET quantity = ? WHERE id = ?",
+                 (approved_qty, order_id))
+
+    # [NEXTONES-BROKER-ROUTER-V1] - Phase 3C router (sandwich avant shadow_executor)
+    # Decide route=shadow|live|reject avant que shadow_executor s'execute.
+    # Fail-open : toute exception laisse passer au shadow normal.
+    _nxr_decision = None
+    try:
+        import bridge_config as _nxr_bc
+        # Pre-conditions : routeur n'est utile que si live globalement active OU
+        # qu'on veut un audit decisionnel. On l'appelle toujours pour tracer,
+        # mais on ne fait rien si live disabled (route=shadow direct).
+        import importlib.util as _nxr_ilu
+        import os as _nxr_os
+        _nxr_p = _nxr_os.path.join(
+            _nxr_os.path.dirname(_nxr_os.path.abspath(__file__)),
+            "nextones-broker-router.py",
+        )
+        if _nxr_os.path.exists(_nxr_p):
+            _nxr_spec = _nxr_ilu.spec_from_file_location(
+                "_nx_router_wired", _nxr_p
+            )
+            if _nxr_spec is not None and _nxr_spec.loader is not None:
+                _nxr_mod = _nxr_ilu.module_from_spec(_nxr_spec)
+                _nxr_spec.loader.exec_module(_nxr_mod)
+                # Resolution ticker
+                _nxr_ticker = None
+                try:
+                    _nxr_ticker = _rv2_ticker
+                except NameError:
+                    _nxr_row = conn.execute(
+                        "SELECT ticker FROM instruments WHERE id = ?",
+                        (instrument_id,),
+                    ).fetchone()
+                    _nxr_ticker = _nxr_row[0] if _nxr_row else None
+                # Resolution asset_class (best-effort)
+                _nxr_asset_class = None
+                try:
+                    _nxr_ac_row = conn.execute(
+                        "SELECT asset_class FROM instruments WHERE id = ?",
+                        (instrument_id,),
+                    ).fetchone()
+                    _nxr_asset_class = _nxr_ac_row[0] if _nxr_ac_row else None
+                except Exception:
+                    pass
+                if _nxr_ticker:
+                    _nxr_decision = _nxr_mod.route_order(
+                        thesium_ticker=_nxr_ticker,
+                        side=side,
+                        qty=float(approved_qty),
+                        asset_class=_nxr_asset_class,
+                        entry_price=float(effective_price),
+                        cycle_id="order_id=" + str(order_id),
+                    )
+                    # Log decisionnel
+                    try:
+                        log_event(
+                            conn, "broker_router_decision", "order", order_id,
+                            {
+                                "route": _nxr_decision.get("route"),
+                                "reason": _nxr_decision.get("reason"),
+                                "broker_symbol": _nxr_decision.get("broker_symbol"),
+                                "volume_lots": _nxr_decision.get("volume_lots"),
+                                "est_notional_eur": _nxr_decision.get("est_notional_eur"),
+                                "live_nav_eur": _nxr_decision.get("live_nav_eur"),
+                            },
+                            agent="BrokerRouter",
+                        )
+                    except Exception:
+                        pass
+                    # Court-circuit reject
+                    if _nxr_decision.get("route") == "reject":
+                        try:
+                            conn.execute(
+                                "UPDATE orders SET status = 'rejected_router' "
+                                "WHERE id = ?", (order_id,),
+                            )
+                            conn.commit()
+                        except Exception:
+                            pass
+                        return {
+                            "success": False,
+                            "order_id": order_id,
+                            "reason": "Router rejected: " + str(
+                                _nxr_decision.get("reason")
+                            ),
+                            "router_decision": _nxr_decision,
+                            "risk_check": risk_result,
+                        }
+                    # route=live : place_order si LIVE_DRY_RUN=False
+                    if _nxr_decision.get("route") == "live":
+                        if not bool(getattr(_nxr_bc, "LIVE_DRY_RUN", True)):
+                            try:
+                                import metaapi_provider as _nxr_mp
+                                _nxr_po = _nxr_mp.place_order(
+                                    symbol=_nxr_decision.get("broker_symbol"),
+                                    side=side,
+                                    volume=_nxr_decision.get("volume_lots"),
+                                    comment="nextones_order_" + str(order_id),
+                                )
+                                _nxr_decision["place_order_result"] = _nxr_po
+                                try:
+                                    log_event(
+                                        conn, "broker_place_order", "order", order_id,
+                                        {
+                                            "accepted": _nxr_po.get("accepted"),
+                                            "broker_order_id": _nxr_po.get("broker_order_id"),
+                                            "error": _nxr_po.get("error"),
+                                        },
+                                        agent="BrokerRouter",
+                                    )
+                                except Exception:
+                                    pass
+                            except Exception as _nxr_po_e:
+                                try:
+                                    import sys as _nxr_sys
+                                    print(
+                                        "[WARN] [NEXTONES-BROKER-ROUTER-V1] place_order: "
+                                        + str(_nxr_po_e)[:200],
+                                        file=_nxr_sys.stderr,
+                                    )
+                                except Exception:
+                                    pass
+    except Exception as _nxr_e:
+        try:
+            import sys as _nxr_sys
+            print(
+                "[WARN] [NEXTONES-BROKER-ROUTER-V1] " + str(_nxr_e)[:200],
+                file=_nxr_sys.stderr,
+            )
+        except Exception:
+            pass
+    # Fin [NEXTONES-BROKER-ROUTER-V1]
+
+    # [NEXTONES-SHADOW-EXEC-COMMIT-V2] - commit conn avant shadow pour liberer le lock writer
+    # [NEXTONES-SHADOW-EXEC-V1] - shadow executor en parallele (fire-and-forget)
+    try:
+        try:
+            conn.commit()  # [NEXTONES-SHADOW-EXEC-COMMIT-V2]
+        except Exception:
+            pass
+        import bridge_config as _bc_sh
+        if getattr(_bc_sh, "BROKER_SHADOW_ENABLED", False):
+            import importlib.util as _ilu_sh
+            import os as _os_sh
+            _p_sh = _os_sh.path.join(
+                _os_sh.path.dirname(_os_sh.path.abspath(__file__)),
+                "nextones-broker-shadow-executor.py",
+            )
+            if _os_sh.path.exists(_p_sh):
+                _spec_sh = _ilu_sh.spec_from_file_location(
+                    "_nx_shadow_exec", _p_sh
+                )
+                if _spec_sh is not None and _spec_sh.loader is not None:
+                    _mod_sh = _ilu_sh.module_from_spec(_spec_sh)
+                    _spec_sh.loader.exec_module(_mod_sh)
+                    _ticker_sh = None
+                    try:
+                        _ticker_sh = _rv2_ticker
+                    except NameError:
+                        _row_sh = conn.execute(
+                            "SELECT ticker FROM instruments WHERE id = ?",
+                            (instrument_id,),
+                        ).fetchone()
+                        _ticker_sh = _row_sh[0] if _row_sh else None
+                    if _ticker_sh:
+                        _mod_sh.execute_shadow(
+                            thesium_ticker=_ticker_sh,
+                            side=side,
+                            qty=float(approved_qty),
+                            cycle_id="order_id=" + str(order_id),
+                            entry_price=float(effective_price),
+                        )
+    except Exception as _sh_e:
+        try:
+            import sys as _sh_sys
+            print(
+                "[WARN] [NEXTONES-SHADOW-EXEC-V1] " + str(_sh_e)[:200],
+                file=_sh_sys.stderr,
+            )
+        except Exception:
+            pass
+
+    return {
+        "success": True, "order_id": order_id,
+        "status": "pending_validation", "risk_check": risk_result,
+    }
+
+
+# =============================================================================
+# TARGET WEIGHTS — table portfolio_targets (v6.1)
+# =============================================================================
+# v6.1 : on persiste les targets dans une vraie table portfolio_targets.
+# Schéma : (ticker UNIQUE, target_weight_pct REAL, active INTEGER, source TEXT,
+#           updated_at TEXT). Seed automatique si la table est vide.
+# =============================================================================
+
+DEFAULT_TARGET_WEIGHTS = {
+    # Valeurs alignées avec ce qu'affiche l'UI "Portfolio idéal" (mai 2026).
+    # Modifiables à chaud via POST /api/targets ou directement en SQL.
+    "META": 2.0,
+    "LINK": 1.0,
+    "ETH": 0.8,
+    "BTC": 1.0,
+}
+
+
+def _ensure_portfolio_targets_table(conn) -> None:
+    """Crée la table portfolio_targets si absente et seed les valeurs par défaut.
+
+    Idempotent : peut être appelé à chaque cycle, ne touche pas aux données
+    existantes. Le seed n'a lieu qu'à la toute première exécution
+    (table fraîchement créée et vide).
+    """
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS portfolio_targets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT UNIQUE NOT NULL,
+                target_weight_pct REAL NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                source TEXT DEFAULT 'manual',
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.commit()
+
+        # Seed uniquement si vide
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM portfolio_targets"
+        ).fetchone()
+        n_existing = row["n"] if row else 0
+        if n_existing == 0:
+            conn.executemany(
+                """INSERT INTO portfolio_targets
+                   (ticker, target_weight_pct, active, source)
+                   VALUES (?, ?, 1, 'seed_v6_1')""",
+                [(t, w) for t, w in DEFAULT_TARGET_WEIGHTS.items()],
+            )
+            conn.commit()
+            print(f"[targets] Table portfolio_targets seed\u00e9e avec "
+                  f"{len(DEFAULT_TARGET_WEIGHTS)} tickers : "
+                  f"{', '.join(DEFAULT_TARGET_WEIGHTS.keys())}")
+    except Exception as e:
+        print(f"[targets] WARN : impossible de cr\u00e9er/seeder portfolio_targets : {e}")
+
+
+def _load_target_weights(conn) -> dict:
+    """Récupère les target_weights actifs depuis portfolio_targets.
+
+    Retourne un dict {ticker: pct} ou {} si rien de trouvable.
+    Ordre de priorité :
+      1) Table portfolio_targets (source de vérité v6.1+)
+      2) Fallback : colonne target_weights_json dans theses (legacy)
+    """
+    # Assurance : la table existe (idempotent, pas coûteux)
+    _ensure_portfolio_targets_table(conn)
+
+    # Source 1 — table dédiée (priorité absolue)
+    try:
+        rows = conn.execute(
+            """SELECT ticker, target_weight_pct FROM portfolio_targets
+               WHERE active = 1 AND target_weight_pct IS NOT NULL"""
+        ).fetchall()
+        if rows:
+            return {r["ticker"]: float(r["target_weight_pct"]) for r in rows}
+    except Exception:
+        pass
+
+    # Source 2 — fallback legacy depuis theses
+    try:
+        row = conn.execute(
+            "SELECT target_weights_json FROM theses "
+            "WHERE target_weights_json IS NOT NULL "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if row and row[0]:
+            return json.loads(row[0])
+    except Exception:
+        pass
+
+    return {}
+
+
+def set_target_weight(conn, ticker: str, target_pct: float,
+                     source: str = "manual") -> dict:
+    """Helper public : insère ou met à jour le target d'un ticker.
+
+    Utilisable depuis un endpoint API (ex. POST /api/targets) ou un script.
+    Retourne l'état après écriture.
+    """
+    _ensure_portfolio_targets_table(conn)
+    conn.execute("""
+        INSERT INTO portfolio_targets (ticker, target_weight_pct, active, source, updated_at)
+        VALUES (?, ?, 1, ?, datetime('now'))
+        ON CONFLICT(ticker) DO UPDATE SET
+          target_weight_pct = excluded.target_weight_pct,
+          active            = 1,
+          source            = excluded.source,
+          updated_at        = datetime('now')
+    """, (ticker.upper().strip(), float(target_pct), source))
+    conn.commit()
+    return {
+        "ticker": ticker.upper().strip(),
+        "target_weight_pct": float(target_pct),
+        "source": source,
+    }
+
+
+
+def _build_target_gap_proposals(conn, total_value, existing_proposals, regime):
+    """v6.4 — Génère des propositions synthétiques pour combler l'écart entre
+    portfolio_targets (cibles de PortfolioConstructionAgent) et le portefeuille
+    actuel.
+
+    Pipeline :
+      1. Lit portfolio_targets WHERE active=1
+      2. Pour chaque ticker, calcule cible_pct âˆ’ actuel_pct
+      3. Si |delta| > TARGET_GAP_MIN_DELTA_PCT, crée une proposition synthétique
+      4. Si un agent tactique a déjà proposé le même ticker du même côté, fusionne
+         (garde le max des deux qty_pct) au lieu de doublonner.
+
+    Args:
+        conn : sqlite3.Connection
+        total_value : NAV courant (float)
+        existing_proposals : liste des propositions déjà générées par les agents
+        regime : 'BUILD' | 'MAINTAIN' | 'REBALANCE'
+
+    Returns:
+        (synthetic_proposals, merged_proposals, stats) :
+          * synthetic_proposals : nouvelles propositions à ajouter au flux
+          * merged_proposals    : existing_proposals modifiées in-place (pour info)
+          * stats : dict {n_buy_inj, n_sell_inj, n_merged, n_skipped_small, gap_total_pct}
+    """
+    stats = {
+        "n_buy_inj": 0, "n_sell_inj": 0, "n_merged": 0,
+        "n_skipped_small": 0, "gap_total_pct": 0.0,
+        "n_conflict_resolved": 0,
+    }
+    synthetic = []
+
+    # 1. Charger targets actifs
+    targets = _load_target_weights(conn)
+    if not targets:
+        print("[target_gap] aucune cible active dans portfolio_targets — skip")
+        return synthetic, existing_proposals, stats
+
+    # 2. Charger positions actuelles + prix
+    positions = {}
+    prices = {}
+    for r in conn.execute("""
+        SELECT i.ticker, p.quantity, p.current_price
+        FROM portfolio_positions p
+        JOIN instruments i ON p.instrument_id = i.id
+    """).fetchall():
+        tkr = r["ticker"]
+        qty = float(r["quantity"] or 0)
+        cp  = float(r["current_price"] or 0)
+        positions[tkr] = qty
+        if cp > 0:
+            prices[tkr] = cp
+
+    # 3. Compléter prices pour les tickers cibles non détenus
+    missing_tkrs = [t for t in targets.keys() if t not in prices]
+    if missing_tkrs:
+        for tkr in missing_tkrs:
+            row = conn.execute("""
+                SELECT p.close FROM prices p
+                JOIN instruments i ON p.instrument_id = i.id
+                WHERE i.ticker = ?
+                ORDER BY p.date DESC LIMIT 1
+            """, (tkr,)).fetchone()
+            if row and row[0]:
+                prices[tkr] = float(row[0])
+
+    # 4. Index des propositions existantes par ticker (pour merge)
+    by_ticker_side = {}  # (ticker, side) -> proposal
+    for p in existing_proposals:
+        key = (p.get("ticker"), p.get("side"))
+        by_ticker_side[key] = p
+
+    # 5. Boucle sur chaque cible
+    for ticker, target_pct in targets.items():
+        price = prices.get(ticker)
+        if not price or price <= 0:
+            print(f"[target_gap]   {ticker:<6} skip : pas de prix disponible")
+            continue
+
+        held_qty   = positions.get(ticker, 0.0)
+        actual_val = held_qty * price
+        actual_pct = (actual_val / total_value) * 100 if total_value > 0 else 0
+        delta_pct  = target_pct - actual_pct
+        stats["gap_total_pct"] += abs(delta_pct)
+
+        # Seuil minimal
+        if abs(delta_pct) < TARGET_GAP_MIN_DELTA_PCT:
+            stats["n_skipped_small"] += 1
+            continue
+
+        side = "buy" if delta_pct > 0 else "sell"
+        # quantité cible : on comble le delta entier (choix utilisateur : 1 cycle)
+        delta_val = abs(delta_pct) / 100 * total_value
+        # Jalon 3 - qty fractionnaire crypto
+        CRYPTO_TICKERS = {'BTC', 'ETH', 'LINK', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX'}
+        is_crypto = ticker in CRYPTO_TICKERS
+        if is_crypto:
+            qty = round(delta_val / price, 6)
+        else:
+            qty = math.floor(delta_val / price)
+
+        # Pour les SELL, plafonner à la position détenue
+        if side == "sell":
+            if is_crypto:
+                qty = min(qty, round(held_qty, 6))
+            else:
+                qty = int(min(qty, math.floor(held_qty)))
+
+        # Jalon 3 - seuil min adaptatif
+        min_qty = 0.0001 if is_crypto else 1
+        if qty < min_qty:
+            print(f"[target_gap]   {ticker:<6} skip : qty=0 (delta={delta_pct:+.2f}% px={price:.2f})")
+            continue
+
+        # Créer la proposition synthétique
+        synth_prop = {
+            "thesis_id":     None,                    # pas de thèse rattachée
+            "ticker":        ticker,
+            "side":          side,
+            "quantity_pct":  abs(delta_pct),          # delta en % NAV
+            "source":        "TargetGap",             # tag
+            "agent_type":    "PortfolioConstructionAgent",
+            "conviction":    TARGET_GAP_CONVICTION,   # 8.0
+            "conviction_raw": TARGET_GAP_CONVICTION,
+            "regime_mult":   1.0,                     # pas d'atténuation régime
+            "reason":        f"Gap to target {delta_pct:+.2f}% NAV (cible {target_pct:.2f}% âˆ’ actuel {actual_pct:.2f}%)",
+        }
+        if side == "sell":
+            synth_prop["max_qty"] = held_qty
+
+        # ----------------------------------------------------------------
+        # v6.5 CLEANUP : résolution des conflits de sens opposé
+        # Si TargetGap veut SELL et qu'un agent a un BUY (ou vice-versa),
+        # on résout par conviction AVANT que le Reconciler ne le voie.
+        # Cela évite les doublons Order/Fill observés en v6.4.
+        # ----------------------------------------------------------------
+        opposite_side = "buy" if side == "sell" else "sell"
+        conflict_prop = by_ticker_side.get((ticker, opposite_side))
+        if conflict_prop is not None:
+            agent_conv = float(conflict_prop.get("conviction", 0))
+            tg_conv    = float(synth_prop["conviction"])  # TARGET_GAP_CONVICTION = 8.0
+            if tg_conv > agent_conv:
+                # TargetGap gagne : on KEEP le sens TargetGap
+                # et on RETIRE la proposition agent conflictuelle du flux
+                existing_proposals[:] = [
+                    p for p in existing_proposals if p is not conflict_prop
+                ]
+                # Mettre aussi à jour l'index local
+                by_ticker_side.pop((ticker, opposite_side), None)
+                stats["n_conflict_resolved"] += 1
+                print(
+                    f"[target_gap_dedup]   {ticker:<6} conflit SELL/BUY résolu "
+                    f"en faveur TargetGap (conv TG={tg_conv:.1f} > agent={agent_conv:.1f}) "
+                    f"— proposition agent {conflict_prop.get('source','?')} retirée"
+                )
+            else:
+                # Agent gagne : on SKIP le SELL synthétique
+                stats["n_conflict_resolved"] += 1
+                print(
+                    f"[target_gap_dedup]   {ticker:<6} conflit SELL/BUY résolu "
+                    f"en faveur agent (conv agent={agent_conv:.1f} >= TG={tg_conv:.1f}) "
+                    f"— SELL synthétique TargetGap ignoré"
+                )
+                continue  # on ne pousse pas le SELL synthétique
+
+        # Fusion : si un agent a déjà proposé le même ticker/side, on garde le max
+        existing = by_ticker_side.get((ticker, side))
+        if existing is not None:
+            existing_qty_pct = float(existing.get("quantity_pct", 0))
+            if abs(delta_pct) > existing_qty_pct:
+                # le gap est plus gros que ce que l'agent propose â†’ élever la qty
+                existing["quantity_pct"] = abs(delta_pct)
+                existing["reason"] = (existing.get("reason") or "") + f" | merged TargetGap +{delta_pct:+.2f}%"
+                # garder un floor de conviction à 8.0 pour bénéficier des overrides
+                if float(existing.get("conviction", 0)) < TARGET_GAP_CONVICTION:
+                    existing["conviction"] = TARGET_GAP_CONVICTION
+                stats["n_merged"] += 1
+                print(f"[target_gap]   {ticker:<6} {side.upper()} MERGED â†’ qty_pct={abs(delta_pct):.2f}% (agent={existing.get('source')})")
+            else:
+                stats["n_merged"] += 1
+                print(f"[target_gap]   {ticker:<6} {side.upper()} déjà couvert par {existing.get('source')} (qty_pct={existing_qty_pct:.2f}% >= delta {abs(delta_pct):.2f}%)")
+            continue
+
+        # Sinon, on ajoute une nouvelle proposition synthétique
+        synthetic.append(synth_prop)
+        if side == "buy":
+            stats["n_buy_inj"] += 1
+        else:
+            stats["n_sell_inj"] += 1
+        print(f"[target_gap]   {ticker:<6} {side.upper():<4} qty={qty:<6} ({abs(delta_pct):+.2f}% NAV) — {synth_prop['reason']}")
+
+    return synthetic, existing_proposals, stats
+
+
+def _build_reconciler_context(conn, total_value, proposals):
+    """Construit current_positions, prices, target_weights pour le Reconciler."""
+    current_pos = {}
+    prices = {}
+
+    # Positions actuelles + leur current_price
+    for r in conn.execute("""
+        SELECT i.ticker, p.quantity, p.current_price
+        FROM portfolio_positions p
+        JOIN instruments i ON p.instrument_id = i.id
+    """).fetchall():
+        try:
+            current_pos[r["ticker"]] = r["quantity"] or 0
+            if r["current_price"]:
+                prices[r["ticker"]] = r["current_price"]
+        except (KeyError, IndexError, TypeError):
+            pass
+
+    # Compléter prices avec les derniers close pour les tickers proposés non détenus
+    proposed_tickers = {p["ticker"] for p in proposals if p.get("ticker")}
+    missing = proposed_tickers - set(prices.keys())
+    for tkr in missing:
+        row = conn.execute("""
+            SELECT p.close FROM prices p
+            JOIN instruments i ON p.instrument_id = i.id
+            WHERE i.ticker = ?
+            ORDER BY p.date DESC LIMIT 1
+        """, (tkr,)).fetchone()
+        if row:
+            prices[tkr] = row[0]
+
+    target_weights = _load_target_weights(conn)
+    return current_pos, prices, target_weights
+
+
+def _enrich_proposals_with_conviction(proposals, agent_results):
+    """Ajoute conviction dans chaque proposal en lookant agent_results."""
+    # Index : thesis_id â†’ conviction
+    thesis_conv = {}
+    for agent_key in ("factor", "microstructure", "crypto", "altdata"):
+        for item in agent_results.get(agent_key, []) or []:
+            tid = item.get("thesis_id")
+            if tid is not None:
+                thesis_conv[tid] = item.get("conviction", 0)
+
+    for p in proposals:
+        if "conviction" not in p:
+            p["conviction"] = thesis_conv.get(p.get("thesis_id"), 0)
+    return proposals
+
+
+def run_decision_cycle(conn: sqlite3.Connection) -> dict:
+    """
+    Decision cycle PATCHED 2026-05-22 + 2026-05-24 :
+      - conviction >= 5
+      - FactorAgent overweight  â†’ BUY (toujours)
+      - FactorAgent underweight â†’ SELL UNIQUEMENT si position détenue
+      - MicrostructureAgent sell signal â†’ SELL UNIQUEMENT si position détenue
+      - CryptoAgent strong_buy/buy/accumulate â†’ BUY ; sell/take_profit â†’ SELL si tenu
+      - OrderReconciler : déduplique conflits, drop bruit < 0,3 % NAV,
+        bypass conviction >= 9
+    """
+
+
+    # [NEXTONES-MARKET-GUARD-V1] start
+
+
+    try:
+
+
+        import importlib.util as _ilu, os as _os
+
+
+        _here = _os.path.dirname(_os.path.abspath(__file__))
+
+
+        _p = _os.path.join(_here, "nextones-market-calendar.py")
+
+
+        _spec = _ilu.spec_from_file_location("_nx_market_calendar", _p)
+
+
+        _mc = _ilu.module_from_spec(_spec)
+
+
+        _spec.loader.exec_module(_mc)
+
+
+        _force = bool(locals().get("force", False))
+
+
+        _allowed, _reason = _mc.guard_or_skip(force=_force)
+
+
+        if not _allowed:
+
+
+            _nxt = _mc.next_us_open()
+
+
+            print(f"[MARKET-GUARD] skip cycle : {_reason}")
+
+
+            print(f"[MARKET-GUARD] next_open : {_nxt.isoformat()}")
+
+
+            return {
+
+
+                "status": "skipped",
+
+
+                "reason": _reason,
+
+
+                "next_open_utc": _nxt.isoformat(),
+
+
+                "guard": "NEXTONES-MARKET-GUARD-V1",
+
+
+            }
+
+
+        if _reason.startswith("early_close_warning"):
+
+
+            print(f"[MARKET-GUARD] WARN : {_reason}")
+
+
+    except Exception as _ge:
+
+
+        print(f"[MARKET-GUARD] erreur garde-fou (ignoree) : {_ge}")
+
+
+    # [NEXTONES-MARKET-GUARD-V1] end
+    from agents import run_all_agents
+    from memo_generator import generate_ic_memo
+
+    print("[execution] Starting decision cycle...")
+
+    # Step 1: Run agents
+    agent_results = run_all_agents(conn)
+    conn.commit()
+
+    proposals = []
+
+    # ----- FactorAgent -----
+    for item in agent_results.get("factor", []):
+        conv   = item.get("conviction", 0)
+        tilt   = item.get("tilt")
+        ticker = item.get("ticker")
+        if conv < CONVICTION_THRESHOLD:
+            continue
+
+        if tilt == "overweight":
+            proposals.append({
+                "thesis_id": item["thesis_id"], "ticker": ticker,
+                "side": "buy", "quantity_pct": FACTOR_POSITION_PCT,
+                "source": "FactorAgent",
+                "conviction": conv,
+            })
+        elif tilt == "underweight":
+            held_qty = get_position_qty(conn, ticker)
+            if held_qty > 0:
+                proposals.append({
+                    "thesis_id": item["thesis_id"], "ticker": ticker,
+                    "side": "sell", "quantity_pct": FACTOR_POSITION_PCT,
+                    "source": "FactorAgent",
+                    "max_qty": held_qty,
+                    "conviction": conv,
+                })
+            else:
+                print(f"[execution] Skip SELL {ticker}: no position held (underweight thesis ignored)")
+
+    # ----- MicrostructureAgent -----
+    for item in agent_results.get("microstructure", []):
+        conv   = item.get("conviction", 0)
+        signal = item.get("signal", "").lower()
+        ticker = item.get("ticker")
+        if conv < CONVICTION_THRESHOLD:
+            continue
+
+        if "buy" in signal:
+            proposals.append({
+                "thesis_id": item["thesis_id"], "ticker": ticker,
+                "side": "buy", "quantity_pct": MICRO_POSITION_PCT,
+                "source": "MicrostructureAgent",
+                "conviction": conv,
+            })
+        elif "sell" in signal or "reduce" in signal:
+            held_qty = get_position_qty(conn, ticker)
+            if held_qty > 0:
+                proposals.append({
+                    "thesis_id": item["thesis_id"], "ticker": ticker,
+                    "side": "sell", "quantity_pct": MICRO_POSITION_PCT,
+                    "source": "MicrostructureAgent",
+                    "max_qty": held_qty,
+                    "conviction": conv,
+                })
+            else:
+                print(f"[execution] Skip SELL {ticker}: no position held (micro signal ignored)")
+
+    # ----- CryptoAgent -----
+    for item in agent_results.get("crypto", []):
+        conv   = item.get("conviction", 0)
+        signal = item.get("signal", "").lower()
+        ticker = item.get("ticker")
+        if conv < CONVICTION_THRESHOLD:
+            continue
+
+        if signal in ("strong_buy", "buy", "accumulate"):
+            qty_pct = MICRO_POSITION_PCT * 2 if signal == "strong_buy" else MICRO_POSITION_PCT
+            proposals.append({
+                "thesis_id": item["thesis_id"], "ticker": ticker,
+                "side": "buy", "quantity_pct": qty_pct,
+                "source": "CryptoAgent",
+                "conviction": conv,
+            })
+        elif signal in ("sell", "take_profit"):
+            held_qty = get_position_qty(conn, ticker)
+            if held_qty > 0:
+                proposals.append({
+                    "thesis_id": item["thesis_id"], "ticker": ticker,
+                    "side": "sell", "quantity_pct": MICRO_POSITION_PCT,
+                    "source": "CryptoAgent",
+                    "max_qty": held_qty,
+                    "conviction": conv,
+                })
+            else:
+                print(f"[execution] Skip SELL {ticker}: no position held (crypto signal ignored)")
+
+    # Step 2 : Compute NAV
+    portfolio_state = conn.execute(
+        "SELECT total_value, cash FROM portfolio_state WHERE id = 1"
+    ).fetchone()
+    total_value = portfolio_state["total_value"] if portfolio_state else 1_000_000
+
+    # cycle_id partagé par ExitAgent, PortfolioRegime et Reconciler
+    cycle_id = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+
+    # ============================================================
+    # Step 2.3 : DÉTECTION DU RÉGIME DE PORTEFEUILLE (NEW — v6)
+    # ============================================================
+    # Calcule BUILD / MAINTAIN / REBALANCE selon % investi du NAV.
+    # Sera appliqué après l'ExitAgent (pour atténuer les exit proposals)
+    # et avant le Reconciler.
+    try:
+        regime_info = detect_portfolio_regime(conn)
+        print(f"[regime] Régime détecté : {regime_info['regime']} "
+              f"(invested={regime_info['invested_pct']:.2f} %, "
+              f"NAV={regime_info['nav']:.0f}, cash={regime_info['cash']:.0f}, "
+              f"positions={regime_info['n_positions']})")
+    except Exception as e:
+        import traceback
+        print(f"[regime] ERREUR détection — fallback MAINTAIN : {e}")
+        traceback.print_exc()
+        regime_info = {"regime": "MAINTAIN", "invested_pct": 50.0,
+                       "nav": total_value, "cash": 0.0, "n_positions": 0}
+
+    # ============================================================
+    # Step 2.4 : EXIT AGENT (patch 2026-05-24 b / v5)
+    # ============================================================
+    # Examine les positions ouvertes et émet SL / TP / DRIFT / TIME_DECAY.
+    # En régime BUILD, les exit proposals seront atténués par le mult Ã—0.3
+    # appliqué au Step 2.45.
+    try:
+        targets_cache = _load_target_weights(conn)
+        exit_proposals = run_exit_agent(
+            conn, cycle_id=cycle_id,
+            targets=targets_cache, nav=total_value
+        )
+        if exit_proposals:
+            print(f"[execution] ExitAgent : {len(exit_proposals)} signal(s) ajouté(s)")
+            proposals.extend(exit_proposals)
+    except Exception as e:
+        import traceback
+        print(f"[exit_agent] ERREUR (non bloquant) : {e}")
+        traceback.print_exc()
+
+    # ============================================================
+    # Step 2.42 : TARGET GAP SYNTHESIZER (NEW — v6.4)
+    # ============================================================
+    # Lit portfolio_targets et génère des propositions synthétiques pour
+    # combler tout écart > 0.30 % NAV avec les positions actuelles.
+    # Doit tourner APRÈS les agents (pour pouvoir fusionner avec leurs
+    # propositions) et AVANT le régime (pour bénéficier des caps).
+    try:
+        gap_synth, _, gap_stats = _build_target_gap_proposals(
+            conn, total_value, proposals,
+            regime=regime_info.get("regime", "MAINTAIN"),
+        )
+        if gap_synth:
+            proposals.extend(gap_synth)
+        print(
+            f"[target_gap] {gap_stats['n_buy_inj']} BUY synthétiques, "
+            f"{gap_stats['n_sell_inj']} SELL synthétiques, "
+            f"{gap_stats['n_merged']} fusions avec agents, "
+            f"{gap_stats['n_skipped_small']} écart(s) sous le seuil 0.30 % — "
+            f"gap total |Î”|={gap_stats['gap_total_pct']:.2f} % — "
+            f"{gap_stats['n_conflict_resolved']} conflit(s) BUY/SELL résolu(s) [v6.5]"
+        )
+    except Exception as e:
+        import traceback
+        print(f"[target_gap] ERREUR (non bloquant) : {e}")
+        traceback.print_exc()
+
+    # ============================================================
+    # Step 2.45 : APPLICATION DU RÉGIME (NEW — v6)
+    # ============================================================
+    # 1) Enrichit chaque proposal avec sa conviction brute (depuis agent_results)
+    # 2) Applique le multiplicateur (régime Ã— agent_type) sur la conviction
+    # 3) Plafonne la taille des SELL en % de la position détenue
+    # 4) Plafonne la taille des BUY au target Ã— overshoot
+    # 5) Log dans regime_log
+    try:
+        proposals = _enrich_proposals_with_conviction(proposals, agent_results)
+        targets_for_regime = _load_target_weights(conn) or {}
+        regime_stats = apply_regime_to_proposals(
+            conn, proposals, regime_info, target_weights=targets_for_regime
+        )
+        log_regime(conn, cycle_id, regime_info, regime_stats,
+                   notes=f"v6 — {regime_stats['n_attenuated']} att., "
+                         f"{regime_stats['n_sell_capped']} SELL capped, "
+                         f"{regime_stats['n_buy_capped']} BUY capped")
+        if regime_stats["n_sell_capped"] or regime_stats["n_buy_capped"] \
+           or regime_stats["n_attenuated"]:
+            print(f"[regime] {regime_info['regime']} appliqué : "
+                  f"{regime_stats['n_attenuated']} convictions ajustées, "
+                  f"{regime_stats['n_sell_capped']} SELL plafonnés, "
+                  f"{regime_stats['n_buy_capped']} BUY plafonnés")
+            # Trace détaillée des proposals modifiés
+            for p in proposals:
+                if p.get("cap_reason"):
+                    print(f"[regime]   {p.get('ticker')} {p.get('side','').upper()}"
+                          f" — {p['cap_reason']}")
+                if abs(float(p.get("regime_mult", 1.0)) - 1.0) > 1e-9:
+                    print(f"[regime]   {p.get('ticker')} {p.get('side','').upper()}"
+                          f" {p.get('agent_type','?')} : conv "
+                          f"{p.get('conviction_raw',0):.1f} Ã— {p.get('regime_mult'):.2f}"
+                          f" = {p.get('conviction',0):.2f}")
+    except Exception as e:
+        import traceback
+        print(f"[regime] ERREUR application (non bloquant) : {e}")
+        traceback.print_exc()
+
+    # ============================================================
+    # Step 2.5 : RECONCILIATION (patch 2026-05-24 a)
+    # ============================================================
+    proposals_before = len(proposals)
+    try:
+        # _enrich_proposals_with_conviction est idempotent — déjà appelé en 2.45
+        # mais on le rappelle au cas où des proposals auraient été ajoutés ailleurs
+        proposals = _enrich_proposals_with_conviction(proposals, agent_results)
+        current_pos, prices_map, target_weights = _build_reconciler_context(
+            conn, total_value, proposals
+        )
+
+        reconciler = OrderReconciler(
+            conn=conn,
+            nav=total_value,
+            current_positions=current_pos,
+            target_weights=target_weights,
+            prices=prices_map,
+            regime=regime_info.get("regime", "MAINTAIN"),  # v6.1 : Reconciler régime-aware
+        )
+        proposals = reconciler.reconcile(proposals, cycle_id=cycle_id)
+        print(
+            f"[reconciler] {proposals_before} proposals â†’ {len(proposals)} après réconciliation"
+            f" (cycle_id={cycle_id})"
+        )
+    except Exception as e:
+        import traceback
+        print(f"[reconciler] ERREUR : {e} — fallback : proposals inchangées")
+        traceback.print_exc()
+    # ============================================================
+
+    # Step 3 & 4 : create pending orders
+    _ = cycle_id  # cycle_id déjà défini plus haut (Step 2)
+    pending_orders = []
+    for proposal in proposals:
+        inst = conn.execute(
+            "SELECT id FROM instruments WHERE ticker = ?", (proposal["ticker"],)
+        ).fetchone()
+        if not inst:
+            continue
+
+        price_row = conn.execute(
+            "SELECT close FROM prices WHERE instrument_id = ? ORDER BY date DESC LIMIT 1",
+            (inst["id"],)
+        ).fetchone()
+        if not price_row:
+            continue
+
+        price = price_row[0]
+        target_value = total_value * (proposal["quantity_pct"] / 100)
+        # [RDC_CRYPTO_V1] crypto-aware quantity computation
+        _rdc_crypto_set = {'BTC','ETH','LINK','SOL','ADA','DOT','MATIC','AVAX'}
+        _rdc_ticker = str(proposal.get("ticker","")).upper()
+        _rdc_is_crypto = _rdc_ticker in _rdc_crypto_set
+        if _rdc_is_crypto:
+            quantity = round(target_value / price, 6)
+        else:
+            quantity = math.floor(target_value / price)
+        # FIX : pour les SELL, plafonner à la position détenue
+        if proposal["side"] == "sell" and "max_qty" in proposal:
+            quantity = int(min(quantity, math.floor(proposal["max_qty"])))
+
+        # [BUILD_QTY1_REMOVED_V1] override desactive le 2026-05-27T09:48:59
+        # Le bloc [BUILD_QTY1_V1] forcait quantity=1 sur equities BUY en BUILD.
+        # Desactive pour laisser quantity = math.floor(target_value / price) (ligne ci-dessus).
+        pass
+        # [RDC_CRYPTO_V1] tolerate crypto fractional positions
+        _rdc_min_qty = 0.0001 if _rdc_is_crypto else 0
+        if quantity <= _rdc_min_qty:
+            continue
+        # v6.4 — si la proposition est synthétique (TargetGap), créer une
+        # thèse PortfolioConstructionAgent pour garder un audit propre
+        if proposal.get("thesis_id") is None and proposal.get("source") == "TargetGap":
+            synth_thesis_id = conn.execute("""
+                INSERT INTO theses
+                  (instrument_id, agent_type, thesis_text, conviction_score,
+                   horizon, key_drivers, proposed_action, status,
+                   created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'active',
+                        datetime('now'), datetime('now'))
+            """, (
+                inst["id"],
+                "PortfolioConstructionAgent",
+                f"TargetGap synth: {proposal.get('reason', '')}",
+                float(proposal.get("conviction", TARGET_GAP_CONVICTION)),
+                "medium",
+                "portfolio_targets gap",
+                f"{proposal['side'].upper()} {proposal['ticker']} "
+                f"to close target gap ({proposal.get('quantity_pct', 0):.2f}% NAV)",
+            )).lastrowid
+            proposal["thesis_id"] = synth_thesis_id
+            conn.commit()
+            print(f"[target_gap]   synth thesis id={synth_thesis_id} créée pour {proposal['ticker']} {proposal['side'].upper()}")
+
+        result = create_and_execute_order(
+            conn, inst["id"], proposal["thesis_id"],
+            proposal["side"], quantity, broker=DEFAULT_BROKER
+        )
+        pending_orders.append({
+            "ticker": proposal["ticker"], "side": proposal["side"],
+            "quantity": quantity, "status": result.get("status", "rejected"),
+            "order_id": result.get("order_id"), "result": result,
+        })
+        conn.commit()
+
+    memo_id = generate_ic_memo(conn, agent_results)
+    conn.commit()
+
+    orders_pending = len([o for o in pending_orders if o["status"] == "pending_validation"])
+    print(f"[execution] Cycle complete: {orders_pending} orders pending validation, memo_id={memo_id}")
+
+    return {
+        "agent_results": {
+            "macro_stance":  agent_results["macro"].get("stance"),
+            "factor_theses": len(agent_results["factor"]),
+            "micro_theses":  len(agent_results["microstructure"]),
+            "alt_theses":    len(agent_results["altdata"]),
+        },
+        "orders_pending": orders_pending,
+        "orders": pending_orders,
+        "memo_id": memo_id,
+    }
+
+
+if __name__ == "__main__":
+    from models import init_db
+    init_db()
+    conn = get_db()
+    result = run_decision_cycle(conn)
+    conn.commit()
+    conn.close()
+    print(f"Decision cycle result: {result}")
+
+
+# [RISK_V2] Hook pre-trade - Concentration / VaR marginal / Correlation (schema-aware)
+try:
+    from risk_pretrade import run_pretrade_checks as _risk_v2_run
+    _RISK_V2_AVAILABLE = True
+except Exception as _e:
+    _RISK_V2_AVAILABLE = False
+
+def risk_v2_gate(ticker, qty, price, side, db_path=None):
+    """
+    [RISK_V2] Garde pre-trade. Renvoie (allowed, reason, details).
+    A appeler immediatement avant l'insertion d'un ordre dans la table orders.
+    """
+    if not _RISK_V2_AVAILABLE:
+        return True, "risk_v2_unavailable", {}
+    try:
+        res = _risk_v2_run(ticker, qty, price, side, db_path=db_path)
+        return bool(res.get("passed")), res.get("blocked_by"), res.get("details", {})
+    except Exception as _e:
+        return True, "risk_v2_error:" + str(_e)[:80], {}

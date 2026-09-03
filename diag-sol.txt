@@ -1,0 +1,291 @@
+Tables disponibles : 42
+
+========================================================================
+[1] Instrument SOL
+------------------------------------------------------------------------
+  id = 18
+  ticker = SOL
+  name = Solana
+  sector = smart_chain
+  asset_class = crypto
+  created_at = 2026-05-29 12:04:57
+  ---
+instrument_id SOL = 18
+
+========================================================================
+[2] Position SOL dans portfolio_positions
+------------------------------------------------------------------------
+  id = 11
+  instrument_id = 18
+  quantity = 422.86344599999995
+  avg_cost = 77.2352
+  current_price = 63.8938
+  unrealized_pnl = -5641.59
+  weight_pct = 2.805
+  updated_at = 2026-06-10 08:26:41
+  ---
+
+========================================================================
+[3] Order #266 (SOL BUY 51)
+------------------------------------------------------------------------
+  id = 266
+  instrument_id = 18
+  thesis_id = 7413
+  side = buy
+  quantity = 51.68769
+  order_type = market
+  limit_price = None
+  status = filled
+  risk_check_result = {"approved": true, "action": "approved", "approved_quantity": 51.68769, "reasons": ["Single-name limit: $96,324 max for this ticker", "Sector limit: $240,811 max for smart_chain sector"], "warnings": ["WARNING: Adding to a position down 19.3% from avg cost (stop-loss threshold: 8.0%)", {"source": "[RISK_V2]", "code": "risk_v2_error", "message": "database is locked"}], "metrics": {"order_value_usd" ...[truncated]
+  created_at = 2026-06-10 08:26:25
+  validated_by = rguelin
+  rejection_reason = None
+  validated_at = 2026-06-10T08:26:41.915914
+
+  risk_check_result (parsed) :
+    {
+  "approved": true,
+  "action": "approved",
+  "approved_quantity": 51.68769,
+  "reasons": [
+    "Single-name limit: $96,324 max for this ticker",
+    "Sector limit: $240,811 max for smart_chain sector"
+  ],
+  "warnings": [
+    "WARNING: Adding to a position down 19.3% from avg cost (stop-loss threshold: 8.0%)",
+    {
+      "source": "[RISK_V2]",
+      "code": "risk_v2_error",
+      "message": "database is locked"
+    }
+  ],
+  "metrics": {
+    "order_value_usd": 3299.23,
+    "portfolio_var_pct": 0.647,
+    "position_size_pct": 0.34,
+    "cash_after_trade": 451782.02
+  }
+}
+
+  order_cycle_id = None
+  order_thesis_id = 7413
+
+========================================================================
+[4] Run cycle associe a l'ordre #266
+------------------------------------------------------------------------
+  table candidate : None
+
+========================================================================
+[5] Theses SOL recentes (ts >= aujourd'hui)
+------------------------------------------------------------------------
+  query : SELECT * FROM theses WHERE 1=1 AND instrument_id=? AND date(created_at) >= date('now','-1 day') ORDER BY created_at DESC LIMIT 20
+  found : 20
+  {"id": 7413, "created_at": "2026-06-10T08:25:42.192785", "horizon": "short"}
+  {"id": 7379, "created_at": "2026-06-10T08:25:41.969604", "horizon": "short"}
+  {"id": 7332, "created_at": "2026-06-10T07:03:26.396686", "horizon": "short"}
+  {"id": 7298, "created_at": "2026-06-10T07:03:26.064710", "horizon": "short"}
+  {"id": 7250, "created_at": "2026-06-10T06:31:29.188708", "horizon": "short"}
+  {"id": 7216, "created_at": "2026-06-10T06:31:29.015574", "horizon": "short"}
+  {"id": 7422, "created_at": "2026-06-10 08:25:42", "horizon": "medium"}
+  {"id": 7341, "created_at": "2026-06-10 07:03:26", "horizon": "medium"}
+  {"id": 7259, "created_at": "2026-06-10 06:31:29", "horizon": "medium"}
+  {"id": 7169, "created_at": "2026-06-09T14:54:39.169237", "horizon": "short"}
+  {"id": 7135, "created_at": "2026-06-09T14:54:38.871541", "horizon": "short"}
+  {"id": 7082, "created_at": "2026-06-09T14:36:12.315611", "horizon": "short"}
+  {"id": 7048, "created_at": "2026-06-09T14:36:12.084199", "horizon": "short"}
+  {"id": 6995, "created_at": "2026-06-09T14:28:28.273830", "horizon": "short"}
+  {"id": 6961, "created_at": "2026-06-09T14:28:27.963427", "horizon": "short"}
+  {"id": 6906, "created_at": "2026-06-09T14:02:20.029866", "horizon": "short"}
+  {"id": 6872, "created_at": "2026-06-09T14:02:19.746109", "horizon": "short"}
+  {"id": 6818, "created_at": "2026-06-09T13:46:44.974445", "horizon": "short"}
+  {"id": 6784, "created_at": "2026-06-09T13:46:44.751601", "horizon": "short"}
+  {"id": 6735, "created_at": "2026-06-09T10:00:59.394421", "horizon": "short"}
+
+========================================================================
+[6] Convergence snapshot le plus recent + verdict SOL
+------------------------------------------------------------------------
+  tables convergence trouvees : convergence_snapshots
+
+  >>> convergence_snapshots (id, cycle_id, ticker, direction_consensus, n_aligned, n_present, convergence_pct, sizing_multiplier, forced_exit, drift, is_crypto, buckets_json, created_at)
+    {"id": 60, "cycle_id": "20260609-091332", "ticker": "ZEC", "n_aligned": 2, "created_at": "2026-06-09 11:41:04"}
+    {"id": 59, "cycle_id": "20260609-091332", "ticker": "XOM", "n_aligned": 4, "created_at": "2026-06-09 11:41:04"}
+    {"id": 58, "cycle_id": "20260609-091332", "ticker": "XLK", "n_aligned": 1, "created_at": "2026-06-09 11:41:04"}
+    {"id": 57, "cycle_id": "20260609-091332", "ticker": "XLI", "n_aligned": 2, "created_at": "2026-06-09 11:41:04"}
+    {"id": 56, "cycle_id": "20260609-091332", "ticker": "XLE", "n_aligned": 2, "created_at": "2026-06-09 11:41:04"}
+
+========================================================================
+[7] Construction snapshot le plus recent + ligne SOL
+------------------------------------------------------------------------
+  tables construction/targets : portfolio_targets, portfolio_targets_history, target_construction_config, target_universe
+
+  >>> portfolio_targets (id, ticker, target_weight_pct, active, source, updated_at, snapshot_id, score, agent_decided)
+  found : 1
+  id = 83
+  ticker = SOL
+  target_weight_pct = 2.771
+  active = 1
+  source = agent_v1
+  updated_at = 2026-06-09 10:19:08
+  snapshot_id = snap-20260609T101908-276ac3
+  score = 0.4903
+  agent_decided = 1
+    ---
+
+  >>> portfolio_targets_history (id, snapshot_id, cycle_id, ticker, score, target_weight_pct, prev_target_weight_pct, components_json, regime, included, cap_floor_applied, created_at)
+  found : 5
+  id = 199
+  snapshot_id = snap-20260609T101908-276ac3
+  cycle_id = 20260609-091332
+  ticker = SOL
+  score = 0.4903
+  target_weight_pct = 2.771
+  prev_target_weight_pct = 4.771
+  components_json = {"C_norm": 0.8403, "R_norm": 0.1943, "M_norm": 0.5, "D_norm": 0.5, "V_norm": 0.5, "C_raw": 6.5343}
+  regime = MAINTAIN
+  included = 1
+  cap_floor_applied = 
+  created_at = 2026-06-09 10:19:08
+    ---
+  id = 178
+  snapshot_id = snap-20260609T101521-7efead
+  cycle_id = 20260609-091332
+  ticker = SOL
+  score = 0.4902
+  target_weight_pct = 4.771
+  prev_target_weight_pct = 4.7719
+  components_json = {"C_norm": 0.8403, "R_norm": 0.1939, "M_norm": 0.5, "D_norm": 0.5, "V_norm": 0.5, "C_raw": 6.5343}
+  regime = MAINTAIN
+  included = 1
+  cap_floor_applied = 
+  created_at = 2026-06-09 10:15:21
+    ---
+  id = 157
+  snapshot_id = snap-20260609T100504-c5f0aa
+  cycle_id = 
+  ticker = SOL
+  score = 0.4903
+  target_weight_pct = 4.7719
+  prev_target_weight_pct = 5.0
+  components_json = {"C_norm": 0.8403, "R_norm": 0.1945, "M_norm": 0.5, "D_norm": 0.5, "V_norm": 0.5, "C_raw": 6.5343}
+  regime = MAINTAIN
+  included = 1
+  cap_floor_applied = 
+  created_at = 2026-06-09 10:05:04
+    ---
+  id = 137
+  snapshot_id = snap-20260529T161057-d3a5ae
+  cycle_id = 
+  ticker = SOL
+  score = 0.4718
+  target_weight_pct = 5.0
+  prev_target_weight_pct = 5.0
+  components_json = {"C_norm": 0.7477, "R_norm": 0.3179, "M_norm": 0.5, "D_norm": 0.5, "V_norm": 0.5, "C_raw": 6.5596}
+  regime = MAINTAIN
+  included = 1
+    ERREUR : 'charmap' codec can't encode character '\u2192' in position 30: character maps to <undefined>
+
+  >>> target_construction_config (id, params_json, updated_at)
+  found : 1
+  id = 1
+  params_json = {"w_conviction": 0.4, "w_realized": 0.15, "w_macro": 0.2, "w_diversif": 0.15, "lambda_vol": 0.1, "beta_temp": 3.0, "budget_build": 0.3, "budget_maintain": 0.7, "budget_rebalance": 0.9, "min_score_inclusion": 0.3, "smoothing_max_delta_pct": 2.0, "conviction_halflife_days": 14.0, "conviction_lookback_days": 90, "enable_realized": 1, "enable_macro": 0, "enable_diversif": 0, "enable_vol_penalty": 0}
+  updated_at = 2026-05-29 10:34:20
+    ---
+
+  >>> target_universe (id, ticker, asset_class, sector, is_active, max_weight_pct, min_weight_pct, added_at)
+  found : 1
+  id = 11
+  ticker = SOL
+  asset_class = crypto
+  sector = smart_chain
+  is_active = 1
+  max_weight_pct = 5.0
+  min_weight_pct = 0.5
+  added_at = 2026-05-24 14:57:51
+    ---
+
+========================================================================
+[8] Audit trail SOL aujourd'hui (events lies a #266 ou ticker SOL)
+------------------------------------------------------------------------
+  tables audit : broker_mapping_audit, broker_shadow_audit, event_log, pplx_audit
+
+  >>> broker_mapping_audit : 10 events
+    {"id": 45, "ts": "2026-06-09T14:03:45+00:00", "action": "risk_check_accept", "thesium_ticker": "AMD", "broker_symbol": "AMD.US", "payload_json": "{\"proposal\": {\"thesium_ticker\": \"AMD\", \"side\": \"buy\", \"qty\": 26}, \"result\": {\"ok\": true, \"reason\": null, \"broker_symbol\": \"AMD.US\", \"volume_lots\": 26.0, \"rounding_gap_pct\": 0.0, \"diagnostics\": {\"asset_class\": \"equity_us\", \"resolver_source\": \"heuristic\", \"specs\": {\"contract_size\": 1.0, \"lot_step\": 1.0, \"min_lots\": 1.0}, \"target_lots\": 26.0, \"quote_ccy\": \"USD\"}}}", "notes": "ok"}
+    {"id": 46, "ts": "2026-06-09T14:03:45+00:00", "action": "risk_check_accept", "thesium_ticker": "CSCO", "broker_symbol": "CSCO.US", "payload_json": "{\"proposal\": {\"thesium_ticker\": \"CSCO\", \"side\": \"buy\", \"qty\": 310}, \"result\": {\"ok\": true, \"reason\": null, \"broker_symbol\": \"CSCO.US\", \"volume_lots\": 310.0, \"rounding_gap_pct\": 0.0, \"diagnostics\": {\"asset_class\": \"equity_us\", \"resolver_source\": \"heuristic\", \"specs\": {\"contract_size\": 1.0, \"lot_step\": 1.0, \"min_lots\": 1.0}, \"target_lots\": 310.0, \"quote_ccy\": \"USD\"}}}", "notes": "ok"}
+    {"id": 44, "ts": "2026-06-09T14:02:20+00:00", "action": "risk_check_accept", "thesium_ticker": "TXN", "broker_symbol": "TXN.US", "payload_json": "{\"proposal\": {\"thesium_ticker\": \"TXN\", \"side\": \"buy\", \"qty\": 131}, \"result\": {\"ok\": true, \"reason\": null, \"broker_symbol\": \"TXN.US\", \"volume_lots\": 131.0, \"rounding_gap_pct\": 0.0, \"diagnostics\": {\"asset_class\": \"equity_us\", \"resolver_source\": \"heuristic\", \"specs\": {\"contract_size\": 1.0, \"lot_step\": 1.0, \"min_lots\": 1.0}, \"target_lots\": 131.0, \"quote_ccy\": \"USD\"}}}", "notes": "ok"}
+    {"id": 43, "ts": "2026-06-09T13:48:11+00:00", "action": "risk_check_accept", "thesium_ticker": "AMD", "broker_symbol": "AMD.US", "payload_json": "{\"proposal\": {\"thesium_ticker\": \"AMD\", \"side\": \"buy\", \"qty\": 26}, \"result\": {\"ok\": true, \"reason\": null, \"broker_symbol\": \"AMD.US\", \"volume_lots\": 26.0, \"rounding_gap_pct\": 0.0, \"diagnostics\": {\"asset_class\": \"equity_us\", \"resolver_source\": \"heuristic\", \"specs\": {\"contract_size\": 1.0, \"lot_step\": 1.0, \"min_lots\": 1.0}, \"target_lots\": 26.0, \"quote_ccy\": \"USD\"}}}", "notes": "ok"}
+    {"id": 42, "ts": "2026-06-09T13:48:10+00:00", "action": "risk_check_accept", "thesium_ticker": "CSCO", "broker_symbol": "CSCO.US", "payload_json": "{\"proposal\": {\"thesium_ticker\": \"CSCO\", \"side\": \"buy\", \"qty\": 308}, \"result\": {\"ok\": true, \"reason\": null, \"broker_symbol\": \"CSCO.US\", \"volume_lots\": 308.0, \"rounding_gap_pct\": 0.0, \"diagnostics\": {\"asset_class\": \"equity_us\", \"resolver_source\": \"heuristic\", \"specs\": {\"contract_size\": 1.0, \"lot_step\": 1.0, \"min_lots\": 1.0}, \"target_lots\": 308.0, \"quote_ccy\": \"USD\"}}}", "notes": "ok"}
+    {"id": 41, "ts": "2026-06-09T13:46:45+00:00", "action": "risk_check_accept", "thesium_ticker": "TXN", "broker_symbol": "TXN.US", "payload_json": "{\"proposal\": {\"thesium_ticker\": \"TXN\", \"side\": \"buy\", \"qty\": 132}, \"result\": {\"ok\": true, \"reason\": null, \"broker_symbol\": \"TXN.US\", \"volume_lots\": 132.0, \"rounding_gap_pct\": 0.0, \"diagnostics\": {\"asset_class\": \"equity_us\", \"resolver_source\": \"heuristic\", \"specs\": {\"contract_size\": 1.0, \"lot_step\": 1.0, \"min_lots\": 1.0}, \"target_lots\": 132.0, \"quote_ccy\": \"USD\"}}}", "notes": "ok"}
+    {"id": 40, "ts": "2026-06-09T10:00:59+00:00", "action": "risk_check_accept", "thesium_ticker": "XLK", "broker_symbol": "XLK.US", "payload_json": "{\"proposal\": {\"thesium_ticker\": \"XLK\", \"side\": \"buy\", \"qty\": 88}, \"result\": {\"ok\": true, \"reason\": null, \"broker_symbol\": \"XLK.US\", \"volume_lots\": 88.0, \"rounding_gap_pct\": 0.0, \"diagnostics\": {\"asset_class\": \"etf_us\", \"resolver_source\": \"heuristic\", \"specs\": {\"contract_size\": 1.0, \"lot_step\": 1.0, \"min_lots\": 1.0}, \"target_lots\": 88.0, \"quote_ccy\": \"USD\"}}}", "notes": "ok"}
+    {"id": 39, "ts": "2026-06-09T09:13:32+00:00", "action": "risk_check_accept", "thesium_ticker": "XLK", "broker_symbol": "XLK.US", "payload_json": "{\"proposal\": {\"thesium_ticker\": \"XLK\", \"side\": \"buy\", \"qty\": 88}, \"result\": {\"ok\": true, \"reason\": null, \"broker_symbol\": \"XLK.US\", \"volume_lots\": 88.0, \"rounding_gap_pct\": 0.0, \"diagnostics\": {\"asset_class\": \"etf_us\", \"resolver_source\": \"heuristic\", \"specs\": {\"contract_size\": 1.0, \"lot_step\": 1.0, \"min_lots\": 1.0}, \"target_lots\": 88.0, \"quote_ccy\": \"USD\"}}}", "notes": "ok"}
+    {"id": 38, "ts": "2026-06-09T08:55:51+00:00", "action": "risk_check_accept", "thesium_ticker": "XLK", "broker_symbol": "XLK.US", "payload_json": "{\"proposal\": {\"thesium_ticker\": \"XLK\", \"side\": \"buy\", \"qty\": 88}, \"result\": {\"ok\": true, \"reason\": null, \"broker_symbol\": \"XLK.US\", \"volume_lots\": 88.0, \"rounding_gap_pct\": 0.0, \"diagnostics\": {\"asset_class\": \"etf_us\", \"resolver_source\": \"heuristic\", \"specs\": {\"contract_size\": 1.0, \"lot_step\": 1.0, \"min_lots\": 1.0}, \"target_lots\": 88.0, \"quote_ccy\": \"USD\"}}}", "notes": "ok"}
+    {"id": 37, "ts": "2026-06-09T08:51:21+00:00", "action": "risk_check_accept", "thesium_ticker": "XLK", "broker_symbol": "XLK.US", "payload_json": "{\"proposal\": {\"thesium_ticker\": \"XLK\", \"side\": \"buy\", \"qty\": 88}, \"result\": {\"ok\": true, \"reason\": null, \"broker_symbol\": \"XLK.US\", \"volume_lots\": 88.0, \"rounding_gap_pct\": 0.0, \"diagnostics\": {\"asset_class\": \"etf_us\", \"resolver_source\": \"heuristic\", \"specs\": {\"contract_size\": 1.0, \"lot_step\": 1.0, \"min_lots\": 1.0}, \"target_lots\": 88.0, \"quote_ccy\": \"USD\"}}}", "notes": "ok"}
+
+  >>> broker_shadow_audit : 30 events
+    {"id": 81, "ts": "2026-06-10T08:26:25+00:00", "action": "shadow_accept", "cycle_id": "order_id=266", "thesium_ticker": "SOL", "broker_symbol": "SOLUSD", "payload_json": "{\"shadow_order_id\": 69, \"entry_price\": 63.83000183105469, \"notional\": 3298.7344946289063, \"margin\": 1649.3672473144532, \"leverage\": 2.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"SOL\", \"broker_symbol\": \"SOLUSD\", \"side\": \"buy\", \"qty_requested\": 51.68769, \"volume_lots\": 51.68, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.00014877817135963608, \"reason\": null, \"diagnostics\": {\"as
+    {"id": 80, "ts": "2026-06-10T07:03:37+00:00", "action": "shadow_reject", "cycle_id": "order_id=265", "thesium_ticker": "ZEC", "broker_symbol": null, "payload_json": "{\"accepted\": false, \"thesium_ticker\": \"ZEC\", \"broker_symbol\": null, \"side\": \"sell\", \"qty_requested\": 10.0, \"volume_lots\": 0.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": \"not_tradable_strict_refusal\", \"diagnostics\": {\"resolver_source\": \"unmapped\", \"resolver_reason\": \"not_in_universe_and_no_heuristic_match\", \"asset_class\": null, \"policy\": \"A_strict_refuse\"}}", "notes": "not_
+    {"id": 79, "ts": "2026-06-10T06:32:23+00:00", "action": "shadow_accept", "cycle_id": "order_id=264", "thesium_ticker": "TXN", "broker_symbol": "TXN.US", "payload_json": "{\"shadow_order_id\": 68, \"entry_price\": 288.6300048828125, \"notional\": 3174.9300537109375, \"margin\": 634.9860107421875, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"TXN\", \"broker_symbol\": \"TXN.US\", \"side\": \"sell\", \"qty_requested\": 11.0, \"volume_lots\": 11.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equity_us
+    {"id": 78, "ts": "2026-06-10T06:31:40+00:00", "action": "shadow_reject", "cycle_id": "order_id=263", "thesium_ticker": "ZEC", "broker_symbol": null, "payload_json": "{\"accepted\": false, \"thesium_ticker\": \"ZEC\", \"broker_symbol\": null, \"side\": \"sell\", \"qty_requested\": 55.0, \"volume_lots\": 0.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": \"not_tradable_strict_refusal\", \"diagnostics\": {\"resolver_source\": \"unmapped\", \"resolver_reason\": \"not_in_universe_and_no_heuristic_match\", \"asset_class\": null, \"policy\": \"A_strict_refuse\"}}", "notes": "not_
+    {"id": 77, "ts": "2026-06-09T14:55:21+00:00", "action": "shadow_accept", "cycle_id": "order_id=262", "thesium_ticker": "CSCO", "broker_symbol": "CSCO.US", "payload_json": "{\"shadow_order_id\": 67, \"entry_price\": 120.67500305175781, \"notional\": 3137.550079345703, \"margin\": 627.5100158691406, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"CSCO\", \"broker_symbol\": \"CSCO.US\", \"side\": \"sell\", \"qty_requested\": 26.0, \"volume_lots\": 26.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equit
+    {"id": 76, "ts": "2026-06-09T14:44:12+00:00", "action": "shadow_accept", "cycle_id": "order_id=261", "thesium_ticker": "TSLA", "broker_symbol": "TSLA.US", "payload_json": "{\"shadow_order_id\": 66, \"entry_price\": 407.82501220703125, \"notional\": 9787.80029296875, \"margin\": 1957.56005859375, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"TSLA\", \"broker_symbol\": \"TSLA.US\", \"side\": \"buy\", \"qty_requested\": 24.0, \"volume_lots\": 24.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equity_u
+    {"id": 75, "ts": "2026-06-09T14:43:29+00:00", "action": "shadow_accept", "cycle_id": "order_id=4874", "thesium_ticker": "CAT", "broker_symbol": "CAT.US", "payload_json": "{\"shadow_order_id\": 65, \"entry_price\": 925.0, \"notional\": 40700.0, \"margin\": 8140.0, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"CAT\", \"broker_symbol\": \"CAT.US\", \"side\": \"sell\", \"qty_requested\": 44.0, \"volume_lots\": 44.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equity_us\", \"resolver_source\": \"heuris
+    {"id": 74, "ts": "2026-06-09T14:42:47+00:00", "action": "shadow_accept", "cycle_id": "order_id=4871", "thesium_ticker": "NVDA", "broker_symbol": "NVDA.US", "payload_json": "{\"shadow_order_id\": 64, \"entry_price\": 207.17010498046875, \"notional\": 11601.52587890625, \"margin\": 2320.30517578125, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"NVDA\", \"broker_symbol\": \"NVDA.US\", \"side\": \"buy\", \"qty_requested\": 56.0, \"volume_lots\": 56.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equity
+    {"id": 73, "ts": "2026-06-09T14:42:04+00:00", "action": "shadow_accept", "cycle_id": "order_id=4868", "thesium_ticker": "GOOGL", "broker_symbol": "GOOGL.US", "payload_json": "{\"shadow_order_id\": 63, \"entry_price\": 366.9460144042969, \"notional\": 9173.650360107422, \"margin\": 1834.7300720214844, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"GOOGL\", \"broker_symbol\": \"GOOGL.US\", \"side\": \"sell\", \"qty_requested\": 25.0, \"volume_lots\": 25.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"
+    {"id": 72, "ts": "2026-06-09T14:41:21+00:00", "action": "shadow_accept", "cycle_id": "order_id=4865", "thesium_ticker": "AMZN", "broker_symbol": "AMZN.US", "payload_json": "{\"shadow_order_id\": 62, \"entry_price\": 247.36000061035156, \"notional\": 9894.400024414062, \"margin\": 1978.8800048828125, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"AMZN\", \"broker_symbol\": \"AMZN.US\", \"side\": \"sell\", \"qty_requested\": 40.0, \"volume_lots\": 40.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equ
+    {"id": 71, "ts": "2026-06-09T14:40:39+00:00", "action": "shadow_accept", "cycle_id": "order_id=4862", "thesium_ticker": "LINK", "broker_symbol": "LINKUSD", "payload_json": "{\"shadow_order_id\": 61, \"entry_price\": 7.7779998779296875, \"notional\": 5895.723907470703, \"margin\": 2947.8619537353516, \"leverage\": 2.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"LINK\", \"broker_symbol\": \"LINKUSD\", \"side\": \"sell\", \"qty_requested\": 758.0, \"volume_lots\": 758.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"c
+    {"id": 70, "ts": "2026-06-09T14:39:56+00:00", "action": "shadow_accept", "cycle_id": "order_id=4859", "thesium_ticker": "ETH", "broker_symbol": "ETHUSD", "payload_json": "{\"shadow_order_id\": 60, \"entry_price\": 1643.0400390625, \"notional\": 4929.1201171875, \"margin\": 2464.56005859375, \"leverage\": 2.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"ETH\", \"broker_symbol\": \"ETHUSD\", \"side\": \"sell\", \"qty_requested\": 3.0, \"volume_lots\": 3.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"crypto\", \"reso
+    {"id": 69, "ts": "2026-06-09T14:39:13+00:00", "action": "shadow_accept", "cycle_id": "order_id=4856", "thesium_ticker": "META", "broker_symbol": "META.US", "payload_json": "{\"shadow_order_id\": 59, \"entry_price\": 595.2550048828125, \"notional\": 22024.435180664062, \"margin\": 4404.887036132813, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"META\", \"broker_symbol\": \"META.US\", \"side\": \"buy\", \"qty_requested\": 37.0, \"volume_lots\": 37.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equit
+    {"id": 68, "ts": "2026-06-09T14:38:30+00:00", "action": "shadow_reject", "cycle_id": "order_id=4853", "thesium_ticker": "JPM", "broker_symbol": null, "payload_json": "{\"accepted\": false, \"thesium_ticker\": \"JPM\", \"broker_symbol\": null, \"side\": \"sell\", \"qty_requested\": 18.0, \"volume_lots\": 0.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": \"not_tradable_strict_refusal\", \"diagnostics\": {\"resolver_source\": \"unmapped\", \"resolver_reason\": \"not_in_universe_and_no_heuristic_match\", \"asset_class\": null, \"policy\": \"A_strict_refuse\"}}", "notes": "not
+    {"id": 67, "ts": "2026-06-09T14:38:20+00:00", "action": "shadow_accept", "cycle_id": "order_id=4850", "thesium_ticker": "AMD", "broker_symbol": "AMD.US", "payload_json": "{\"shadow_order_id\": 58, \"entry_price\": 489.4200134277344, \"notional\": 13214.340362548828, \"margin\": 2642.8680725097656, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"AMD\", \"broker_symbol\": \"AMD.US\", \"side\": \"buy\", \"qty_requested\": 27.0, \"volume_lots\": 27.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equity_u
+    {"id": 66, "ts": "2026-06-09T14:37:37+00:00", "action": "shadow_accept", "cycle_id": "order_id=4847", "thesium_ticker": "CSCO", "broker_symbol": "CSCO.US", "payload_json": "{\"shadow_order_id\": 57, \"entry_price\": 121.9800033569336, \"notional\": 38911.62107086182, \"margin\": 7782.324214172363, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"CSCO\", \"broker_symbol\": \"CSCO.US\", \"side\": \"buy\", \"qty_requested\": 319.0, \"volume_lots\": 319.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equi
+    {"id": 65, "ts": "2026-06-09T14:36:54+00:00", "action": "shadow_accept", "cycle_id": "order_id=4844", "thesium_ticker": "TXN", "broker_symbol": "TXN.US", "payload_json": "{\"shadow_order_id\": 56, \"entry_price\": 291.6199951171875, \"notional\": 39077.079345703125, \"margin\": 7815.415869140625, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"TXN\", \"broker_symbol\": \"TXN.US\", \"side\": \"buy\", \"qty_requested\": 134.0, \"volume_lots\": 134.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equity_
+    {"id": 64, "ts": "2026-06-09T14:35:46+00:00", "action": "shadow_accept", "cycle_id": "order_id=260", "thesium_ticker": "CAT", "broker_symbol": "CAT.US", "payload_json": "{\"shadow_order_id\": 55, \"entry_price\": 925.0, \"notional\": 40700.0, \"margin\": 8140.0, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"CAT\", \"broker_symbol\": \"CAT.US\", \"side\": \"sell\", \"qty_requested\": 44.0, \"volume_lots\": 44.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equity_us\", \"resolver_source\": \"heurist
+    {"id": 63, "ts": "2026-06-09T14:35:04+00:00", "action": "shadow_accept", "cycle_id": "order_id=259", "thesium_ticker": "NVDA", "broker_symbol": "NVDA.US", "payload_json": "{\"shadow_order_id\": 54, \"entry_price\": 207.17010498046875, \"notional\": 11601.52587890625, \"margin\": 2320.30517578125, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"NVDA\", \"broker_symbol\": \"NVDA.US\", \"side\": \"buy\", \"qty_requested\": 56.0, \"volume_lots\": 56.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equity_
+    {"id": 62, "ts": "2026-06-09T14:34:21+00:00", "action": "shadow_accept", "cycle_id": "order_id=258", "thesium_ticker": "GOOGL", "broker_symbol": "GOOGL.US", "payload_json": "{\"shadow_order_id\": 53, \"entry_price\": 366.9460144042969, \"notional\": 9173.650360107422, \"margin\": 1834.7300720214844, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"GOOGL\", \"broker_symbol\": \"GOOGL.US\", \"side\": \"sell\", \"qty_requested\": 25.0, \"volume_lots\": 25.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"e
+    {"id": 61, "ts": "2026-06-09T14:33:38+00:00", "action": "shadow_accept", "cycle_id": "order_id=257", "thesium_ticker": "AMZN", "broker_symbol": "AMZN.US", "payload_json": "{\"shadow_order_id\": 52, \"entry_price\": 247.36000061035156, \"notional\": 9894.400024414062, \"margin\": 1978.8800048828125, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"AMZN\", \"broker_symbol\": \"AMZN.US\", \"side\": \"sell\", \"qty_requested\": 40.0, \"volume_lots\": 40.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equi
+    {"id": 60, "ts": "2026-06-09T14:32:55+00:00", "action": "shadow_accept", "cycle_id": "order_id=256", "thesium_ticker": "LINK", "broker_symbol": "LINKUSD", "payload_json": "{\"shadow_order_id\": 51, \"entry_price\": 7.7779998779296875, \"notional\": 5895.723907470703, \"margin\": 2947.8619537353516, \"leverage\": 2.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"LINK\", \"broker_symbol\": \"LINKUSD\", \"side\": \"sell\", \"qty_requested\": 758.0, \"volume_lots\": 758.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"cr
+    {"id": 59, "ts": "2026-06-09T14:32:13+00:00", "action": "shadow_accept", "cycle_id": "order_id=255", "thesium_ticker": "ETH", "broker_symbol": "ETHUSD", "payload_json": "{\"shadow_order_id\": 50, \"entry_price\": 1643.0400390625, \"notional\": 4929.1201171875, \"margin\": 2464.56005859375, \"leverage\": 2.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"ETH\", \"broker_symbol\": \"ETHUSD\", \"side\": \"sell\", \"qty_requested\": 3.0, \"volume_lots\": 3.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"crypto\", \"resol
+    {"id": 58, "ts": "2026-06-09T14:31:30+00:00", "action": "shadow_accept", "cycle_id": "order_id=254", "thesium_ticker": "META", "broker_symbol": "META.US", "payload_json": "{\"shadow_order_id\": 49, \"entry_price\": 595.2550048828125, \"notional\": 22024.435180664062, \"margin\": 4404.887036132813, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"META\", \"broker_symbol\": \"META.US\", \"side\": \"buy\", \"qty_requested\": 37.0, \"volume_lots\": 37.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equity
+    {"id": 57, "ts": "2026-06-09T14:30:47+00:00", "action": "shadow_reject", "cycle_id": "order_id=253", "thesium_ticker": "JPM", "broker_symbol": null, "payload_json": "{\"accepted\": false, \"thesium_ticker\": \"JPM\", \"broker_symbol\": null, \"side\": \"sell\", \"qty_requested\": 18.0, \"volume_lots\": 0.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": \"not_tradable_strict_refusal\", \"diagnostics\": {\"resolver_source\": \"unmapped\", \"resolver_reason\": \"not_in_universe_and_no_heuristic_match\", \"asset_class\": null, \"policy\": \"A_strict_refuse\"}}", "notes": "not_
+    {"id": 56, "ts": "2026-06-09T14:30:37+00:00", "action": "shadow_accept", "cycle_id": "order_id=252", "thesium_ticker": "AMD", "broker_symbol": "AMD.US", "payload_json": "{\"shadow_order_id\": 48, \"entry_price\": 489.4200134277344, \"notional\": 13214.340362548828, \"margin\": 2642.8680725097656, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"AMD\", \"broker_symbol\": \"AMD.US\", \"side\": \"buy\", \"qty_requested\": 27.0, \"volume_lots\": 27.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equity_us
+    {"id": 55, "ts": "2026-06-09T14:29:53+00:00", "action": "shadow_accept", "cycle_id": "order_id=251", "thesium_ticker": "CSCO", "broker_symbol": "CSCO.US", "payload_json": "{\"shadow_order_id\": 47, \"entry_price\": 121.9800033569336, \"notional\": 38911.62107086182, \"margin\": 7782.324214172363, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"CSCO\", \"broker_symbol\": \"CSCO.US\", \"side\": \"buy\", \"qty_requested\": 319.0, \"volume_lots\": 319.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equit
+    {"id": 54, "ts": "2026-06-09T14:29:11+00:00", "action": "shadow_accept", "cycle_id": "order_id=250", "thesium_ticker": "TXN", "broker_symbol": "TXN.US", "payload_json": "{\"shadow_order_id\": 46, \"entry_price\": 291.6199951171875, \"notional\": 39077.079345703125, \"margin\": 7815.415869140625, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"TXN\", \"broker_symbol\": \"TXN.US\", \"side\": \"buy\", \"qty_requested\": 134.0, \"volume_lots\": 134.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"equity_u
+    {"id": 53, "ts": "2026-06-09T14:11:04+00:00", "action": "shadow_accept", "cycle_id": "order_id=249", "thesium_ticker": "XLK", "broker_symbol": "XLK.US", "payload_json": "{\"shadow_order_id\": 45, \"entry_price\": 186.67999267578125, \"notional\": 4106.9598388671875, \"margin\": 821.3919677734375, \"leverage\": 5.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"XLK\", \"broker_symbol\": \"XLK.US\", \"side\": \"sell\", \"qty_requested\": 22.0, \"volume_lots\": 22.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"etf_us\"
+    {"id": 52, "ts": "2026-06-09T14:10:21+00:00", "action": "shadow_accept", "cycle_id": "order_id=248", "thesium_ticker": "SOL", "broker_symbol": "SOLUSD", "payload_json": "{\"shadow_order_id\": 44, \"entry_price\": 66.0, \"notional\": 24420.0, \"margin\": 12210.0, \"leverage\": 2.0, \"translator\": {\"accepted\": true, \"thesium_ticker\": \"SOL\", \"broker_symbol\": \"SOLUSD\", \"side\": \"sell\", \"qty_requested\": 370.0, \"volume_lots\": 370.0, \"sl\": null, \"tp\": null, \"rounding_gap_pct\": 0.0, \"reason\": null, \"diagnostics\": {\"asset_class\": \"crypto\", \"resolver_source\": \"heuristi
+
+  >>> event_log : 30 events
+    {"id": 5236, "event_type": "order_approved", "entity_type": "order", "entity_id": 266, "details": "{\"validated_by\": \"rguelin\", \"ticker\": \"SOL\", \"bulk\": true}", "agent": "UserAction", "created_at": "2026-06-10 08:26:41"}
+    {"id": 5227, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 7413, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"composite\": 3.6, \"conviction\": 7.0, \"trend\": \"bearish\", \"vol_regime\": \"moderate\"}", "agent": "CryptoAgent", "created_at": "2026-06-10 08:25:42"}
+    {"id": 5156, "event_type": "data_ingestion_complete", "entity_type": null, "entity_id": null, "details": "{\"tickers_updated\": [\"AAPL\", \"MSFT\", \"GOOGL\", \"AMZN\", \"NVDA\", \"TSLA\", \"META\", \"JPM\", \"BAC\", \"XOM\", \"JNJ\", \"UNH\", \"SPY\", \"QQQ\", \"BTC\", \"ETH\", \"LINK\", \"SOL\", \"XLE\", \"XLK\", \"XLI\", \"XLB\", \"ZEC\", \"CAT\", \"C...", "agent": "DataIngestion", "created_at": "2026-06-10 08:25:41"}
+    {"id": 5193, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 7379, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"bb_pct\": 0.151}", "agent": "MicrostructureAgent", "created_at": "2026-06-10 08:25:41"}
+    {"id": 5112, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 7298, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"bb_pct\": 0.161}", "agent": "MicrostructureAgent", "created_at": "2026-06-10 07:03:26"}
+    {"id": 5146, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 7332, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"composite\": 3.6, \"conviction\": 7.0, \"trend\": \"bearish\", \"vol_regime\": \"moderate\"}", "agent": "CryptoAgent", "created_at": "2026-06-10 07:03:26"}
+    {"id": 5075, "event_type": "data_ingestion_complete", "entity_type": null, "entity_id": null, "details": "{\"tickers_updated\": [\"AAPL\", \"MSFT\", \"GOOGL\", \"AMZN\", \"NVDA\", \"TSLA\", \"META\", \"JPM\", \"BAC\", \"XOM\", \"JNJ\", \"UNH\", \"SPY\", \"QQQ\", \"BTC\", \"ETH\", \"LINK\", \"SOL\", \"XLE\", \"XLK\", \"XLI\", \"XLB\", \"ZEC\", \"CAT\", \"C...", "agent": "DataIngestion", "created_at": "2026-06-10 06:55:41"}
+    {"id": 5026, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 7216, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"bb_pct\": 0.157}", "agent": "MicrostructureAgent", "created_at": "2026-06-10 06:31:29"}
+    {"id": 5060, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 7250, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"composite\": 3.6, \"conviction\": 7.0, \"trend\": \"bearish\", \"vol_regime\": \"moderate\"}", "agent": "CryptoAgent", "created_at": "2026-06-10 06:31:29"}
+    {"id": 4989, "event_type": "data_ingestion_complete", "entity_type": null, "entity_id": null, "details": "{\"tickers_updated\": [\"AAPL\", \"MSFT\", \"GOOGL\", \"AMZN\", \"NVDA\", \"TSLA\", \"META\", \"JPM\", \"BAC\", \"XOM\", \"JNJ\", \"UNH\", \"SPY\", \"QQQ\", \"BTC\", \"ETH\", \"LINK\", \"SOL\", \"XLE\", \"XLK\", \"XLI\", \"XLB\", \"ZEC\", \"CAT\", \"C...", "agent": "DataIngestion", "created_at": "2026-06-10 04:55:41"}
+    {"id": 4988, "event_type": "data_ingestion_complete", "entity_type": null, "entity_id": null, "details": "{\"tickers_updated\": [\"AAPL\", \"MSFT\", \"GOOGL\", \"AMZN\", \"NVDA\", \"TSLA\", \"META\", \"JPM\", \"BAC\", \"XOM\", \"JNJ\", \"UNH\", \"SPY\", \"QQQ\", \"BTC\", \"ETH\", \"LINK\", \"SOL\", \"XLE\", \"XLK\", \"XLI\", \"XLB\", \"ZEC\", \"CAT\", \"C...", "agent": "DataIngestion", "created_at": "2026-06-09 20:48:33"}
+    {"id": 4987, "event_type": "data_ingestion_complete", "entity_type": null, "entity_id": null, "details": "{\"tickers_updated\": [\"AAPL\", \"MSFT\", \"GOOGL\", \"AMZN\", \"NVDA\", \"TSLA\", \"META\", \"JPM\", \"BAC\", \"XOM\", \"JNJ\", \"UNH\", \"SPY\", \"QQQ\", \"BTC\", \"ETH\", \"LINK\", \"SOL\", \"XLE\", \"XLK\", \"XLI\", \"XLB\", \"ZEC\", \"CAT\", \"C...", "agent": "DataIngestion", "created_at": "2026-06-09 18:48:33"}
+    {"id": 4986, "event_type": "data_ingestion_complete", "entity_type": null, "entity_id": null, "details": "{\"tickers_updated\": [\"AAPL\", \"MSFT\", \"GOOGL\", \"AMZN\", \"NVDA\", \"TSLA\", \"META\", \"JPM\", \"BAC\", \"XOM\", \"JNJ\", \"UNH\", \"SPY\", \"QQQ\", \"BTC\", \"ETH\", \"LINK\", \"SOL\", \"XLE\", \"XLK\", \"XLI\", \"XLB\", \"ZEC\", \"CAT\", \"C...", "agent": "DataIngestion", "created_at": "2026-06-09 16:48:34"}
+    {"id": 4976, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 7169, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"composite\": 3.7, \"conviction\": 7.0, \"trend\": \"bearish\", \"vol_regime\": \"moderate\"}", "agent": "CryptoAgent", "created_at": "2026-06-09 14:54:39"}
+    {"id": 4942, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 7135, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"bb_pct\": 0.134}", "agent": "MicrostructureAgent", "created_at": "2026-06-09 14:54:38"}
+    {"id": 4881, "event_type": "data_ingestion_complete", "entity_type": null, "entity_id": null, "details": "{\"tickers_updated\": [\"AAPL\", \"MSFT\", \"GOOGL\", \"AMZN\", \"NVDA\", \"TSLA\", \"META\", \"JPM\", \"BAC\", \"XOM\", \"JNJ\", \"UNH\", \"SPY\", \"QQQ\", \"BTC\", \"ETH\", \"LINK\", \"SOL\", \"XLE\", \"XLK\", \"XLI\", \"XLB\", \"ZEC\", \"CAT\", \"C...", "agent": "DataIngestion", "created_at": "2026-06-09 14:48:33"}
+    {"id": 4806, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 7048, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"bb_pct\": 0.143}", "agent": "MicrostructureAgent", "created_at": "2026-06-09 14:36:12"}
+    {"id": 4840, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 7082, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"composite\": 3.7, \"conviction\": 7.0, \"trend\": \"bearish\", \"vol_regime\": \"moderate\"}", "agent": "CryptoAgent", "created_at": "2026-06-09 14:36:12"}
+    {"id": 4733, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 6995, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"composite\": 3.7, \"conviction\": 7.0, \"trend\": \"bearish\", \"vol_regime\": \"moderate\"}", "agent": "CryptoAgent", "created_at": "2026-06-09 14:28:28"}
+    {"id": 4699, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 6961, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"bb_pct\": 0.143}", "agent": "MicrostructureAgent", "created_at": "2026-06-09 14:28:27"}
+    {"id": 4662, "event_type": "data_ingestion_complete", "entity_type": null, "entity_id": null, "details": "{\"tickers_updated\": [\"AAPL\", \"MSFT\", \"GOOGL\", \"AMZN\", \"NVDA\", \"TSLA\", \"META\", \"JPM\", \"BAC\", \"XOM\", \"JNJ\", \"UNH\", \"SPY\", \"QQQ\", \"BTC\", \"ETH\", \"LINK\", \"SOL\", \"XLE\", \"XLK\", \"XLI\", \"XLB\", \"ZEC\", \"CAT\", \"C...", "agent": "DataIngestion", "created_at": "2026-06-09 14:28:05"}
+    {"id": 4658, "event_type": "order_approved", "entity_type": "order", "entity_id": 248, "details": "{\"validated_by\": \"rguelin\", \"ticker\": \"SOL\", \"bulk\": true}", "agent": "UserAction", "created_at": "2026-06-09 14:11:22"}
+    {"id": 4579, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 6906, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"composite\": 3.8, \"conviction\": 7.0, \"trend\": \"bearish\", \"vol_regime\": \"moderate\"}", "agent": "CryptoAgent", "created_at": "2026-06-09 14:02:20"}
+    {"id": 4545, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 6872, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"bb_pct\": 0.169}", "agent": "MicrostructureAgent", "created_at": "2026-06-09 14:02:19"}
+    {"id": 4507, "event_type": "data_ingestion_complete", "entity_type": null, "entity_id": null, "details": "{\"tickers_updated\": [\"AAPL\", \"MSFT\", \"GOOGL\", \"AMZN\", \"NVDA\", \"TSLA\", \"META\", \"JPM\", \"BAC\", \"XOM\", \"JNJ\", \"UNH\", \"SPY\", \"QQQ\", \"BTC\", \"ETH\", \"LINK\", \"SOL\", \"XLE\", \"XLK\", \"XLI\", \"XLB\", \"ZEC\", \"CAT\", \"C...", "agent": "DataIngestion", "created_at": "2026-06-09 13:51:28"}
+    {"id": 4451, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 6784, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"bb_pct\": 0.174}", "agent": "MicrostructureAgent", "created_at": "2026-06-09 13:46:44"}
+    {"id": 4485, "event_type": "agent_thesis_generated", "entity_type": "thesis", "entity_id": 6818, "details": "{\"ticker\": \"SOL\", \"signal\": \"accumulate\", \"composite\": 3.8, \"conviction\": 7.0, \"trend\": \"bearish\", \"vol_regime\": \"moderate\"}", "agent": "CryptoAgent", "created_at": "2026-06-09 13:46:44"}
+    {"id": 4414, "event_type": "data_ingestion_complete", "entity_type": null, "entity_id": null, "details": "{\"tickers_updated\": [\"AAPL\", \"MSFT\", \"GOOGL\", \"AMZN\", \"NVDA\", \"TSLA\", \"META\", \"JPM\", \"BAC\", \"XOM\", \"JNJ\", \"UNH\", \"SPY\", \"QQQ\", \"BTC\", \"ETH\", \"LINK\", \"SOL\", \"XLE\", \"XLK\", \"XLI\", \"XLB\", \"ZEC\", \"CAT\", \"C...", "agent": "DataIngestion", "created_at": "2026-06-09 13:03:06"}
+    {"id": 4413, "event_type": "data_ingestion_complete", "entity_type": null, "entity_id": null, "details": "{\"tickers_updated\": [\"AAPL\", \"MSFT\", \"GOOGL\", \"AMZN\", \"NVDA\", \"TSLA\", \"META\", \"JPM\", \"BAC\", \"XOM\", \"JNJ\", \"UNH\", \"SPY\", \"QQQ\", \"BTC\", \"ETH\", \"LINK\", \"SOL\", \"XLE\", \"XLK\", \"XLI\", \"XLB\", \"ZEC\", \"CAT\", \"C...", "agent": "DataIngestion", "created_at": "2026-06-09 12:35:55"}
+    {"id": 4412, "event_type": "data_ingestion_complete", "entity_type": null, "entity_id": null, "details": "{\"tickers_updated\": [\"AAPL\", \"MSFT\", \"GOOGL\", \"AMZN\", \"NVDA\", \"TSLA\", \"META\", \"JPM\", \"BAC\", \"XOM\", \"JNJ\", \"UNH\", \"SPY\", \"QQQ\", \"BTC\", \"ETH\", \"LINK\", \"SOL\", \"XLE\", \"XLK\", \"XLI\", \"XLB\", \"ZEC\", \"CAT\", \"C...", "agent": "DataIngestion", "created_at": "2026-06-09 10:35:54"}
+
+  >>> pplx_audit : 0 events
+
+========================================================================
+FIN DIAG
+------------------------------------------------------------------------

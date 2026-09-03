@@ -1,0 +1,124 @@
+{
+  "diff_j1": {
+    "ref_label": "J-1",
+    "today_cycle_id": "20260609-085551",
+    "ref_cycle_id": "20260608-063833",
+    "ref_distance_days": 1,
+    "portfolio": {
+      "nav": {
+        "today": 958934.89,
+        "ref": 952362.68,
+        "delta": 6572.21,
+        "pct": 0.69
+      },
+      "cash": {
+        "today": 316377.84,
+        "ref": 329615.61,
+        "delta": -13237.77,
+        "pct": -4.02
+      },
+      "invested_pct": {
+        "today": 67.0074,
+        "ref": 65.3897,
+        "delta": 1.6177
+      },
+      "n_positions": {
+        "today": 23,
+        "ref": 22,
+        "delta": 1
+      },
+      "regime": {
+        "today": "MAINTAIN",
+        "ref": "MAINTAIN",
+        "changed": false
+      }
+    },
+    "decisions": {
+      "new_buys": [],
+      "new_sells": [
+        {
+          "ticker": "GOOGL",
+          "qty_pct": 50.0,
+          "delta_pct": -0.0167,
+          "conviction": 7.0,
+          "side": "SELL",
+          "action": "DROPPED"
+        }
+      ],
+      "removed": [],
+      "conviction_shifts": []
+    },
+    "factor_quality": {
+      "added": [],
+      "removed": [],
+      "changed": []
+    },
+    "geo": {
+      "added": [],
+      "removed": [],
+      "sentiment_shifts": []
+    },
+    "summary_line": "NAV +0.69%, invested +1.6pp, positions +1, 1 SELL (vs J-1)"
+  },
+  "diff_j7": {
+    "ref_label": "J-7",
+    "today_cycle_id": "20260609-085551",
+    "ref_cycle_id": "20260602-141532",
+    "ref_distance_days": 7,
+    "portfolio": {
+      "nav": {
+        "today": 958934.89,
+        "ref": 991113.36,
+        "delta": -32178.47,
+        "pct": -3.25
+      },
+      "cash": {
+        "today": 316377.84,
+        "ref": 357919.28,
+        "delta": -41541.44,
+        "pct": -11.61
+      },
+      "invested_pct": {
+        "today": 67.0074,
+        "ref": 63.8872,
+        "delta": 3.1202
+      },
+      "n_positions": {
+        "today": 23,
+        "ref": 20,
+        "delta": 3
+      },
+      "regime": {
+        "today": "MAINTAIN",
+        "ref": "MAINTAIN",
+        "changed": false
+      }
+    },
+    "decisions": {
+      "new_buys": [],
+      "new_sells": [
+        {
+          "ticker": "TSLA",
+          "qty_pct": 93.0,
+          "delta_pct": 0.0597,
+          "conviction": 7.0,
+          "side": "SELL",
+          "action": "DROPPED"
+        }
+      ],
+      "removed": [],
+      "conviction_shifts": []
+    },
+    "factor_quality": {
+      "added": [],
+      "removed": [],
+      "changed": []
+    },
+    "geo": {
+      "added": [],
+      "removed": [],
+      "sentiment_shifts": []
+    },
+    "summary_line": "NAV -3.25%, invested +3.1pp, positions +3, 1 SELL (vs J-7)"
+  }
+}

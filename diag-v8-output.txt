@@ -1,0 +1,115 @@
+==============================================================================
+DIAG V8 - LOCALISATION ZONES PATCH V5 (R2 R3 R4 R5)
+==============================================================================
+Target : C:\Users\RichardGUELIN\Prod\ThesiumDesk\api_server.py
+
+Total lignes : 3441
+
+------------------------------------------------------------------------------
+[1] Bornes route /api/memos/{id}/pdf
+------------------------------------------------------------------------------
+Decorator route a ligne : 1078
+Fin de fonction (next decorator) ligne : 1839
+Span : 762 lignes
+
+------------------------------------------------------------------------------
+[2] R2 - occurrences 'Thesis Summaries' dans la route
+------------------------------------------------------------------------------
+L1431 :         story.append(Paragraph("Thesis Summaries", sH2))
+L1763 :         story.append(Paragraph("Thesis Summaries", sH2))
+Total occurrences : 2
+Note : 'Active Thesis Summaries' = legitime (R4), 'Thesis Summaries' seul = doublon (R2)
+
+'Active Thesis Summaries' (R4 a borner) : []
+'Thesis Summaries' seul (R2 doublon) : [1431, 1763]
+
+------------------------------------------------------------------------------
+[3] R3 R5 - titres tables sans en-tete colonnes
+------------------------------------------------------------------------------
+Recherche : 'Market Indicators'
+
+Recherche : 'Proposed Changes'
+  L1457 :         story.append(Paragraph("Proposed Changes", sH2))
+  L1793 :         story.append(Paragraph("Proposed Changes", sH2))
+
+Recherche : 'Factor Scores'
+
+Recherche : 'Audit Trail'
+
+------------------------------------------------------------------------------
+[4] Appels Table(...) dans la route (top 30 premiers)
+------------------------------------------------------------------------------
+L1312 :         t = Table(data, colWidths=col_widths, repeatRows=1)
+L1440 :         t = Table(table_data, colWidths=[55, 85, 55, None])
+L1468 :         t = Table(table_data, colWidths=[70, 60, 60, None])
+L1636 :         t = Table(data, colWidths=col_widths, repeatRows=1)
+L1773 :         t = Table(table_data, colWidths=[55, 85, 55, None])
+L1805 :         t = Table(table_data, colWidths=[70, 60, 60, None])
+Total : 6
+
+------------------------------------------------------------------------------
+[5] R4 - localiser la boucle Active Thesis (zone 200 lignes apres 'Active Thesis Summaries')
+------------------------------------------------------------------------------
+
+------------------------------------------------------------------------------
+[6] Verifier 'if False:' v4 deja en place (R2 patch echoue car mauvaise localisation)
+------------------------------------------------------------------------------
+L1078 :
+  1077 | 
+  1078 | @app.get("/api/memos/{memo_id}/pdf")  # [ICMEMO_PDF_V2] [ICMEMO_PDF_V3_LIGHT] [ICMEMO_PDF_V4_COVER]
+  1079 | def get_memo_pdf(memo_id: int):
+  1080 |     """Generate and return a styled PDF export of an IC memo. [ICMEMO_PDF_V2]"""
+  1081 |     conn = db()
+
+L1080 :
+  1079 | def get_memo_pdf(memo_id: int):
+  1080 |     """Generate and return a styled PDF export of an IC memo. [ICMEMO_PDF_V2]"""
+  1081 |     conn = db()
+  1082 |     try:
+  1083 |         row = conn.execute("SELECT * FROM ic_memos WHERE id = ?", (memo_id,)).fetchone()
+
+L1147 :
+  1146 |             except Exception as _fe:
+  1147 |                 print(f"[ICMEMO_PDF_V2] font registration failed for {fr_name}: {_fe}")
+  1148 | 
+  1149 |     # -- Substitution glyphes safe : pre-traite le markdown avant rendu --
+  1150 |     def _normalize_glyphes(text):
+
+L1492 :
+  1491 |     )
+  1492 | # === END [ICMEMO_PDF_V2] ===
+  1493 | 
+  1494 | def get_memo_pdf(memo_id: int):
+  1495 |     """Generate and return a styled PDF export of an IC memo."""
+
+------------------------------------------------------------------------------
+[7] R3 - logique table markdown -> ReportLab (detection en-tete)
+------------------------------------------------------------------------------
+Recherche : split('|')
+  L1601 :         header = [c.strip() for c in table_rows[0].strip('|').split('|')]
+  L1608 :             cells = [c.strip() for c in row_str.strip('|').split('|')]
+
+Recherche : "|"
+  L1285 :         header = [c.strip() for c in table_rows[0].strip("|").split("|")]
+  L1289 :             cells = [c.strip() for c in row_str.strip("|").split("|")]
+  L1335 :         if stripped.startswith("|"):
+
+Recherche : markdown_table
+
+Recherche : build_table
+
+Recherche : is_table_row
+
+Recherche : header_row
+
+Recherche : separator
+  L1282 :     def flush_md_table(table_rows, separator_idx):
+  L1287 :         start = separator_idx if separator_idx is not None else 1
+  L1597 :     def flush_md_table(table_rows, separator_idx):
+  L1603 :         # separator_idx = len(pending_table_rows) at time separator was seen
+  L1604 :         # Since separator line is NOT stored in pending_table_rows,
+  L1605 :         # body rows start at separator_idx (not +1)
+  L1606 :         start = separator_idx if separator_idx is not None else 1
+  L1663 :             # Check if this is a separator row like |---|---|---|
+  L1665 :                 pending_table_sep = len(pending_table_rows)  # index where separator would be
+

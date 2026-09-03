@@ -1,0 +1,91 @@
+﻿==============================================================================
+ROOT : C:\Users\RichardGUELIN\Prod\ThesiumDesk
+==============================================================================
+
+Files DEFINING PortfolioConstructionAgent : 1
+  DEF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\nextones-diag-portfolio-construction-agent.py
+
+Files REFERENCING PortfolioConstructionAgent : 43
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\api_endpoints_construction_patch.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\api_server_with_static.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\diag_realized_v2.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\execution_engine.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\execution_engine_v6_4_backup.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\execution_engine_v6_5.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\nextones-add-sol-instrument.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\nextones-diag-construction-allocation.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\nextones-diag-targets-reconciler-config.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\nextones-diag-zero-orders.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\portfolio_construction_agent.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\portfolio_construction_agent_jalon1_backup.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\portfolio_construction_agent_jalon2.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\pplx_thesis_agent.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_promote_targets_to_agent.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_show_construction_snapshot.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_verify_jalon2.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_crypto_v3_20260525_110441\execution_engine.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_crypto_v3_20260525_110441\portfolio_construction_agent.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon2_20260524_191415\api_server_with_static.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon2_20260524_191415\execution_engine.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon2_20260524_191415\portfolio_construction_agent.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon2_20260524_192007\api_server_with_static.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon2_20260524_192007\execution_engine.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon2_20260524_192007\portfolio_construction_agent.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon2_qty_20260525_113007\execution_engine.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon2_qty_20260525_113007\portfolio_construction_agent_jalon2.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon2_qty_20260525_113349\execution_engine.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon2_qty_20260525_113349\portfolio_construction_agent_jalon2.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon3_20260525_104751\execution_engine.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon3_20260525_104751\portfolio_construction_agent.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_qty_prop_20260525_113731\execution_engine.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_reconciler_cap_20260524_225807\execution_engine.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_reconciler_cap_20260524_225807\execution_engine_v6_5.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_risk_v1_20260527_164915\api_server_with_static.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_risk_v1_20260527_164915\execution_engine.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_risk_v2_20260527_171036\execution_engine.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_risk_v2_wired_20260527_172023\execution_engine.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_thesesfix_20260524_195604\execution_engine.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_thesesfix_20260524_195604\execution_engine_v6_5.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_utf8_20260525_103207\api_server_with_static.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_v2_20260525_103444\api_server_with_static.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_v2_20260525_103444\portfolio_construction_agent.py
+
+==============================================================================
+FILE : C:\Users\RichardGUELIN\Prod\ThesiumDesk\nextones-diag-portfolio-construction-agent.py
+==============================================================================
+  class block : lines 76 - 105 (29 lignes)
+
+  methods (0) :
+
+  INSERT INTO portfolio_targets/theses :
+    --- L183 ---
+      L180: 
+      L181:         # INSERT sites dans tout le fichier
+      L182:         print("")
+  >>> L183:         print("  INSERT INTO portfolio_targets/theses :")
+      L184:         hits = grep_lines(txt, TARGET_INSERT, context=3)
+      L185:         if not hits:
+      L186:             print("    (aucun)")
+
+  target_weight references (dans le bloc class) :
+    (aucun)
+
+==============================================================================
+CALLERS : instanciation ou appel
+==============================================================================
+
+  FILE : C:\Users\RichardGUELIN\Prod\ThesiumDesk\nextones-add-sol-instrument.py
+    --- L5 ---
+      L4: Ajout manuel de SOL dans la table instruments pour debloquer
+  >>> L5: le PortfolioConstructionAgent (SOL est deja dans target_universe id=11).
+      L6: 
+
+  FILE : C:\Users\RichardGUELIN\Prod\ThesiumDesk\pplx_thesis_agent.py
+    --- L6 ---
+      L5: # - status = 'active' (pas de 'proposed'/'pending')
+  >>> L6: # - Exclut PortfolioConstructionAgent (rebalancement mecanique, pas de these a challenger)
+      L7: # - Side derive de proposed_action via regex
+
+==============================================================================
+DONE
+==============================================================================

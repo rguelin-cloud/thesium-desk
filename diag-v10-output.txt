@@ -1,0 +1,318 @@
+==============================================================================
+DIAG V10 - MARKDOWN SOURCE MEMO 51
+==============================================================================
+
+------------------------------------------------------------------------------
+[1] Schema ic_memos
+------------------------------------------------------------------------------
+col  0 | id                           | INTEGER
+col  1 | date                         | TEXT
+col  2 | title                        | TEXT
+col  3 | macro_summary                | TEXT
+col  4 | factor_tilts                 | TEXT
+col  5 | thesis_summaries             | TEXT
+col  6 | proposed_changes             | TEXT
+col  7 | full_markdown                | TEXT
+col  8 | created_at                   | TEXT
+
+Colonnes : id, date, title, macro_summary, factor_tilts, thesis_summaries, proposed_changes, full_markdown, created_at
+
+------------------------------------------------------------------------------
+[2] Memo 51 - dump tous champs
+------------------------------------------------------------------------------
+Memo id : 51
+  field=id | len=2 | preview=51
+  field=date | len=10 | preview=2026-06-02
+  field=title | len=29 | preview=Nextones IC Memo – 2026-06-02
+  field=macro_summary | len=7 | preview=neutral
+  field=factor_tilts | len=88 | preview={"overweight": ["PLD", "CAT", "TXN", "AMD", "MSFT", "CSCO", "GOOGL"], "underweight": []}
+  field=thesis_summaries | len=1375 | preview=[{"ticker": "PLD", "agent": null, "conviction": 8.0, "action": "Increase PLD allocation by 2-3%; factor composite score 
+  field=proposed_changes | len=941 | preview=[{"order_id": 186, "ticker": "CSCO", "side": "sell", "quantity": 41.0, "status": "pending_validation"}, {"order_id": 187
+  field=full_markdown | len=8867 | preview=# Nextones IC Memo – 2026-06-02\n**Generated:** 2026-06-02 07:41 UTC\n**Mode:** Paper Trading | **Disclaimer:** Not inve
+  field=created_at | len=19 | preview=2026-06-02 07:41:08
+
+------------------------------------------------------------------------------
+[3] Identifier colonne markdown (champ avec '## ' ou '|' ou 'Active Thesis')
+------------------------------------------------------------------------------
+==> Colonne markdown trouvee : full_markdown (len=8867)
+
+Total lignes markdown : 272
+
+------------------------------------------------------------------------------
+[4] Sections du markdown (par '## ' headers)
+------------------------------------------------------------------------------
+L1 : # Nextones IC Memo – 2026-06-02
+L7 : ## Portfolio Snapshot
+L17 : ## Macro Outlook
+L31 : ## Factor Tilts
+L53 : ## Active Thesis Summaries
+L215 : ## Proposed Changes & Executions
+L231 : ## Pre-trade Controls [RISK_V2]
+L243 : ## Audit Trail
+
+------------------------------------------------------------------------------
+[5] BLOC 'Market Indicators' brut
+------------------------------------------------------------------------------
+L21 : '### Market Indicators'
+L22 : ''
+L23 : '| Index ETF | Price | SMA50 | SMA200 | Cross | RSI(14) | 20d Momentum |'
+L24 : '|-----------|-------|-------|--------|-------|---------|--------------|'
+L25 : '| SPY | $756.86 | $714.36 | $0.00 | neutral | 90.4 | +4.7% |'
+L26 : '| QQQ | $741.20 | $702.50 | $0.00 | neutral | 67.4 | +7.2% |'
+L27 : ''
+L28 : '**Recommended posture:** Hold current allocations; monitor for trend clarification'
+L29 : ''
+L30 : ''
+L31 : '## Factor Tilts'
+L32 : ''
+L33 : '**Overweight:** PLD, CAT, TXN, AMD, MSFT, CSCO, GOOGL'
+L34 : '**Underweight:** None'
+L35 : '**Neutral:** JNJ, JPM, TSLA, META, UNH, AMZN, XOM, BAC, AAPL, NVDA'
+L36 : ''
+L37 : '### Factor Scores'
+L38 : ''
+L39 : '| Ticker | Composite Score | Tilt | Conviction | Proposed Action |'
+L40 : '|--------|----------------|------|------------|----------------|'
+
+------------------------------------------------------------------------------
+[6] BLOC 'Factor Tilts' / 'Factor Scores' brut
+------------------------------------------------------------------------------
+L31 : '## Factor Tilts'
+L32 : ''
+L33 : '**Overweight:** PLD, CAT, TXN, AMD, MSFT, CSCO, GOOGL'
+L34 : '**Underweight:** None'
+L35 : '**Neutral:** JNJ, JPM, TSLA, META, UNH, AMZN, XOM, BAC, AAPL, NVDA'
+L36 : ''
+L37 : '### Factor Scores'
+L38 : ''
+L39 : '| Ticker | Composite Score | Tilt | Conviction | Proposed Action |'
+L40 : '|--------|----------------|------|------------|----------------|'
+L41 : '| PLD | 9.01/10 | **overweight** | 8.0 | Increase PLD allocation by 2-3%; factor composite score 9.0/... |'
+L42 : '| CAT | 7.95/10 | **overweight** | 7.0 | Increase CAT allocation by 2-3%; factor composite score 8.0/... |'
+L43 : '| TXN | 7.43/10 | **overweight** | 6.4 | Increase TXN allocation by 2-3%; factor composite score 7.4/... |'
+L44 : '| AMD | 7.41/10 | **overweight** | 6.4 | Increase AMD allocation by 2-3%; factor composite score 7.4/... |'
+L45 : '| MSFT | 7.01/10 | **overweight** | 6.0 | Increase MSFT allocation by 2-3%; factor composite score 7.0... |'
+L46 : '| CSCO | 6.99/10 | **overweight** | 6.0 | Increase CSCO allocation by 2-3%; factor composite score 7.0... |'
+L47 : '| GOOGL | 6.17/10 | **overweight** | 5.2 | Increase GOOGL allocation by 2-3%; factor composite score 6.... |'
+L48 : '| JNJ | 5.94/10 | **neutral** | 4.9 | Maintain current JNJ allocation; no factor edge... |'
+L49 : '| JPM | 5.87/10 | **neutral** | 4.9 | Maintain current JPM allocation; no factor edge... |'
+L50 : '| TSLA | 5.63/10 | **neutral** | 4.6 | Maintain current TSLA allocation; no factor edge... |'
+L51 : ''
+L52 : ''
+L53 : '## Active Thesis Summaries'
+L54 : ''
+L55 : '### **NVDA** – MacroAgent | Conviction: 8.5/10 | Horizon: long'
+L56 : ''
+L57 : '*Thesis ID #2*'
+L58 : ''
+L59 : 'Hold core position; trim 20% if RSI exceeds 80 on weekly chart'
+L60 : ''
+L61 : '---'
+L62 : ''
+L63 : '### **MSFT** – AltDataAgent | Conviction: 8.0/10 | Horizon: medium'
+L64 : ''
+L65 : '*Thesis ID #5680*'
+
+------------------------------------------------------------------------------
+[7] BLOC 'Active Thesis Summaries' brut (jusqu'a prochain '## ')
+------------------------------------------------------------------------------
+Plage L53 a L214 (162 lignes)
+Nombre de blocs 'Thesis ID' : 20
+---
+L53 : ## Active Thesis Summaries
+L54 : 
+L55 : ### **NVDA** – MacroAgent | Conviction: 8.5/10 | Horizon: long
+L56 : 
+L57 : *Thesis ID #2*
+L58 : 
+L59 : Hold core position; trim 20% if RSI exceeds 80 on weekly chart
+L60 : 
+L61 : ---
+L62 : 
+L63 : ### **MSFT** – AltDataAgent | Conviction: 8.0/10 | Horizon: medium
+L64 : 
+L65 : *Thesis ID #5680*
+L66 : 
+L67 : No actionable alt-data edge for MSFT at this time
+L68 : 
+L69 : ---
+L70 : 
+L71 : ### **PLD** – FactorAgent | Conviction: 8.0/10 | Horizon: medium
+L72 : 
+L73 : *Thesis ID #5649*
+L74 : 
+L75 : Increase PLD allocation by 2-3%; factor composite score 9.0/10
+L76 : 
+L77 : ---
+L78 : 
+L79 : ### **META** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L80 : 
+L81 : *Thesis ID #5704*
+L82 : 
+L83 : BUY META to close target gap (0.38% NAV)
+L84 : 
+L85 : ---
+L86 : 
+L87 : ### **AAPL** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L88 : 
+L89 : *Thesis ID #5488*
+L90 : 
+L91 : BUY AAPL to close target gap (0.42% NAV)
+L92 : 
+L93 : ---
+L94 : 
+L95 : ### **XLE** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L96 : 
+L97 : *Thesis ID #5416*
+L98 : 
+L99 : BUY XLE to close target gap (2.00% NAV)
+L100 : 
+L101 : ---
+L102 : 
+L103 : ### **TSLA** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L104 : 
+L105 : *Thesis ID #5415*
+L106 : 
+L107 : SELL TSLA to close target gap (0.92% NAV)
+L108 : 
+L109 : ---
+L110 : 
+L111 : ### **SOL** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L112 : 
+L113 : *Thesis ID #5414*
+L114 : 
+L115 : SELL SOL to close target gap (0.49% NAV)
+L116 : 
+L117 : ---
+L118 : 
+L119 : ### **NVDA** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L120 : 
+L121 : *Thesis ID #5413*
+L122 : 
+L123 : SELL NVDA to close target gap (0.37% NAV)
+L124 : 
+L125 : ---
+L126 : 
+L127 : ### **AAPL** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L128 : 
+L129 : *Thesis ID #5411*
+L130 : 
+L131 : BUY AAPL to close target gap (0.46% NAV)
+L132 : 
+L133 : ---
+L134 : 
+L135 : ### **AMZN** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L136 : 
+L137 : *Thesis ID #5412*
+L138 : 
+L139 : SELL AMZN to close target gap (1.04% NAV)
+L140 : 
+L141 : ---
+L142 : 
+L143 : ### **ZEC** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L144 : 
+L145 : *Thesis ID #5352*
+L146 : 
+L147 : BUY ZEC to close target gap (3.00% NAV)
+L148 : 
+L149 : ---
+L150 : 
+L151 : ### **XLK** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L152 : 
+L153 : *Thesis ID #5351*
+L154 : 
+L155 : BUY XLK to close target gap (3.59% NAV)
+L156 : 
+L157 : ---
+L158 : 
+L159 : ### **TSLA** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L160 : 
+L161 : *Thesis ID #5350*
+L162 : 
+L163 : BUY TSLA to close target gap (0.62% NAV)
+L164 : 
+L165 : ---
+L166 : 
+L167 : ### **NVDA** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L168 : 
+L169 : *Thesis ID #5349*
+L170 : 
+L171 : BUY NVDA to close target gap (0.98% NAV)
+L172 : 
+L173 : ---
+L174 : 
+L175 : ### **GOOGL** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L176 : 
+L177 : *Thesis ID #5348*
+L178 : 
+L179 : BUY GOOGL to close target gap (0.71% NAV)
+L180 : 
+L181 : ---
+L182 : 
+L183 : ### **ETH** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L184 : 
+L185 : *Thesis ID #5347*
+L186 : 
+L187 : BUY ETH to close target gap (0.50% NAV)
+L188 : 
+L189 : ---
+L190 : 
+L191 : ### **BTC** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L192 : 
+L193 : *Thesis ID #5346*
+L194 : 
+L195 : BUY BTC to close target gap (0.53% NAV)
+L196 : 
+L197 : ---
+L198 : 
+L199 : ### **AMZN** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L200 : 
+L201 : *Thesis ID #5345*
+L202 : 
+L203 : BUY AMZN to close target gap (0.94% NAV)
+L204 : 
+L205 : ---
+L206 : 
+L207 : ### **LINK** – PortfolioConstructionAgent | Conviction: 8.0/10 | Horizon: medium
+L208 : 
+L209 : *Thesis ID #4907*
+L210 : 
+L211 : BUY LINK to close target gap (1.11% NAV)
+L212 : 
+L213 : ---
+L214 : 
+---
+
+------------------------------------------------------------------------------
+[8] BLOC 'Proposed Changes' brut
+------------------------------------------------------------------------------
+L215 : '## Proposed Changes & Executions'
+L216 : ''
+L217 : '| Order ID | Ticker | Side | Qty | Status | Fill Price | Slippage | Risk Notes |'
+L218 : '|----------|--------|------|-----|--------|------------|----------|------------|'
+L219 : '| #186 | CSCO | SELL | 41 | pending_validation | – | – | approved |'
+L220 : '| #187 | XLK | BUY | 120 | rejected | – | – | rejected |'
+L221 : '| #188 | META | BUY | 6 | rejected | – | – | rejected |'
+L222 : '| #185 | MSFT | SELL | 19 | pending_validation | – | – | approved |'
+L223 : '| #183 | MSFT | SELL | 22 | filled | $449.79 | $9.90 | approved |'
+L224 : '| #184 | XLK | BUY | 127 | rejected | – | – | rejected |'
+L225 : '| #182 | CSCO | SELL | 83 | filled | $120.30 | $9.99 | approved |'
+L226 : '| #180 | MSFT | SELL | 22 | rejected | – | – | approved |'
+L227 : '| #181 | XLK | BUY | 128 | rejected | – | – | rejected |'
+L228 : '| #179 | CSCO | SELL | 83 | rejected | – | – | approved |'
+L229 : ''
+L230 : ''
+L231 : '## Pre-trade Controls [RISK_V2]'
+L232 : ''
+L233 : 'Controls: Concentration 15% per name (BLOCK), VaR historical 99%/1d budget+marginal (WARN), Pearson correlation 60d (WARN).'
+L234 : ''
+L235 : '| Order | Ticker | Side | Qty | Verdict | Concentration | Delta VaR | Max Correlation |'
+L236 : '|-------|--------|------|-----|---------|---------------|-----------|------------------|'
+L237 : '| #187 | XLK | BUY | 120 | PASS | 5.00% | -0.003% | 0.68 vs AMD |'
+L238 : '| #188 | META | BUY | 6 | PASS | 5.54% | 0.007% | -0.67 vs NVDA |'
+L239 : '| #184 | XLK | BUY | 127 | PASS | 4.99% | -0.008% | 0.71 vs AMD |'
+L240 : '| #181 | XLK | BUY | 128 | PASS | 5.00% | 0.005% | 0.71 vs AMD |'
+L241 : ''
+L242 : ''
+L243 : '## Audit Trail'
+L244 : ''

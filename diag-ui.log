@@ -1,0 +1,198 @@
+﻿[INDEX.HTML] 5 fichier(s) trouve(s)
+  C:\Users\RichardGUELIN\Prod\ThesiumDesk\index.html  (122866 bytes)
+  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon2_20260524_191415\index.html  (67352 bytes)
+  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon2_20260524_192007\index.html  (67352 bytes)
+  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_risk_controls_ui_20260527_174207\index.html  (99033 bytes)
+  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_risk_darkfix_20260527_183659\index.html  (106821 bytes)
+
+[INDEX.HTML PRINCIPAL] C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_risk_controls_ui_20260527_174207\index.html
+
+[STATS] 2292 lignes, 98631 chars
+
+[ONGLET TODAY] occurences id=today / data-tab=today / Today
+  L677: <a class="nav-item active" href="#today" data-tab="today" role="button" tabindex="0">
+  L682: <span>Today</span>
+  L764: <span class="header-title" id="headerTitle">Today</span>
+  L811: <section class="tab-content active" id="tab-today" aria-label="Today overview">
+
+[CARTE PPLX] classes pplx-* trouvees
+  pplx-badge-source
+  pplx-col-title
+  pplx-footer
+  pplx-geo-detail-backdrop
+  pplx-geo-detail-close
+  pplx-geo-detail-modal
+  pplx-geo-grid
+  pplx-geo-header
+  pplx-geo-meta
+  pplx-geo-score
+  pplx-geo-score-block
+  pplx-geo-score-suffix
+  pplx-geo-section
+  pplx-geo-summary
+  pplx-geo-title
+  pplx-loading
+  pplx-memo-backdrop
+  pplx-memo-close
+  pplx-memo-loading
+  pplx-memo-modal
+  pplx-regime-badge
+  pplx-regime-calm
+  pplx-section
+
+[POSITION PPLX-CYCLE-SNAPSHOT / PPLX-MEMO]
+  L154: .pplx-memo-backdrop {
+  L162: .pplx-memo-backdrop.open { display: flex; }
+  L163: .pplx-memo-modal {
+  L175: .pplx-memo-modal h3 {
+  L178: .pplx-memo-modal .pplx-memo-close {
+  L184: .pplx-memo-modal .pplx-memo-close:hover { opacity: 1; }
+  L185: .pplx-memo-header-row {
+  L192: .pplx-memo-stance {
+  L197: .pplx-memo-stance.bullish { background: #1f6b3a; color: #d6f5dd; }
+  L198: .pplx-memo-stance.neutral { background: #5a5a2a; color: #f5f0d6; }
+  L199: .pplx-memo-stance.bearish { background: #7a2a2a; color: #f5d6d6; }
+  L200: .pplx-memo-confidence {
+  L203: .pplx-memo-horizon {
+  L208: .pplx-memo-section { margin-top: 14px; }
+  L209: .pplx-memo-section h4 {
+  L215: .pplx-memo-section p { margin: 0; font-size: 14px; line-height: 1.45; }
+  L216: .pplx-memo-section ul { margin: 0; padding-left: 20px; }
+  L217: .pplx-memo-section li {
+  L221: .pplx-memo-meta {
+  L227: .pplx-memo-citations {
+  L231: .pplx-memo-citations a {
+  L236: .pplx-memo-citations a:hover { text-decoration: underline; }
+  L237: .pplx-memo-loading {
+  L241: .pplx-memo-loading::before {
+  L248: .pplx-memo-error {
+  L253: .pplx-memo-actions {
+  L256: .pplx-memo-btn {
+  L263: .pplx-memo-btn:hover { filter: brightness(1.1); }
+  L264: .pplx-memo-btn.secondary {
+  L271: .pplx-memo-trigger {
+  L282: .pplx-memo-trigger:hover {
+  L291: .pplx-geo-detail-backdrop {
+  L299: .pplx-geo-detail-backdrop.open { display: flex; }
+  L300: .pplx-geo-detail-modal {
+  L312: .pplx-geo-detail-modal h3 {
+  L318: .pplx-geo-detail-close {
+  L324: .pplx-geo-detail-close:hover { opacity: 1; }
+  L325: .pplx-geo-detail-meta {
+  L330: .pplx-geo-detail-tag {
+  L336: .pplx-geo-detail-severity {
+  L342: .pplx-geo-detail-section { margin-top: 16px; }
+  L343: .pplx-geo-detail-section h4 {
+  L350: .pplx-geo-detail-section p {
+  L354: .pplx-geo-detail-section ul {
+  L357: .pplx-geo-detail-section li {
+  L361: .pplx-geo-detail-tickers {
+  L364: .pplx-geo-detail-ticker {
+  L372: .pplx-geo-detail-sources a {
+  L380: .pplx-geo-detail-sources a:hover { text-decoration: underline; }
+  L383: .pplx-geo-detail-btn {
+  L395: .pplx-geo-detail-btn:hover {
+  L410: .pplx-geo-section {
+  L418: .pplx-geo-section .pplx-geo-header {
+  L425: .pplx-geo-section .pplx-geo-title {
+  L431: .pplx-geo-section .pplx-geo-title h3 {
+  L437: .pplx-geo-section .pplx-geo-title .pplx-badge-source {
+  L445: .pplx-geo-section .pplx-geo-score-block {
+  L450: .pplx-geo-section .pplx-geo-score {
+  L456: .pplx-geo-section .pplx-geo-score-suffix {
+  L462: .pplx-geo-section .pplx-regime-badge {
+  L472: .pplx-geo-section .pplx-regime-calm     { background: rgba(46,160,67,0.15);  color: #2ea043; border-color: rgba(46,160,67,0.4); }
+  L473: .pplx-geo-section .pplx-regime-elevated { background: rgba(212,167,44,0.15); color: #d4a72c; border-color: rgba(212,167,44,0.4); }
+  L474: .pplx-geo-section .pplx-regime-stressed { background: rgba(219,109,40,0.18); color: #db6d28; border-color: rgba(219,109,40,0.5); }
+  L475: .pplx-geo-section .pplx-regime-crisis   { background: rgba(229,57,53,0.20);  color: #e53935; border-color: rgba(229,57,53,0.55); }
+  L476: .pplx-geo-section .pplx-geo-summary {
+  L483: .pplx-geo-section .pplx-geo-meta {
+  L491: .pplx-geo-section .pplx-geo-meta button {
+  L500: .pplx-geo-section .pplx-geo-meta button:hover {
+  L504: .pplx-geo-section .pplx-geo-grid {
+  L510: .pplx-geo-section .pplx-geo-grid { grid-template-columns: 1fr; }
+  L512: .pplx-geo-section .pplx-col-title {
+  L520: .pplx-geo-section .pplx-risk-card {
+  L527: .pplx-geo-section .pplx-risk-head {
+  L534: .pplx-geo-section .pplx-risk-title {
+  L540: .pplx-geo-section .pplx-risk-sev {
+  L548: .pplx-geo-section .pplx-risk-tags {
+  L554: .pplx-geo-section .pplx-tag {
+  L562: .pplx-geo-section .pplx-risk-narrative {
+  L568: .pplx-geo-section .pplx-risk-tickers {
+  L574: .pplx-geo-section .pplx-ticker-chip {
+  L582: .pplx-geo-section .pplx-exp-row {
+  L591: .pplx-geo-section .pplx-exp-row:last-child { border-bottom: none; }
+  L592: .pplx-geo-section .pplx-exp-ticker {
+  L597: .pplx-geo-section .pplx-exp-weight {
+  L600: .pplx-geo-section .pplx-exp-risks {
+  L604: .pplx-geo-section .pplx-exp-score {
+  L609: .pplx-geo-section .pplx-exp-bar {
+  L617: .pplx-geo-section .pplx-exp-bar-fill {
+  L622: .pplx-geo-section .pplx-loading, .pplx-geo-section .pplx-empty {
+  L1525: <div id="pplxGeoSection" class="pplx-geo-section">
+  L1526: <div class="pplx-geo-header">
+  L1527: <div class="pplx-geo-title">
+  L1531: <div class="pplx-geo-score-block">
+  L1533: <span class="pplx-geo-score" id="pplxGeoScoreValue">ÔÇö</span><span class="pplx-geo-score-suffix">/100</span>
+  L1537: <div class="pplx-geo-summary" id="pplxGeoSummary">Chargement du contexte g├®opolitiqueÔÇª</div>
+  L1538: <div class="pplx-geo-meta">
+  L1543: <div class="pplx-geo-grid">
+  L2206: <table id="pplx-crypto-table">
+  L2235: <div class="pplx-section" id="pplx-thesis-section">
+  L2240: <table id="pplx-thesis-table">
+  L2251: <tbody id="pplx-thesis-tbody">
+  L2270: <div id="pplxMemoBackdrop" class="pplx-memo-backdrop" onclick="if(event.target===this)pplxMemoClose()">
+  L2271: <div class="pplx-memo-modal" role="dialog" aria-modal="true" aria-labelledby="pplxMemoTitle">
+  L2272: <button class="pplx-memo-close" onclick="pplxMemoClose()" aria-label="Fermer">├ù</button>
+  L2274: <div class="pplx-memo-loading">Chargement du memo IAÔÇª</div>
+  L2282: <div id="pplxGeoDetailBackdrop" class="pplx-geo-detail-backdrop" onclick="if(event.target===this)pplxGeoDetailClose()">
+  L2283: <div class="pplx-geo-detail-modal" role="dialog" aria-modal="true">
+  L2284: <button class="pplx-geo-detail-close" onclick="pplxGeoDetailClose()" aria-label="Fermer">├ù</button>
+
+[STRUCTURE TAB TODAY] cherche <div class="tab-content" data-tab="today">
+
+[APP.JS] 1 fichier(s)
+  C:\Users\RichardGUELIN\Prod\ThesiumDesk\app.js  (308154 bytes)
+
+[APP.JS PRINCIPAL] C:\Users\RichardGUELIN\Prod\ThesiumDesk\app.js
+
+[STATS APP.JS] 6501 lignes
+
+[APIFETCH SIGNATURE]
+  L777: async function apiFetch(path, opts = {}) {
+
+[WINDOW.APIFETCH]
+
+[LOAD/RENDER PPLX FUNCTIONS]
+  L2810: async function loadMemos() {
+  L2820: function renderMemoList(memos) {
+  L2906: function renderMemoReader(memo) {
+  L4587: async function loadGeoRiskData() {
+  L4626: function renderGeoGauge(score) {
+  L4693: function renderGeoHero(data) {
+  L4703: function renderGeoSubscores(subScores) {
+  L4730: function renderGeoChokepoints(chokepoints) {
+  L4750: function renderGeoTheaters(theaters) {
+  L4771: function renderGeoAlerts(alerts) {
+  L4785: function renderGeoScoreChart(history) {
+  L5631: function renderPplxPanel(snap) {
+
+[AUTO-REFRESH / SETINTERVAL]
+  L5699: setInterval(refreshPplxPanel, 5 * 60 * 1000);
+
+[INIT / DOMContentLoaded]
+  L5058: document.addEventListener('keydown', (e) => {
+  L5063: document.addEventListener('DOMContentLoaded', init);
+  L5529: document.addEventListener('DOMContentLoaded', () => {
+  L5690: document.addEventListener("DOMContentLoaded", () => {
+  L5867: document.addEventListener('DOMContentLoaded', function(){
+  L5902: document.addEventListener('DOMContentLoaded', doMove);
+  L6041: document.addEventListener('DOMContentLoaded', pplxBoot);
+  L6047: document.addEventListener('click', function(e){
+  L6166: document.addEventListener('keydown', function(e) {
+  L6233: document.addEventListener('DOMContentLoaded', _startInjection);
+  L6335: document.addEventListener('keydown', function(e) {
+  L6483: document.addEventListener('DOMContentLoaded', _startObserver);
+
+[DONE]

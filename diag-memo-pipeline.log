@@ -1,0 +1,114 @@
+﻿============================================================
+1. memo_generator.py
+============================================================
+  413 lignes, 14915 chars
+
+[IMPORTS]
+  L5: import json
+  L6: import sqlite3
+  L7: from datetime import datetime
+  L8: from models import get_db, log_event
+
+[FONCTIONS DEFINIES]
+  L15: def _build_header(date_str: str, portfolio_state: dict)
+  L40: def _build_macro_section(macro_result: dict)
+  L78: def _build_factor_section(factor_results: list)
+  L111: def _build_thesis_section(conn: sqlite3.Connection, agent_results: dict)
+  L147: def _build_proposed_changes_section(conn: sqlite3.Connection)
+  L191: def _build_audit_trail_section(conn: sqlite3.Connection)
+  L232: def _build_risk_v2_section(conn: sqlite3.Connection)
+  L295: def _build_diff_section(conn)
+  L319: def generate_ic_memo(conn: sqlite3.Connection, agent_results: dict | None = None)
+
+[CLASSES]
+
+[TABLES SQL REFERENCEES]
+  agent
+  current
+  datetime
+  diff_engine
+  event_log
+  fills
+  ic_memos
+  instruments
+  models
+  orders
+  portfolio_state
+  regime_log
+  theses
+
+[DIFF_ENGINE WIRING]
+  L297 (diff_engine): Lecture seule. Fail-safe : retourne un placeholder si diff_engine indispo
+  L301 (compute_cycle_diff): from diff_engine import compute_cycle_diff, render_diff_markdown
+  L293 (Ce qui a chang): # [ICMEMO_DIFF_V1] Section "Ce qui a change" (J-1 / J-7)
+  L293 (J-1): # [ICMEMO_DIFF_V1] Section "Ce qui a change" (J-1 / J-7)
+
+[CONVERGENCE REFS (devrait etre vide pour confirmer le gap)]
+  (vide - confirme que memo_generator ne lit pas convergence)
+
+[FORMAT SORTIE]
+  'markdown' : 7 occ
+
+[SECTIONS MEMO (titres H2/H3 ou ##)]
+  L28: ## Portfolio Snapshot
+  L42: ## Macro Outlook\n\n*No macro data available.*\n\n"
+  L50: ## Macro Outlook",
+  L54: ## Market Indicators",
+  L80: ## Factor Tilts\n\n*No factor data available.*\n\n"
+  L87: ## Factor Tilts",
+  L93: ## Factor Scores",
+  L113: ## Active Thesis Summaries",
+  L129: ## Active Thesis Summaries\n\n*No active theses.*\n\n"
+  L134: ## {ticker_str}{t['agent_type']} | Conviction: {t['conviction_score']:.1f}/10 | Horizon: {t['horizon']}",
+  L161: ## Proposed Changes & Executions\n\n*No orders in this cycle.*\n\n"
+  L164: ## Proposed Changes & Executions",
+  L199: ## Audit Trail",
+  L282: ## Pre-trade Controls [RISK_V2]",
+  L303: ## Ce qui a change\n\n*Module diff_engine indisponible ({_e_icmd}).*\n\n"
+  L309: ## Ce qui a change\n\n*Aucun cycle disponible dans regime_log.*\n\n"
+  L315: ## Ce qui a change\n\n*Erreur calcul diff : {_e_icmd}*\n\n"
+
+============================================================
+2. ENDPOINTS API memo
+============================================================
+
+  api_server.py
+    L1057: @app.get /api/memos
+    L1107: @app.get /api/memos/{memo_id}
+    L1121: @app.get /api/memos/{memo_id}/markdown
+    L1141: @app.get /api/memos/{memo_id}/pdf
+    L3392: @app.get /api/pplx/memo
+    L3452: @app.get /api/pplx/memo/list
+
+  api_server_with_static.py
+
+============================================================
+3. TABLE ic_memos
+============================================================
+CREATE TABLE ic_memos (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            date             TEXT NOT NULL,
+            title            TEXT NOT NULL,
+            macro_summary    TEXT,
+            factor_tilts     TEXT DEFAULT '{}',
+            thesis_summaries TEXT DEFAULT '[]',
+            proposed_changes TEXT DEFAULT '[]',
+            full_markdown    TEXT,
+            created_at       TEXT DEFAULT (datetime('now'))
+        )
+
+  Colonnes :
+    id (INTEGER)
+    date (TEXT)
+    title (TEXT)
+    macro_summary (TEXT)
+    factor_tilts (TEXT)
+    thesis_summaries (TEXT)
+    proposed_changes (TEXT)
+    full_markdown (TEXT)
+    created_at (TEXT)
+
+  Total memos : 64
+  [ERREUR] no such column: ticker
+
+[DONE]

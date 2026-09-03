@@ -1,0 +1,431 @@
+"""
+risk_engine.py - Risk and portfolio engine for Thesium.finance / Nextones Desk
+Evaluates proposed trades against constraints from risk_config.
+Provides VAR estimation, position sizing, and detailed risk annotations.
+
+PATCH 2026-05-22 — Corrections critiques du calcul VAR:
+  - Bug #1: Vol par défaut traitée en annualisée (0.25/an) puis convertie en daily
+  - Bug #2: Cap |weight| <= 1.0 par position pour éviter dérives sur shorts
+  - Bug #3: Daily P&L baseline avec fallback sur total_cost_basis
+  - Bug #4: Normalisation des poids (somme |w| capée à 1.0)
+"""
+import json
+import math
+import sqlite3
+from datetime import datetime
+from models import get_db, log_event
+
+
+# ---------------------------------------------------------------------------
+# Risk Config Helper
+# ---------------------------------------------------------------------------
+
+def get_risk_config(conn: sqlite3.Connection) -> dict:
+    row = conn.execute("SELECT * FROM risk_config WHERE id = 1").fetchone()
+    if row:
+        return dict(row)
+    return {
+        "max_position_pct": 10.0,
+        "max_sector_pct": 25.0,
+        "max_single_name_pct": 10.0,
+        "max_var_pct": 5.0,
+        "stop_loss_pct": 8.0,
+    }
+
+
+def get_portfolio_state(conn: sqlite3.Connection) -> dict:
+    row = conn.execute("SELECT * FROM portfolio_state WHERE id = 1").fetchone()
+    if row:
+        return dict(row)
+    return {"cash": 1_000_000, "total_value": 1_000_000, "total_pnl": 0}
+
+
+# ---------------------------------------------------------------------------
+# VAR Calculation  (PATCHED)
+# ---------------------------------------------------------------------------
+
+# Constantes
+DEFAULT_ANNUAL_VOL = 0.25          # 25% annualisée par défaut si pas assez de données
+TRADING_DAYS       = 252
+DEFAULT_DAILY_VOL  = DEFAULT_ANNUAL_VOL / math.sqrt(TRADING_DAYS)  # ≈ 0.01575
+MAX_DAILY_VOL_CAP  = 0.10          # cap à 10% daily (~159% annualisé) pour éviter outliers
+MAX_ABS_WEIGHT     = 1.0           # cap individuel par position (notionnel / NAV)
+
+
+def calculate_portfolio_var(conn: sqlite3.Connection, confidence: float = 0.95) -> float:
+    """
+    Parametric VAR at given confidence level.
+    Uses historical daily return volatility for each position (zero correlation).
+    Returns VAR as a percentage of total portfolio value.
+    """
+    positions = conn.execute(
+        """SELECT pp.instrument_id, pp.quantity, pp.current_price, pp.weight_pct, i.ticker
+           FROM portfolio_positions pp
+           JOIN instruments i ON i.id = pp.instrument_id
+           WHERE pp.quantity != 0"""
+    ).fetchall()
+
+    portfolio_state = get_portfolio_state(conn)
+    total_value = portfolio_state.get("total_value", 1_000_000)
+
+    if total_value <= 0 or not positions:
+        return 0.0
+
+    portfolio_variance = 0.0
+    sum_abs_weights = 0.0
+
+    for pos in positions:
+        prices_rows = conn.execute(
+            """SELECT close FROM prices WHERE instrument_id = ?
+               ORDER BY date DESC LIMIT 21""",
+            (pos["instrument_id"],)
+        ).fetchall()
+
+        closes = [r[0] for r in reversed(prices_rows)]
+
+        if len(closes) < 5:
+            # FIX bug #1 : on partait d'une vol annualisée à 25% utilisée par
+            # erreur comme daily → on convertit explicitement en daily
+            vol = DEFAULT_DAILY_VOL
+        else:
+            returns = [
+                (closes[i] - closes[i-1]) / closes[i-1]
+                for i in range(1, len(closes))
+                if closes[i-1] > 0
+            ]
+            if len(returns) < 2:
+                vol = DEFAULT_DAILY_VOL
+            else:
+                mean_r   = sum(returns) / len(returns)
+                daily_var = sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)
+                vol = math.sqrt(daily_var)
+
+        # FIX : cap pour absorber les outliers/poor data quality
+        vol = min(vol, MAX_DAILY_VOL_CAP)
+
+        position_value = pos["quantity"] * pos["current_price"]
+        weight = position_value / total_value if total_value > 0 else 0.0
+
+        # FIX bug #2 : cap individuel sur |weight| pour éviter dérive shorts
+        weight = max(-MAX_ABS_WEIGHT, min(MAX_ABS_WEIGHT, weight))
+
+        sum_abs_weights   += abs(weight)
+        portfolio_variance += (weight * vol) ** 2
+
+    portfolio_daily_vol = math.sqrt(portfolio_variance)
+
+    # FIX bug #4 : si somme |weights| > 1 (levier implicite), on renormalise
+    # de façon conservatrice
+    if sum_abs_weights > 1.0:
+        portfolio_daily_vol = portfolio_daily_vol / sum_abs_weights
+
+    # Z-score
+    z = 1.645 if confidence == 0.95 else 2.326
+    var_pct = portfolio_daily_vol * z * 100  # %
+    return round(var_pct, 3)
+
+
+# ---------------------------------------------------------------------------
+# Position Size Calculator
+# ---------------------------------------------------------------------------
+
+def calculate_max_allowed_quantity(
+    conn: sqlite3.Connection,
+    instrument_id: int,
+    price: float,
+    side: str,
+    risk_config: dict,
+) -> tuple[float, list[str]]:
+    """
+    Returns (max_quantity, reasons) based on risk config constraints.
+    """
+    portfolio_state = get_portfolio_state(conn)
+    total_value = portfolio_state.get("total_value", 1_000_000)
+    reasons = []
+
+    pos_row = conn.execute(
+        "SELECT quantity, current_price FROM portfolio_positions WHERE instrument_id = ?",
+        (instrument_id,)
+    ).fetchone()
+    current_qty  = pos_row["quantity"] if pos_row else 0
+    current_val  = current_qty * price
+
+    if side == "buy":
+        max_by_name   = (risk_config["max_single_name_pct"] / 100) * total_value
+        allowed_add   = max_by_name - current_val
+        max_qty_name  = allowed_add / price if price > 0 else 0
+
+        inst_row = conn.execute(
+            "SELECT sector FROM instruments WHERE id = ?", (instrument_id,)
+        ).fetchone()
+        sector = inst_row["sector"] if inst_row else None
+        sector_val = 0.0
+        if sector:
+            sector_val = conn.execute(
+                """SELECT COALESCE(SUM(pp.quantity * pp.current_price), 0)
+                   FROM portfolio_positions pp
+                   JOIN instruments i ON i.id = pp.instrument_id
+                   WHERE i.sector = ?""",
+                (sector,)
+            ).fetchone()[0]
+
+        max_by_sector   = (risk_config["max_sector_pct"] / 100) * total_value
+        allowed_sector  = max_by_sector - sector_val
+        max_qty_sector  = allowed_sector / price if price > 0 else 0
+
+        cash = portfolio_state.get("cash", 0)
+        max_qty_cash = cash / price if price > 0 else 0
+
+        max_qty = min(max_qty_name, max_qty_sector, max_qty_cash)
+
+        if max_qty < max_qty_cash:
+            reasons.append(f"Single-name limit: ${max_by_name:,.0f} max for this ticker")
+        if max_qty_sector < max_qty_cash:
+            reasons.append(f"Sector limit: ${max_by_sector:,.0f} max for {sector} sector")
+    else:  # sell
+        max_qty = current_qty
+        if max_qty <= 0:
+            reasons.append("No position to sell")
+
+    return max(0, max_qty), reasons
+
+
+# ---------------------------------------------------------------------------
+# Main Risk Check
+# ---------------------------------------------------------------------------
+
+def check_order(
+    conn: sqlite3.Connection,
+    instrument_id: int,
+    thesis_id: int | None,
+    side: str,
+    quantity: float,
+    price: float,
+) -> dict:
+    risk_config = get_risk_config(conn)
+    portfolio_state = get_portfolio_state(conn)
+    total_value = portfolio_state.get("total_value", 1_000_000)
+    order_value = quantity * price
+    reasons = []
+    warnings = []
+
+    # --- 1. VAR check ---
+    current_var = calculate_portfolio_var(conn)
+    if current_var > risk_config["max_var_pct"]:
+        reasons.append(
+            f"Portfolio VAR ({current_var:.2f}%) exceeds limit ({risk_config['max_var_pct']}%); "
+            f"no new risk can be added"
+        )
+        if side == "buy":
+            return {
+                "approved": False,
+                "action": "rejected",
+                "approved_quantity": 0,
+                "reasons": reasons,
+                "metrics": {"var_pct": current_var, "order_value": order_value},
+            }
+
+    # --- 2. Position size check ---
+    max_allowed_qty, size_reasons = calculate_max_allowed_quantity(
+        conn, instrument_id, price, side, risk_config
+    )
+    reasons.extend(size_reasons)
+
+    if max_allowed_qty <= 0 and side == "buy":
+        return {
+            "approved": False,
+            "action": "rejected",
+            "approved_quantity": 0,
+            "reasons": reasons + ["Position limit already reached"],
+            "metrics": {"var_pct": current_var, "order_value": order_value},
+        }
+
+    # FIX critique : un SELL sans position détenue (ou avec qty insuffisante)
+    # doit être rejeté ou scalé. Sinon on crée un short involontaire.
+    if side == "sell":
+        if max_allowed_qty <= 0:
+            return {
+                "approved": False,
+                "action": "rejected",
+                "approved_quantity": 0,
+                "reasons": reasons + ["No position to sell (short selling disabled)"],
+                "metrics": {"var_pct": current_var, "order_value": order_value},
+            }
+        if quantity > max_allowed_qty:
+            scaled = math.floor(max_allowed_qty)
+            if scaled <= 0:
+                return {
+                    "approved": False,
+                    "action": "rejected",
+                    "approved_quantity": 0,
+                    "reasons": reasons + ["Scaled sell quantity rounds to zero"],
+                    "metrics": {"var_pct": current_var, "original_qty": quantity, "max_allowed": max_allowed_qty},
+                }
+            reasons.append(
+                f"SELL scaled from {quantity:.0f} to {scaled:.0f} shares "
+                f"(position held: {max_allowed_qty:.0f})"
+            )
+            quantity = scaled
+
+    approved_quantity = quantity
+    action = "approved"
+
+    if side == "buy" and quantity > max_allowed_qty:
+        approved_quantity = math.floor(max_allowed_qty)
+        if approved_quantity <= 0:
+            return {
+                "approved": False,
+                "action": "rejected",
+                "approved_quantity": 0,
+                "reasons": reasons + ["Scaled quantity rounds to zero shares"],
+                "metrics": {"var_pct": current_var, "original_qty": quantity, "max_allowed": max_allowed_qty},
+            }
+        action = "scaled_down"
+        reasons.append(
+            f"Order scaled from {quantity:.0f} to {approved_quantity:.0f} shares "
+            f"(value ${approved_quantity * price:,.0f}) to respect position limits"
+        )
+
+    # --- 3. Cash check for buys ---
+    if side == "buy":
+        cash = portfolio_state.get("cash", 0)
+        required_cash = approved_quantity * price
+        if required_cash > cash:
+            max_by_cash = math.floor(cash / price) if price > 0 else 0
+            if max_by_cash <= 0:
+                return {
+                    "approved": False,
+                    "action": "rejected",
+                    "approved_quantity": 0,
+                    "reasons": [f"Insufficient cash: need ${required_cash:,.0f}, have ${cash:,.0f}"],
+                    "metrics": {"cash": cash, "required": required_cash},
+                }
+            if max_by_cash < approved_quantity:
+                approved_quantity = max_by_cash
+                action = "scaled_down"
+                reasons.append(f"Order scaled to {approved_quantity} shares due to cash constraint (${cash:,.0f} available)")
+
+    # --- 4. Stop-loss check for existing positions ---
+    if side == "buy":
+        pos_row = conn.execute(
+            "SELECT avg_cost FROM portfolio_positions WHERE instrument_id = ?",
+            (instrument_id,)
+        ).fetchone()
+        if pos_row and pos_row["avg_cost"]:
+            avg_cost = pos_row["avg_cost"]
+            loss_pct = (avg_cost - price) / avg_cost * 100 if avg_cost > 0 else 0
+            if loss_pct > risk_config["stop_loss_pct"]:
+                warnings.append(
+                    f"WARNING: Adding to a position down {loss_pct:.1f}% from avg cost "
+                    f"(stop-loss threshold: {risk_config['stop_loss_pct']}%)"
+                )
+
+    metrics = {
+        "order_value_usd":    round(approved_quantity * price, 2),
+        "portfolio_var_pct":  current_var,
+        "position_size_pct":  round((approved_quantity * price) / total_value * 100, 2),
+        "cash_after_trade":   round(portfolio_state.get("cash", 0) - (approved_quantity * price if side == "buy" else -approved_quantity * price), 2),
+    }
+
+    result = {
+        "approved": True,
+        "action": action,
+        "approved_quantity": approved_quantity,
+        "reasons": reasons,
+        "warnings": warnings,
+        "metrics": metrics,
+    }
+
+    log_event(conn, "risk_check", "order", None,
+              {"instrument_id": instrument_id, "side": side, "requested_qty": quantity,
+               "approved_qty": approved_quantity, "action": action, "reasons": reasons},
+              agent="RiskEngine")
+
+    return result
+
+
+def refresh_portfolio_state(conn: sqlite3.Connection):
+    """
+    Recompute portfolio_state from current positions + cash.
+    PATCHED : Daily P&L plus robuste avec fallback sur cost_basis.
+    """
+    positions = conn.execute(
+        "SELECT instrument_id, quantity, avg_cost, current_price FROM portfolio_positions"
+    ).fetchall()
+
+    state_row = conn.execute("SELECT * FROM portfolio_state WHERE id = 1").fetchone()
+    cash = state_row["cash"] if state_row else 1_000_000
+
+    total_position_value = sum(p["quantity"] * p["current_price"] for p in positions)
+    total_value = cash + total_position_value
+
+    total_cost_basis = sum(p["quantity"] * p["avg_cost"] for p in positions)
+    # [FIX_RISK_ENGINE_PNL_NAV_BASED_V1]
+    # Unrealized = position_value - cost_basis (P&L latent des positions ouvertes)
+    unrealized_pnl = total_position_value - total_cost_basis
+    initial_capital = 1_000_000
+    # Net capital flows : deposits positifs, withdrawals negatifs (table capital_flows)
+    try:
+        flows_row = conn.execute(
+            "SELECT COALESCE(SUM(CASE WHEN flow_type='deposit' THEN amount "
+            "WHEN flow_type='withdrawal' THEN -amount ELSE 0 END), 0) AS net_flows "
+            "FROM capital_flows"
+        ).fetchone()
+        net_capital_flows = flows_row["net_flows"] if flows_row else 0.0
+    except Exception:
+        net_capital_flows = 0.0
+    # Total return NAV-based : NAV - capital initial - net flows
+    total_pnl = total_value - initial_capital - net_capital_flows
+    total_pnl_pct = (total_pnl / initial_capital * 100) if initial_capital > 0 else 0
+    unrealized_pnl_pct = (unrealized_pnl / initial_capital * 100) if initial_capital > 0 else 0
+
+    var_95 = calculate_portfolio_var(conn)
+
+    for pos in positions:
+        pos_val = pos["quantity"] * pos["current_price"]
+        weight_pct = (pos_val / total_value * 100) if total_value > 0 else 0
+        unrealized_pnl = pos["quantity"] * (pos["current_price"] - pos["avg_cost"])
+        conn.execute(
+            """UPDATE portfolio_positions
+               SET weight_pct = ?, unrealized_pnl = ?, updated_at = datetime('now')
+               WHERE instrument_id = ?""",
+            (round(weight_pct, 3), round(unrealized_pnl, 2), pos["instrument_id"])
+        )
+
+    # FIX bug #3 : Daily P&L avec garde-fou
+    daily_pnl = 0.0
+    daily_pnl_pct = 0.0
+    prev = conn.execute(
+        """SELECT total_value FROM portfolio_history
+           WHERE date < date('now') ORDER BY date DESC LIMIT 1"""
+    ).fetchone()
+    if prev and prev["total_value"] and prev["total_value"] > 0:
+        daily_pnl = total_value - prev["total_value"]
+        daily_pnl_pct = (daily_pnl / prev["total_value"]) * 100
+        # Cap pour éviter affichage absurde si baseline corrompue
+        if abs(daily_pnl_pct) > 50.0:
+            daily_pnl_pct = 0.0
+            daily_pnl = 0.0
+
+    now = datetime.utcnow().isoformat()
+    conn.execute(
+        """INSERT OR REPLACE INTO portfolio_state
+               (id, cash, total_value, total_pnl, total_pnl_pct,
+                unrealized_pnl, unrealized_pnl_pct,
+                daily_pnl, daily_pnl_pct, var_95, updated_at)
+           VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (round(cash, 2), round(total_value, 2), round(total_pnl, 2),
+         round(total_pnl_pct, 4),
+         round(unrealized_pnl, 2), round(unrealized_pnl_pct, 4),
+         round(daily_pnl, 2), round(daily_pnl_pct, 4),
+         var_95, now)
+    )
+
+
+if __name__ == "__main__":
+    from models import init_db
+    init_db()
+    conn = get_db()
+    var = calculate_portfolio_var(conn)
+    print(f"Current portfolio VAR (95%): {var:.2f}%")
+    conn.close()

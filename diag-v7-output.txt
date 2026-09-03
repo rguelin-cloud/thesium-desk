@@ -1,0 +1,369 @@
+
+================================================================================
+== [1] app.js  L3080 -> L3260  (function exportMemoPDF + URL fetch)
+================================================================================
+  Fichier : app.js
+ 3080 |       title: generated.title,
+ 3081 |       author: 'R. Gu\u00e9lin',
+ 3082 |       date: _todayStr(),
+ 3083 |       status: 'draft',
+ 3084 |       summary: generated.summary,
+ 3085 |       tags: generated.tags,
+ 3086 |       body: generated.body
+ 3087 |     };
+ 3088 | 
+ 3089 |     // Simulate async generation delay
+ 3090 |     await new Promise(r => setTimeout(r, 600));
+ 3091 | 
+ 3092 |     // Add to state and re-render
+ 3093 |     state.memos.unshift(newMemo);
+ 3094 |     state.selectedMemoId = null; // reset selection
+ 3095 |     renderMemoList(state.memos);
+ 3096 |     selectMemo(newMemo.id);
+ 3097 | 
+ 3098 |     closeNewMemoModal();
+ 3099 |     showToast('IC Memo g\u00e9n\u00e9r\u00e9 : ' + generated.title, 'success');
+ 3100 |   } catch (err) {
+ 3101 |     showToast('Erreur g\u00e9n\u00e9ration memo : ' + err.message, 'error');
+ 3102 |   } finally {
+ 3103 |     btn.disabled = false;
+ 3104 |     btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13
+ 3105 |   }
+ 3106 | }
+ 3107 | 
+ 3108 | async function exportMemoPDF(memoId) {
+ 3109 |   const btn = document.querySelector('.btn-export-pdf');
+ 3110 |   if (btn) {
+ 3111 |     btn.disabled = true;
+ 3112 |     btn.innerHTML = `
+ 3113 |       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="spin">
+ 3114 |         <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+ 3115 |       </svg>
+ 3116 |       Export?
+ 3117 |     `;
+ 3118 |   }
+ 3119 |   try {
+ 3120 |     if (!window.jspdf) {
+ 3121 |       await new Promise((resolve, reject) => {
+ 3122 |         const s = document.createElement('script');
+ 3123 |         s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+ 3124 |         s.onload = resolve;
+ 3125 |         s.onerror = () => reject(new Error('Impossible de charger jsPDF'));
+ 3126 |         document.head.appendChild(s);
+ 3127 |       });
+ 3128 |     }
+ 3129 | 
+ 3130 |     const allMemos = state.memos || window._currentMemoList || [];
+ 3131 |     const memo = allMemos.find(m => String(m.id ?? m._id) === String(memoId));
+ 3132 |     if (!memo) throw new Error('Memo introuvable (id=' + memoId + ')');
+ 3133 | 
+ 3134 |     const { jsPDF } = window.jspdf;
+ 3135 |     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+ 3136 |     const pageW = doc.internal.pageSize.getWidth();
+ 3137 |     const pageH = doc.internal.pageSize.getHeight();
+ 3138 |     const margin = 15;
+ 3139 |     const usable = pageW - margin * 2;
+ 3140 |     let y = 20;
+ 3141 | 
+ 3142 |     /* ?? emoji ? ASCII safe replacements ?? */
+ 3143 |     function sanitizeEmoji(str) {
+ 3144 |       return str
+ 3145 |         .replace(/\u26a0\ufe0f?/g, '/!\\')
+ 3146 |         .replace(/\ud83d\udfe1/g, '(!) ')
+ 3147 |         .replace(/\ud83d\udfe2/g, '(OK)')
+ 3148 |         .replace(/\ud83d\udd34/g, '(X) ')
+ 3149 |         .replace(/\ud83d\udfe0/g, '(~) ')
+ 3150 |         .replace(/\u2b06\ufe0f?/g, '^')
+ 3151 |         .replace(/\u2b07\ufe0f?/g, 'v')
+ 3152 |         .replace(/\ud83d\udfe3/g, '(-) ')
+ 3153 |         .replace(/[\ud800-\udbff][\udc00-\udfff]/g, '');
+ 3154 |     }
+ 3155 | 
+ 3156 |     /* ?? page break helper ?? */
+ 3157 |     function ensureSpace(need) {
+ 3158 |       if (y + need > pageH - 14) {
+ 3159 |         addFooter();
+ 3160 |         doc.addPage();
+ 3161 |         y = 15;
+ 3162 |       }
+ 3163 |     }
+ 3164 | 
+ 3165 |     /* ?? footer on every page ?? */
+ 3166 |     function addFooter() {
+ 3167 |       doc.setFontSize(7);
+ 3168 |       doc.setFont('helvetica', 'normal');
+ 3169 |       doc.setTextColor(150, 150, 150);
+ 3170 |       doc.text('Genere par NEXTONES Desk \u2014 Perplexity Computer', margin, pageH - 8);
+ 3171 |       const pc = doc.internal.getNumberOfPages();
+ 3172 |       doc.text('Page ' + pc, pageW - margin, pageH - 8, { align: 'right' });
+ 3173 |     }
+ 3174 | 
+ 3175 |     /* ?? draw text with inline **bold** support ?? */
+ 3176 |     function drawRichLine(text, xStart, yPos, fontSize, maxW) {
+ 3177 |       doc.setFontSize(fontSize);
+ 3178 |       const parts = text.split(/(\*\*[^*]+\*\*)/);
+ 3179 |       let cx = xStart;
+ 3180 |       for (const part of parts) {
+ 3181 |         if (!part) continue;
+ 3182 |         const isBold = part.startsWith('**') && part.endsWith('**');
+ 3183 |         const clean = isBold ? part.slice(2, -2) : part;
+ 3184 |         doc.setFont('helvetica', isBold ? 'bold' : 'normal');
+ 3185 |         doc.text(clean, cx, yPos);
+ 3186 |         cx += doc.getTextWidth(clean);
+ 3187 |       }
+ 3188 |     }
+ 3189 | 
+ 3190 |     /* ?? draw a markdown table ?? */
+ 3191 |     function drawTable(headerRow, bodyRows) {
+ 3192 |       const allRows = [headerRow, ...bodyRows];
+ 3193 |       const numCols = headerRow.length;
+ 3194 |       const colWidths = [];
+ 3195 |       const cellPad = 2;
+ 3196 |       const fontSize = 8;
+ 3197 |       const rowH = 6;
+ 3198 |       doc.setFontSize(fontSize);
+ 3199 | 
+ 3200 |       // Calculate column widths
+ 3201 |       for (let c = 0; c < numCols; c++) {
+ 3202 |         let maxW = 0;
+ 3203 |         for (const row of allRows) {
+ 3204 |           const cell = (row[c] || '').replace(/\*\*/g, '');
+ 3205 |           doc.setFont('helvetica', 'bold');
+ 3206 |           const w = doc.getTextWidth(cell);
+ 3207 |           if (w > maxW) maxW = w;
+ 3208 |         }
+ 3209 |         colWidths.push(maxW + cellPad * 2);
+ 3210 |       }
+ 3211 | 
+ 3212 |       // Scale if too wide
+ 3213 |       const totalW = colWidths.reduce((a, b) => a + b, 0);
+ 3214 |       if (totalW > usable) {
+ 3215 |         const scale = usable / totalW;
+ 3216 |         for (let c = 0; c < numCols; c++) colWidths[c] *= scale;
+ 3217 |       }
+ 3218 | 
+ 3219 |       const tableH = (allRows.length + 1) * rowH;
+ 3220 |       ensureSpace(tableH + 4);
+ 3221 | 
+ 3222 |       let tx = margin;
+ 3223 |       // Draw header
+ 3224 |       doc.setFillColor(218, 232, 245);
+ 3225 |       doc.rect(margin, y - rowH + 2, colWidths.reduce((a, b) => a + b, 0), rowH, 'F');
+ 3226 |       doc.setTextColor(30, 50, 80);
+ 3227 |       doc.setFont('helvetica', 'bold');
+ 3228 |       doc.setFontSize(fontSize);
+ 3229 |       tx = margin;
+ 3230 |       for (let c = 0; c < numCols; c++) {
+ 3231 |         const cell = (headerRow[c] || '').replace(/\*\*/g, '');
+ 3232 |         doc.text(cell, tx + cellPad, y);
+ 3233 |         tx += colWidths[c];
+ 3234 |       }
+ 3235 |       y += rowH;
+ 3236 | 
+ 3237 |       // Draw body rows
+ 3238 |       for (let r = 0; r < bodyRows.length; r++) {
+ 3239 |         ensureSpace(rowH + 2);
+ 3240 |         tx = margin;
+ 3241 |         const row = bodyRows[r];
+ 3242 |         // Alternate row bg
+ 3243 |         if (r % 2 === 0) {
+ 3244 |           doc.setFillColor(245, 245, 245);
+ 3245 |           doc.rect(margin, y - rowH + 2, colWidths.reduce((a, b) => a + b, 0), rowH, 'F');
+ 3246 |         }
+ 3247 |         doc.setTextColor(30, 30, 30);
+ 3248 |         for (let c = 0; c < numCols; c++) {
+ 3249 |           const raw = (row[c] || '');
+ 3250 |           const isBold = raw.includes('**');
+ 3251 |           const cell = raw.replace(/\*\*/g, '');
+ 3252 |           doc.setFont('helvetica', isBold ? 'bold' : 'normal');
+ 3253 |           doc.setFontSize(fontSize);
+ 3254 |           // Truncate if needed
+ 3255 |           let display = cell;
+ 3256 |           while (doc.getTextWidth(display) > colWidths[c] - cellPad * 2 && display.length > 1) {
+ 3257 |             display = display.slice(0, -1);
+ 3258 |           }
+ 3259 |           doc.text(display, tx + cellPad, y);
+ 3260 |           tx += colWidths[c];
+
+================================================================================
+== [2] api_server.py  L1430 -> L1510  (route + def juste avant)
+================================================================================
+ 1430 |         story.append(Spacer(1, 8))
+ 1431 |         story.append(Paragraph("Thesis Summaries", sH2))
+ 1432 |         table_data = [["Ticker", "Agent", "Conviction", "Action"]]
+ 1433 |         for ts in thesis_summaries:
+ 1434 |             table_data.append([
+ 1435 |                 Paragraph(f"<b>{_xml_escape(str(ts.get('ticker', '--')))}</b>", sBody),
+ 1436 |                 Paragraph(_xml_escape(str(ts.get("agent", "--"))), sSmall),
+ 1437 |                 Paragraph(f"{ts.get('conviction', '--')}/10", sBody),
+ 1438 |                 Paragraph(_xml_escape(str(ts.get("action", "--"))), sBody),
+ 1439 |             ])
+ 1440 |         t = Table(table_data, colWidths=[55, 85, 55, None])
+ 1441 |         t.setStyle(TableStyle([  # [V3_LIGHT] header transparent, filet bas teal
+ 1442 |             ("TEXTCOLOR",  (0, 0), (-1, 0), DEEP_TEAL),
+ 1443 |             ("FONTNAME",   (0, 0), (-1, 0), FONT_BOLD),
+ 1444 |             ("FONTSIZE",   (0, 0), (-1, -1), 8.5),
+ 1445 |             ("LEADING",    (0, 0), (-1, -1), 11),
+ 1446 |             ("LINEBELOW",  (0, 0), (-1, 0), 0.8, MUTED_TEAL),
+ 1447 |             ("LINEBELOW",  (0, 1), (-1, -1), 0.25, HexColor("#E5E3D4")),
+ 1448 |             ("VALIGN",     (0, 0), (-1, -1), "TOP"),
+ 1449 |             ("TOPPADDING", (0, 0), (-1, -1), 4),
+ 1450 |             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+ 1451 |             ("LEFTPADDING", (0, 0), (-1, -1), 6),
+ 1452 |         ]))
+ 1453 |         story.append(t)
+ 1454 | 
+ 1455 |     if proposed_changes and isinstance(proposed_changes, list) and len(proposed_changes) > 0:
+ 1456 |         story.append(Spacer(1, 8))
+ 1457 |         story.append(Paragraph("Proposed Changes", sH2))
+ 1458 |         table_data = [["Ticker", "Side", "Qty", "Status"]]
+ 1459 |         for pc in proposed_changes:
+ 1460 |             side_str = str(pc.get("side", "--")).upper()
+ 1461 |             side_color = GREEN_OK if side_str == "BUY" else TERRA
+ 1462 |             table_data.append([
+ 1463 |                 Paragraph(f"<b>{_xml_escape(str(pc.get('ticker', '--')))}</b>", sBody),
+ 1464 |                 Paragraph(f'<font color="{side_color}">{side_str}</font>', sBody),
+ 1465 |                 Paragraph(_xml_escape(str(pc.get("quantity", "--"))), sBody),
+ 1466 |                 Paragraph(_xml_escape(str(pc.get("status", "--"))).upper(), sSmall),
+ 1467 |             ])
+ 1468 |         t = Table(table_data, colWidths=[70, 60, 60, None])
+ 1469 |         t.setStyle(TableStyle([  # [V3_LIGHT] header transparent, filet bas teal
+ 1470 |             ("TEXTCOLOR",  (0, 0), (-1, 0), DEEP_TEAL),
+ 1471 |             ("FONTNAME",   (0, 0), (-1, 0), FONT_BOLD),
+ 1472 |             ("FONTSIZE",   (0, 0), (-1, -1), 8.5),
+ 1473 |             ("LEADING",    (0, 0), (-1, -1), 11),
+ 1474 |             ("LINEBELOW",  (0, 0), (-1, 0), 0.8, MUTED_TEAL),
+ 1475 |             ("LINEBELOW",  (0, 1), (-1, -1), 0.25, HexColor("#E5E3D4")),
+ 1476 |             ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
+ 1477 |             ("TOPPADDING", (0, 0), (-1, -1), 4),
+ 1478 |             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+ 1479 |             ("LEFTPADDING", (0, 0), (-1, -1), 6),
+ 1480 |         ]))
+ 1481 |         story.append(t)
+ 1482 | 
+ 1483 |     doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
+ 1484 |     buf.seek(0)
+ 1485 |     from starlette.responses import Response
+ 1486 |     safe_date = (raw_date or "memo").replace("/", "-")
+ 1487 |     return Response(
+ 1488 |         content=buf.read(),
+ 1489 |         media_type="application/pdf",
+ 1490 |         headers={"Content-Disposition": f'inline; filename="ic-memo-{memo_id}-{safe_date}.pdf"'},
+ 1491 |     )
+ 1492 | # === END [ICMEMO_PDF_V2] ===
+ 1493 | 
+ 1494 | def get_memo_pdf(memo_id: int):
+ 1495 |     """Generate and return a styled PDF export of an IC memo."""
+ 1496 |     conn = db()
+ 1497 |     try:
+ 1498 |         row = conn.execute("SELECT * FROM ic_memos WHERE id = ?", (memo_id,)).fetchone()
+ 1499 |         if not row:
+ 1500 |             raise HTTPException(status_code=404, detail="Memo not found")
+ 1501 |         memo = row_to_dict(row)
+ 1502 |     finally:
+ 1503 |         conn.close()
+ 1504 | 
+ 1505 |     import io
+ 1506 |     import re
+ 1507 |     from reportlab.lib.pagesizes import A4
+ 1508 |     from reportlab.lib.units import mm, cm
+ 1509 |     from reportlab.lib.colors import HexColor, white, black
+ 1510 |     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+================================================================================
+== [3] api_server.py  recherche FIN du bloc (apres L1500)
+================================================================================
+  Frontiere fin probable : L1840 :  @app.get("/api/finviz/signals")
+
+  Contexte autour de la frontiere :
+     1829 |         media_type="application/pdf",
+     1830 |         headers={
+     1831 |             "Content-Disposition": f'attachment; filename="IC-Memo-{safe_date}.pdf"',
+     1832 |         },
+     1833 |     )
+     1834 | 
+     1835 | 
+     1836 | # ---------------------------------------------------------------------------
+     1837 | # Finviz Endpoints
+     1838 | # ---------------------------------------------------------------------------
+     1839 | 
+ >>  1840 | @app.get("/api/finviz/signals")
+     1841 | def get_finviz_signals():
+     1842 |     """Stock signals (RSI, SMA, analyst rating, etc.) for equity/ETF tickers only."""
+     1843 |     conn = db()
+     1844 |     try:
+     1845 |         rows = conn.execute(
+
+================================================================================
+== [4] Toutes les routes de api_server.py (pour map global)
+================================================================================
+  L403    @app.get("/api/dashboard")   ::   def get_dashboard():
+  L489    @app.get("/api/portfolio/history")   ::   def get_portfolio_history():
+  L522    @app.get("/api/theses")   ::   def list_theses(
+  L580    @app.get("/api/theses/{thesis_id}")   ::   def get_thesis(thesis_id: int):
+  L614    @app.post("/api/theses/{thesis_id}/approve")   ::   def approve_thesis(thesis_id: int, req: ApproveThesisRequest):
+  L648    @app.get("/api/orders")   ::   def list_orders(
+  L694    @app.get("/api/fills")   ::   def list_fills(limit: int = Query(50)):
+  L714    @app.post("/api/orders/execute-cycle")   ::   @limiter.limit("5/minute")
+  L731    @app.get("/api/orders/pending-validation")  # [ORDERS_PENDING_ENDPOINT_V2]   ::   @app.get("/api/orders/pending")
+  L732    @app.get("/api/orders/pending")   ::   def list_pending_orders(user: dict = Depends(require_manager)):
+  L765    @app.post("/api/orders/{order_id}/approve")   ::   def approve_order(order_id: int, user: dict = Depends(require_manager)):
+  L838    @app.post("/api/orders/{order_id}/reject")   ::   def reject_order(order_id: int, req: OrderRejectRequest, user: dict = Depends(re
+  L884    @app.post("/api/orders/approve-all")   ::   def approve_all_orders(user: dict = Depends(require_manager)):
+  L944    @app.post("/api/orders/reject-all")   ::   def reject_all_orders(req: BulkRejectRequest, user: dict = Depends(require_manag
+  L994    @app.get("/api/memos")   ::   def list_memos(
+  L1044   @app.get("/api/memos/{memo_id}")   ::   def get_memo(memo_id: int):
+  L1058   @app.get("/api/memos/{memo_id}/markdown")   ::   def get_memo_markdown(memo_id: int):
+  L1078   @app.get("/api/memos/{memo_id}/pdf")  # [ICMEMO_PDF_V2] [ICMEMO_PDF_V3_LIGHT] [I   ::   def get_memo_pdf(memo_id: int):
+  L1840   @app.get("/api/finviz/signals")   ::   def get_finviz_signals():
+  L1859   @app.get("/api/finviz/sectors")   ::   def get_finviz_sectors():
+  L1890   @app.get("/api/crypto/overview")   ::   def get_crypto_overview():
+  L1922   @app.get("/api/macro/vulnerability")   ::   def get_macro_vulnerability():
+  L2039   @app.get("/api/geopolitical/risk")   ::   def get_geopolitical_risk():
+  L2066   @app.get("/api/macro/calendar")   ::   def get_macro_calendar():
+  L2080   @app.get("/api/events")   ::   def list_events(
+  L2107   @app.post("/api/run-ingestion")   ::   @limiter.limit("3/minute")
+  L2119   @app.post("/api/run-agents")   ::   @limiter.limit("3/minute")
+  L2186   @app.get("/api/risk-config")   ::   def get_risk_config():
+  L2198   @app.put("/api/risk-config")   ::   def update_risk_config(
+  L2236   @app.get("/api/instruments")   ::   def list_instruments():
+  L2249   @app.get("/api/instruments/{ticker}/prices")   ::   def get_instrument_prices(ticker: str, days: int = Query(30)):
+  L2272   @app.get("/api/health")   ::   def health_check():
+  L2293   @app.post("/api/auth/register", response_model=TokenOut)   ::   @limiter.limit("5/minute")
+  L2302   @app.post("/api/auth/login", response_model=TokenOut)   ::   @limiter.limit("10/minute")
+  L2311   @app.get("/api/auth/me")   ::   def get_me(user: dict = Depends(get_current_user)):
+  L2321   @app.get("/api/admin/users")   ::   def admin_list_users(user: dict = Depends(require_admin)):
+  L2334   @app.post("/api/admin/users")   ::   def admin_create_user(req: AdminCreateUserRequest, user: dict = Depends(require_
+  L2346   @app.put("/api/admin/users/{user_id}")   ::   def admin_update_user(user_id: int, req: AdminUpdateUserRequest, user: dict = De
+  L2357   @app.post("/api/admin/users/{user_id}/reset-password")   ::   def admin_reset_password(user_id: int, req: AdminResetPasswordRequest, user: dic
+  L2364   @app.delete("/api/admin/users/{user_id}")   ::   def admin_deactivate_user(user_id: int, user: dict = Depends(require_admin)):
+  L2373   @app.get("/api/admin/roles")   ::   def admin_list_roles(user: dict = Depends(require_admin)):
+  L2390   @app.get("/api/sentiment")   ::   def get_sentiment_data():
+  L2400   @app.get("/api/scheduler/status")   ::   def scheduler_status():
+  L2421   @app.post("/api/scheduler/refresh")   ::   @limiter.limit("3/minute")
+  L2472   @app.post("/api/backtest")   ::   @limiter.limit("10/minute")
+  L2534   @app.post("/api/backtest/export-csv")   ::   def export_backtest_csv(req: ExportCsvRequest):
+  L2596   @app.get("/api/backtest/presets")   ::   def get_backtest_presets():
+  L2652   @app.get("/api/pplx/crypto")   ::   def pplx_crypto_list():
+  L2675   @app.get("/api/pplx/crypto/{ticker}")   ::   def pplx_crypto_detail(ticker: str):
+  L2702   @app.get("/api/pplx/quality")   ::   def pplx_quality_list():
+  L2727   @app.get("/api/pplx/quality/{ticker}")   ::   def pplx_quality_detail(ticker: str):
+  L2750   @app.get("/api/pplx/cycle-snapshot")   ::   def pplx_cycle_snapshot():
+  L2901   @app.get("/api/pplx/thesis-challenges")   ::   def pplx_thesis_challenges_list(limit: int = 50):
+  L2927   @app.get("/api/pplx/thesis-challenge/{thesis_id}")   ::   def pplx_thesis_challenge_detail(thesis_id: int):
+  L2957   @app.post("/api/pplx/thesis-challenge/{thesis_id}")   ::   def pplx_thesis_challenge_trigger(thesis_id: int):
+  L2998   @app.get("/api/risk/controls/summary")   ::   def risk_controls_summary():
+  L3041   @app.get("/api/risk/pretrade/recent")   ::   def risk_pretrade_recent(limit: int = 20):
+  L3196   @app.get("/api/pplx/geo")   ::   def api_pplx_geo():
+  L3222   @app.get("/api/pplx/memo")   ::   def get_pplx_memo(symbol: str, force: bool = False):
+  L3282   @app.get("/api/pplx/memo/list")   ::   def list_pplx_memos():
+  L3341   @app.get("/api/universe/candidates")   ::   def universe_list_candidates(
+  L3366   @app.get("/api/universe/candidates/{cand_id}")   ::   def universe_get_candidate(cand_id: int, user: dict = Depends(get_current_user))
+  L3381   @app.post("/api/universe/candidates/{cand_id}/approve")   ::   def universe_approve(
+  L3402   @app.post("/api/universe/candidates/{cand_id}/reject")   ::   def universe_reject(
+  L3423   @app.post("/api/universe/scan")   ::   def universe_scan(
+
+================================================================================
+== [5] Empreintes du faux generateur dans api_server.py
+================================================================================
+  L1562  :         author="Perplexity Computer",

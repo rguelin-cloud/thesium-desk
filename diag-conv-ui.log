@@ -1,0 +1,51 @@
+﻿============================================================
+(a) VARIABLES CSS THEME
+============================================================
+
+[ROOT VARS]
+
+[LIGHT THEME OVERRIDES]
+
+[ATTRIBUT data-theme dans html ou body]
+  html -> dark
+
+[THEME TOGGLE LOGIC]
+  'theme-toggle' : 1 occurences dans index.html
+  'setTheme' : 0 occurences dans index.html
+  'data-theme' : 2 occurences dans index.html
+  'themeToggle' : 1 occurences dans index.html
+
+============================================================
+(b) STRUCTURE buckets_json
+============================================================
+cycle_id : 20260609-091332
+
+[FORCED_EXIT] AMD  dir=short  n=3/5  pct=0.6  sizing=0.0  fe=1  drift=0  crypto=0
+  buckets keys: ['L2', 'L3', 'L4', 'L5', 'L1']
+    L2 = {"bucket": "L2", "source": "FactorAgent", "direction": "long", "conviction": 6.0, "driver": "Momentum (12-1m): +251.5%", "raw_signal": "OVERWEIGHT"}
+    L3 = {"bucket": "L3", "source": "MicrostructureAgent", "direction": "neutral", "conviction": 5.0, "driver": "Price vs BB: 60th percentile of 20-day range", "raw_signal": "No microstructure edge; hold AMD w
+    L4 = {"bucket": "L4", "source": "AltDataAgent", "direction": "neutral", "conviction": 5.0, "driver": "Price-volume sentiment: neutral", "raw_signal": "NEUTRAL"}
+    L5 = {"bucket": "L5", "source": "ExitAgent", "direction": "short", "conviction": 7.0, "driver": "P&L -5.09 % ├óÔÇ░┬ñ seuil -5.0 % ├óÔÇáÔÇÖ SELL 50 %", "raw_signal": "STOP_LOSS", "forced_exit": true, "drift_attenuat
+    L1 = {"bucket": "L1", "source": "MacroAgent", "direction": "neutral", "conviction": 5.0, "driver": "SPY/QQQ/DIA moving average crosses: 0 bullish, 0 bearish", "raw_signal": "NEUTRAL"}
+
+[DRIFT] XLK  dir=short  n=1/3  pct=0.333  sizing=0.5  fe=0  drift=1  crypto=0
+  buckets keys: ['L3', 'L5', 'L1']
+    L3 = {"bucket": "L3", "source": "MicrostructureAgent", "direction": "neutral", "conviction": 5.0, "driver": "Price vs BB: 53th percentile of 20-day range", "raw_signal": "No microstructure edge; hold XLK w
+    L5 = {"bucket": "L5", "source": "ExitAgent", "direction": "short", "conviction": 7.0, "driver": "Poids 3.30 % vs cible 5.00 % (drift -33.9 %) ├óÔÇáÔÇÖ rebalance BUY", "raw_signal": "DRIFT", "forced_exit": false
+    L1 = {"bucket": "L1", "source": "MacroAgent", "direction": "neutral", "conviction": 5.0, "driver": "SPY/QQQ/DIA moving average crosses: 0 bullish, 0 bearish", "raw_signal": "NEUTRAL"}
+
+[STRONG] AAPL  dir=neutral  n=4/4  pct=1.0  sizing=1.0  fe=0  drift=0  crypto=0
+  buckets keys: ['L2', 'L3', 'L4', 'L1']
+    L2 = {"bucket": "L2", "source": "FactorAgent", "direction": "neutral", "conviction": 4.2, "driver": "Momentum (12-1m): -1.8%", "raw_signal": "NEUTRAL"}
+    L3 = {"bucket": "L3", "source": "MicrostructureAgent", "direction": "neutral", "conviction": 5.0, "driver": "Price vs BB: 19th percentile of 20-day range", "raw_signal": "No microstructure edge; hold AAPL 
+    L4 = {"bucket": "L4", "source": "AltDataAgent", "direction": "neutral", "conviction": 5.0, "driver": "Price-volume sentiment: neutral", "raw_signal": "NEUTRAL"}
+    L1 = {"bucket": "L1", "source": "MacroAgent", "direction": "neutral", "conviction": 5.0, "driver": "SPY/QQQ/DIA moving average crosses: 0 bullish, 0 bearish", "raw_signal": "NEUTRAL"}
+
+[NEUTRAL] BAC  dir=short  n=1/4  pct=0.25  sizing=1.0  fe=0  drift=0  crypto=0
+  buckets keys: ['L2', 'L3', 'L4', 'L1']
+    L2 = {"bucket": "L2", "source": "FactorAgent", "direction": "neutral", "conviction": 4.1, "driver": "Momentum (12-1m): +1.3%", "raw_signal": "NEUTRAL"}
+    L3 = {"bucket": "L3", "source": "MicrostructureAgent", "direction": "short", "conviction": 6.5, "driver": "Price vs BB: 92th percentile of 20-day range", "raw_signal": "RSI overbought (70.4); reduce positi
+    L4 = {"bucket": "L4", "source": "AltDataAgent", "direction": "neutral", "conviction": 5.0, "driver": "Price-volume sentiment: neutral", "raw_signal": "NEUTRAL"}
+    L1 = {"bucket": "L1", "source": "MacroAgent", "direction": "neutral", "conviction": 5.0, "driver": "SPY/QQQ/DIA moving average crosses: 0 bullish, 0 bearish", "raw_signal": "NEUTRAL"}
+
+[DONE]

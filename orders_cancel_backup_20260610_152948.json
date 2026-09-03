@@ -1,0 +1,145 @@
+[
+  {
+    "id": 268,
+    "instrument_id": 28,
+    "ticker": "AMD",
+    "side": "buy",
+    "quantity": 5.0,
+    "status": "pending_validation",
+    "thesis_id": 8474,
+    "created_at": "2026-06-10 13:02:42",
+    "rejection_reason": null
+  },
+  {
+    "id": 269,
+    "instrument_id": 7,
+    "ticker": "META",
+    "side": "buy",
+    "quantity": 4.0,
+    "status": "pending_validation",
+    "thesis_id": 8464,
+    "created_at": "2026-06-10 13:02:42",
+    "rejection_reason": null
+  },
+  {
+    "id": 270,
+    "instrument_id": 16,
+    "ticker": "ETH",
+    "side": "sell",
+    "quantity": 4.0,
+    "status": "pending_validation",
+    "thesis_id": 8465,
+    "created_at": "2026-06-10 13:02:42",
+    "rejection_reason": null
+  },
+  {
+    "id": 271,
+    "instrument_id": 17,
+    "ticker": "LINK",
+    "side": "sell",
+    "quantity": 588.0,
+    "status": "pending_validation",
+    "thesis_id": 8466,
+    "created_at": "2026-06-10 13:02:42",
+    "rejection_reason": null
+  },
+  {
+    "id": 272,
+    "instrument_id": 1,
+    "ticker": "AAPL",
+    "side": "sell",
+    "quantity": 60.0,
+    "status": "pending_validation",
+    "thesis_id": 8467,
+    "created_at": "2026-06-10 13:02:42",
+    "rejection_reason": null
+  },
+  {
+    "id": 273,
+    "instrument_id": 4,
+    "ticker": "AMZN",
+    "side": "sell",
+    "quantity": 20.0,
+    "status": "pending_validation",
+    "thesis_id": 8468,
+    "created_at": "2026-06-10 13:02:42",
+    "rejection_reason": null
+  },
+  {
+    "id": 274,
+    "instrument_id": 3,
+    "ticker": "GOOGL",
+    "side": "sell",
+    "quantity": 13.0,
+    "status": "pending_validation",
+    "thesis_id": 8470,
+    "created_at": "2026-06-10 13:02:42",
+    "rejection_reason": null
+  },
+  {
+    "id": 275,
+    "instrument_id": 18,
+    "ticker": "SOL",
+    "side": "sell",
+    "quantity": 211.0,
+    "status": "pending_validation",
+    "thesis_id": 8471,
+    "created_at": "2026-06-10 13:02:42",
+    "rejection_reason": null
+  },
+  {
+    "id": 276,
+    "instrument_id": 20,
+    "ticker": "XLK",
+    "side": "buy",
+    "quantity": 15.0,
+    "status": "pending_validation",
+    "thesis_id": 8472,
+    "created_at": "2026-06-10 13:02:42",
+    "rejection_reason": null
+  },
+  {
+    "id": 277,
+    "instrument_id": 25,
+    "ticker": "CAT",
+    "side": "sell",
+    "quantity": 10.0,
+    "status": "pending_validation",
+    "thesis_id": 8473,
+    "created_at": "2026-06-10 13:02:42",
+    "rejection_reason": null
+  },
+  {
+    "id": 278,
+    "instrument_id": 6,
+    "ticker": "TSLA",
+    "side": "buy",
+    "quantity": 49.0,
+    "status": "pending_validation",
+    "thesis_id": 8475,
+    "created_at": "2026-06-10 13:02:42",
+    "rejection_reason": null
+  },
+  {
+    "id": 279,
+    "instrument_id": 26,
+    "ticker": "CSCO",
+    "side": "sell",
+    "quantity": 30.0,
+    "status": "pending_validation",
+    "thesis_id": 8476,
+    "created_at": "2026-06-10 13:02:42",
+    "rejection_reason": null
+  },
+  {
+    "id": 280,
+    "instrument_id": 24,
+    "ticker": "ZEC",
+    "side": "buy",
+    "quantity": 45.0,
+    "status": "pending_validation",
+    "thesis_id": 8477,
+    "created_at": "2026-06-10 13:02:42",
+    "rejection_reason": null
+  }
+]

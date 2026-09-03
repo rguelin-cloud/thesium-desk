@@ -1,0 +1,265 @@
+﻿======================================================================
+1) Fichiers Python avec 'memo' dans le nom
+======================================================================
+  memo_generator.py  (13532 bytes)
+  nextones-diag-ic-memo-export.py  (8316 bytes)
+  nextones-diag-ic-memo-v10-md-source.py  (6081 bytes)
+  nextones-diag-ic-memo-v11-trace.py  (7773 bytes)
+  nextones-diag-ic-memo-v12-flush-md-table.py  (8714 bytes)
+  nextones-diag-ic-memo-v13-styles.py  (5509 bytes)
+  nextones-diag-ic-memo-v2.py  (13913 bytes)
+  nextones-diag-ic-memo-v3.py  (6259 bytes)
+  nextones-diag-ic-memo-v4-dump.py  (4226 bytes)
+  nextones-diag-ic-memo-v5-find-real-generator (1).py  (6663 bytes)
+  nextones-diag-ic-memo-v5-find-real-generator.py  (6663 bytes)
+  nextones-diag-ic-memo-v6-memo-generator.py  (6635 bytes)
+  nextones-diag-ic-memo-v7-pinpoint.py  (4338 bytes)
+  nextones-diag-ic-memo-v8-residuals.py  (6654 bytes)
+  nextones-diag-ic-memo-v9-func2-dump.py  (5478 bytes)
+  nextones-diag-insert-and-memo.py  (5255 bytes)
+  nextones-diag-memo-generator-23.py  (3886 bytes)
+  nextones-diag-memo-generator.py  (4128 bytes)
+  nextones-fix-api-pplx-memo-endpoints.py  (6005 bytes)
+  nextones-fix-ic-memo-export.py  (11893 bytes)
+  nextones-fix-ic-memo-v10.py  (5407 bytes)
+  nextones-fix-ic-memo-v2.py  (22779 bytes)
+  nextones-fix-ic-memo-v3-light.py  (12284 bytes)
+  nextones-fix-ic-memo-v4-cover.py  (11124 bytes)
+  nextones-fix-ic-memo-v5-residuals.py  (15268 bytes)
+  nextones-fix-ic-memo-v6-on-func1.py  (12505 bytes)
+  nextones-fix-ic-memo-v7.py  (10090 bytes)
+  nextones-fix-ic-memo-v8.py  (7132 bytes)
+  nextones-fix-ic-memo-v9.py  (8883 bytes)
+  nextones-fix-icmemo-jsclient-redirect.py  (7047 bytes)
+  nextones-fix-ui-pplx-memo-panel.py  (15704 bytes)
+  nextones-pplx-memo-agent.py  (12629 bytes)
+  nextones-test-memo-pdf-direct.py  (2612 bytes)
+  pplx_memo_agent.py  (12629 bytes)
+  _backup_get_memo_pdf_OLD_20260531_180433.py  (37 bytes)
+
+======================================================================
+2) Recherche 'full_markdown' dans tous les .py du root
+======================================================================
+  api_server.py:L1127  ...: |         row = conn.execute( |             "SELECT full_markdown, title, date FROM ic_memos WHERE id = ?", (memo_i...
+  api_server.py:L1133  ...eturn PlainTextResponse( |             content=row["full_markdown"] or f"# {row['title']}\n\nNo content.", |         ...
+  api_server.py:L1334  ... -- Parse markdown : B1 fix -- |     md = memo.get("full_markdown") or "" |     if not md: |         md = f"# {pdf_titl...
+  api_server.py:L1722  ...[] |  |     # -- Parse markdown -- |     md = memo.get("full_markdown") or f"# {memo.get('title', 'IC Memo')}\n\nNo con...
+  memo_generator.py:L319  ...es.finance. Not investment advice.*\n", |     ] |     full_markdown = "\n".join(sections) |  |     # Prepare JSON summari...
+  memo_generator.py:L358  ...esis_summaries, |                 proposed_changes, full_markdown) |            VALUES (?, ?, ?, ?, ?, ?, ?)""", |     ...
+  memo_generator.py:L365  ...        json.dumps(proposed_changes), |             full_markdown, |         ) |     ) |     memo_id = cur.lastrowid |  |    ...
+  models.py:L128  ...  proposed_changes TEXT DEFAULT '[]', |             full_markdown    TEXT, |             created_at       TEXT DEFAUL...
+  nextones-diag-construction-gap.py:L83  ... rows = c.execute("SELECT id, date, title, length(full_markdown) AS L, proposed_changes FROM ic_memos WHERE date ...
+  nextones-diag-ic-memo-v2.py:L10  ...v2 : | #   1. Dump #49 + dernier id + ids vides sur full_markdown | #   2. Scan LARGE du repo Prod (tous .py) pour si...
+  nextones-diag-ic-memo-v2.py:L59  ... DB - dump memos #49, dernier id, memos vides sur full_markdown") |     if not os.path.exists(DB_PATH): |         pri...
+  nextones-diag-ic-memo-v2.py:L75  ...sis_summaries", |              "proposed_changes", "full_markdown")] |  |         # comptage vides par colonne |         ...
+  nextones-diag-ic-memo-v2.py:L91  ...y, very_short)) |  |         # ids de memos suspects (full_markdown vide ou court) |         print("") |         print(" ...
+  nextones-diag-ic-memo-v2.py:L93  ...urt) |         print("") |         print("  -- ids ou full_markdown vide ou tres court --") |         rows = cn.execute...
+  nextones-diag-ic-memo-v2.py:L95  ...cute( |             "SELECT id, date, title, LENGTH(full_markdown) AS lmd, " |             "       LENGTH(macro_summa...
+  nextones-diag-ic-memo-v2.py:L99  ..." |             "FROM ic_memos " |             "WHERE full_markdown IS NULL OR LENGTH(TRIM(full_markdown)) < 100 " |   ...
+  nextones-diag-ic-memo-v2.py:L99  ...      "WHERE full_markdown IS NULL OR LENGTH(TRIM(full_markdown)) < 100 " |             "ORDER BY id" |         ).fet...
+  nextones-diag-ic-memo-v2.py:L108  ...dump complet : id=49, dernier id, premier id avec full_markdown vide |         ids_to_dump = set() |         ids_to_d...
+  nextones-diag-ic-memo-v2.py:L116  ...ecute( |             "SELECT id FROM ic_memos WHERE full_markdown IS NULL OR TRIM(full_markdown)='' " |             "...
+  nextones-diag-ic-memo-v2.py:L116  ...FROM ic_memos WHERE full_markdown IS NULL OR TRIM(full_markdown)='' " |             "ORDER BY id LIMIT 1" |         )...
+  nextones-diag-ic-memo-v2.py:L123  ...       "SELECT id FROM ic_memos WHERE LENGTH(TRIM(full_markdown)) > 200 " |             "ORDER BY id LIMIT 1" |      ...
+  nextones-diag-ic-memo-v2.py:L146  ...# exemple memo 101 reference : il a 2 pages, donc full_markdown != vide |         # mais le PDF original etait IC-M...
+  nextones-diag-ic-memo-v2.py:L153  ...           "WHERE title LIKE '%Analyse Macro%' OR full_markdown LIKE '%Analyse Macro%' " |             "OR macro_su...
+  nextones-diag-ic-memo-v2.py:L212  ...ig_ic_memo  = re.compile(r"IC[-_\s]?Memo|ic_memos|full_markdown", re.IGNORECASE) |     sig_rl       = re.compile(r"...
+  nextones-diag-ic-memo-v2.py:L248  ...extrait lignes-cles |         keys = ("IC[-_ ]?Memo|full_markdown|reportlab|weasyprint|xhtml2pdf|pdfkit|" |          ...
+  nextones-diag-ic-memo-v2.py:L279  ... len(files)) |  |     sig = re.compile(r"IC[-_ ]?Memo|full_markdown|Gener[\\u00e9e]+e?\s+par\s+NEXTONES|Page\s+1/", r...
+  nextones-diag-ic-memo-v2.py:L295  ...# extrait |         kre = re.compile(r"IC[-_ ]?Memo|full_markdown|Gener[\\u00e9e]+e?\s+par|Page\s+1/", re.IGNORECAS...
+  nextones-diag-ic-memo-v3.py:L8  ...endpoint memo) | #   - DB contient bien le contenu (full_markdown=8949 chars pour #49) | #   - Donc le bug B1 est dan...
+  nextones-diag-ic-memo-v3.py:L85  ...---- |     banner("3. Tous les usages 'ic_memos' / 'full_markdown' / 'macro_summary'") |     keys = re.compile(r"ic_m...
+  nextones-diag-ic-memo-v3.py:L86  ...macro_summary'") |     keys = re.compile(r"ic_memos|full_markdown|macro_summary|factor_tilts|" |                     ...
+  nextones-diag-memo-generator-23.py:L2  ... | # Diag complet pour Etape 2.3 : ou est genere le full_markdown du memo IC ? | # | # Objectifs : | #   1. Localiser le ...
+  nextones-diag-memo-generator-23.py:L5  ...   1. Localiser le module qui ecrit dans ic_memos.full_markdown | #   2. Identifier la fonction qui assemble le mar...
+  nextones-diag-memo-generator-23.py:L29  ...)") |  | print() | print("=" * 70) | print("2) Recherche 'full_markdown' dans tous les .py du root") | print("=" * 70) | for ...
+  nextones-diag-memo-generator-23.py:L37  ...() |     except Exception: |         continue |     if "full_markdown" not in src: |         continue |     name = os.path....
+  nextones-diag-memo-generator-23.py:L40  ... = os.path.basename(f) |     for m in re.finditer(r"full_markdown", src): |         line = src[:m.start()].count("\n"...
+  nextones-fix-ic-memo-v2.py:L244  ... -- Parse markdown : B1 fix -- |     md = memo.get("full_markdown") or "" |     if not md: |         md = f"# {pdf_titl...
+  nextones-fix-ic-memo-v5-residuals.py:L202  ...  Insere un helper apres la recuperation de `md` (full_markdown) et avant le parsing ligne. |     Cherche le point ...
+  nextones-fix-ic-memo-v5-residuals.py:L203  ...t avant le parsing ligne. |     Cherche le point ou full_markdown est lu (memo.get('full_markdown', '')) |     et app...
+  nextones-fix-ic-memo-v5-residuals.py:L203  ...erche le point ou full_markdown est lu (memo.get('full_markdown', '')) |     et applique _truncate_active_thesis de...
+  nextones-fix-ic-memo-v5-residuals.py:L212  ...find_func2_bounds(src) |  |     # Cherche la ligne ou full_markdown est lu (typiquement "md = memo.get('full_markdown...
+  nextones-fix-ic-memo-v5-residuals.py:L212  ...full_markdown est lu (typiquement "md = memo.get('full_markdown'..." |     # ou un "lines = ... .split('\n')" pour ...
+  nextones-fix-ic-memo-v5-residuals.py:L218  ...terns possibles |         if ("memo.get(" in s and "full_markdown" in s) or ("memo[\"full_markdown\"]" in s) or ("m...
+  nextones-fix-ic-memo-v5-residuals.py:L218  ....get(" in s and "full_markdown" in s) or ("memo[\"full_markdown\"]" in s) or ("memo['full_markdown']" in s): |     ...
+  nextones-fix-ic-memo-v5-residuals.py:L218  ...s) or ("memo[\"full_markdown\"]" in s) or ("memo['full_markdown']" in s): |             md_var_line = i |            ...
+  nextones-fix-ic-memo-v5-residuals.py:L230  ...si la variable du nom local : md, markdown, body, full_markdown ? |     # On detecte: si la ligne contient 'X = mem...
+  nextones-install-risk-v2-wired.py:L296  ...int("") |     print("Verification IC Memo (regarder full_markdown du dernier memo) :") |     print("  py -3.13 -c \"i...
+  nextones-install-risk-v2-wired.py:L299  ...\thesium.db'); " |           "row=c.execute('SELECT full_markdown FROM ic_memos ORDER BY id DESC LIMIT 1').fetchone...
+  seed_data.py:L469  ...              thesis_summaries, proposed_changes, full_markdown, created_at) |                VALUES (?, ?, ?, ?, ?...
+
+======================================================================
+3) Recherche 'INSERT INTO ic_memos' / 'UPDATE ic_memos'
+======================================================================
+  memo_generator.py:L356
+             for r in proposed_changes_rows
+          ]
+      
+          cur = conn.execute(
+              """INSERT INTO ic_memos
+                     (date, title, macro_summary, factor_tilts, thesis_summaries,
+
+  models.py:L120
+         """)
+      
+          # 7. ic_memos
+          c.execute("""
+              CREATE TABLE IF NOT EXISTS ic_memos (
+                  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+
+  nextones-diag-memo-generator-23.py:L49
+      f"  {name}:L{line}  ...{ctx}...")
+      
+      print()
+      print("=" * 70)
+      print("3) Recherche 'INSERT INTO ic_memos' / 'UPDATE ic_memos'")
+      print("=" * 70)
+
+  nextones-diag-memo-generator-23.py:L49
+      tx}...")
+      
+      print()
+      print("=" * 70)
+      print("3) Recherche 'INSERT INTO ic_memos' / 'UPDATE ic_memos'")
+      print("=" * 70)
+
+  nextones-diag-memo-generator-23.py:L57
+       = fp.read()
+          except Exception:
+              continue
+          for m in re.finditer(r"(INSERT INTO ic_memos|UPDATE ic_memos|ic_memos\s*\()", src, re.IGNORECASE):
+              line = src[:m.start()].count("\n") + 1
+              ctx_start = max(0, m.start() - 80)
+
+  nextones-diag-memo-generator-23.py:L57
+      pt Exception:
+              continue
+          for m in re.finditer(r"(INSERT INTO ic_memos|UPDATE ic_memos|ic_memos\s*\()", src, re.IGNORECASE):
+              line = src[:m.start()].count("\n") + 1
+              ctx_start = max(0, m.start() - 80)
+              ctx_end = min(len(src), m.end() + 200)
+
+  nextones-diag-memo-generator.py:L9
+      NTO orders (50 lignes avant + 30 apres)
+        - extrait des fonctions memo qui font INSERT INTO ic_memos
+        - liste des appels au risk engine existant (risk_check, single_name, sector)
+      """
+      from __future__ import annotations
+      import re
+
+  nextones-diag-memo-generator.py:L69
+      rator.py - structure
+          print_signatures(ROOT / "memo_generator.py")
+      
+          # 2. INSERT INTO ic_memos
+          print("\n=== Recherche INSERT INTO ic_memos ===")
+          for fname in ["memo_generator.py", "api_server.py", "execution_engine.py"]:
+
+  nextones-diag-memo-generator.py:L70
+       "memo_generator.py")
+      
+          # 2. INSERT INTO ic_memos
+          print("\n=== Recherche INSERT INTO ic_memos ===")
+          for fname in ["memo_generator.py", "api_server.py", "execution_engine.py"]:
+              p = ROOT / fname
+
+  seed_data.py:L468
+      -
+      *Auto-generated by Nextones.finance*
+      """
+              conn.execute(
+                  """INSERT INTO ic_memos (date, title, macro_summary, factor_tilts,
+                         thesis_summaries, proposed_changes, full_markdown, created_at)
+
+======================================================================
+4) Recherche def generate_memo / build_memo / make_memo / *memo*
+======================================================================
+  api_server.py:L 1058  def list_memos(
+    start_date: str = Query(None)
+  api_server.py:L 1108  def get_memo(memo_id: int)
+  api_server.py:L 1122  def get_memo_markdown(memo_id: int)
+  api_server.py:L 1142  def get_memo_pdf(memo_id: int)
+  api_server.py:L 1622  def get_memo_pdf(memo_id: int)
+  api_server.py:L 3386  def _memo_db_conn()
+  api_server.py:L 3393  def get_pplx_memo(symbol: str, force: bool = False)
+  api_server.py:L 3453  def list_pplx_memos()
+  memo_generator.py:L  290  def generate_ic_memo(conn: sqlite3.Connection, agent_results: dict | None = None)
+  nextones-diag-insert-and-memo.py:L   67  def scan_file_for_memo(path: Path)
+  nextones-fix-api-pplx-memo-endpoints.py:L   24  def _memo_db_conn()
+  nextones-fix-api-pplx-memo-endpoints.py:L   31  def get_pplx_memo(symbol: str, force: bool = False)
+  nextones-fix-api-pplx-memo-endpoints.py:L   91  def list_pplx_memos()
+  nextones-fix-ic-memo-export.py:L  257  def mark_empty_memos()
+  nextones-fix-ic-memo-export.py:L  295  def regen_memo(mid)
+  nextones-fix-ic-memo-v2.py:L   59  def get_memo_pdf(memo_id: int)
+  nextones-install-risk-v2-wired.py:L  228  def step_patch_memo_generator()
+  nextones-pplx-memo-agent.py:L  236  def run_memo_agent(symbol, force=False)
+  pplx_memo_agent.py:L  236  def run_memo_agent(symbol, force=False)
+  seed_data.py:L  386  def _seed_memos(conn, instrument_map)
+
+======================================================================
+5) Si memo_generator.py existe, dump les 30 premieres lignes
+======================================================================
+  L   1  """
+  L   2  memo_generator.py - IC Memo generation for Nextones.finance
+  L   3  Generates Markdown Investment Committee memos from agent results and portfolio state.
+  L   4  """
+  L   5  import json
+  L   6  import sqlite3
+  L   7  from datetime import datetime
+  L   8  from models import get_db, log_event
+  L   9  
+  L  10  
+  L  11  # ---------------------------------------------------------------------------
+  L  12  # Memo Sections
+  L  13  # ---------------------------------------------------------------------------
+  L  14  
+  L  15  def _build_header(date_str: str, portfolio_state: dict) -> str:
+  L  16      total_value = portfolio_state.get("total_value", 0)
+  L  17      total_pnl   = portfolio_state.get("total_pnl", 0)
+  L  18      total_pnl_pct = portfolio_state.get("total_pnl_pct", 0)
+  L  19      var_95      = portfolio_state.get("var_95", 0)
+  L  20      cash        = portfolio_state.get("cash", 0)
+  L  21  
+  L  22      return f"""# Nextones IC Memo û {date_str}
+  L  23  **Generated:** {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}
+  L  24  **Mode:** Paper Trading | **Disclaimer:** Not investment advice. Research and execution automation under user control.
+  L  25  
+  L  26  ---
+  L  27  
+  L  28  ## Portfolio Snapshot
+  L  29  
+  L  30  | Metric | Value |
+  L  31  |--------|-------|
+  L  32  | Total AUM | ${total_value:,.2f} |
+  L  33  | Cash | ${cash:,.2f} ({cash / total_value * 100:.1f}% of AUM) |
+  L  34  | Total P&L | ${total_pnl:+,.2f} ({total_pnl_pct:+.2f}%) |
+  L  35  | VAR (95%, 1-day) | {var_95:.2f}% of AUM |
+  L  36  
+  L  37  """
+  L  38  
+  L  39  
+  L  40  def _build_macro_section(macro_result: dict) -> str:
+  L  41      if not macro_result:
+  L  42          return "## Macro Outlook\n\n*No macro data available.*\n\n"
+  L  43  
+  L  44      stance     = macro_result.get("stance", "neutral").upper()
+  L  45      conviction = macro_result.get("conviction", 0)
+  L  46      proposed   = macro_result.get("proposed_action", "")
+  L  47      signals    = macro_result.get("signals", {})
+  L  48  
+  L  49      lines = [
+  L  50          "## Macro Outlook",
+  ... (384 lignes au total)
+
+======================================================================
+6) Recherche dans execution_engine.py / run_decision_cycle de l'appel memo
+======================================================================
+  execution_engine.py:L1896  mport run_all_agents |     from memo_generator import generate_ic_memo |  |     print("[execution] Starting decision cycle...") |  |  
+  execution_engine.py:L1896  o_generator import generate_ic_memo |  |     print("[execution] Starting decision cycle...") |  |     # Step 1: Run agents | 
+  execution_engine.py:L2210  }) |         conn.commit() |  |     memo_id = generate_ic_memo(conn, agent_results) |     conn.commit() |  |     orders_pending =
+  execution_engine.py:L2210  t() |  |     memo_id = generate_ic_memo(conn, agent_results) |     conn.commit() |  |     orders_pending = len([o for o in pe
+  execution_engine.py:L2214  g} orders pending validation, memo_id={memo_id}") |  |     return { |         "agent_results": { |             "macro_stance"
+  execution_engine.py:L2214   pending validation, memo_id={memo_id}") |  |     return { |         "agent_results": { |             "macro_stance":  agent_
+  execution_engine.py:L2225  rs": pending_orders, |         "memo_id": memo_id, |     } |  |  | if __name__ == "__main__": |     from models import init_db |   
+  execution_engine.py:L2225  ng_orders, |         "memo_id": memo_id, |     } |  |  | if __name__ == "__main__": |     from models import init_db |     init_db(

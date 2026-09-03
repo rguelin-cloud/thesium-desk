@@ -1,0 +1,366 @@
+import uvicorn
+from api_server import app
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+from portfolio_construction_agent_jalon2 import run_construction_agent
+
+# =============================================================================
+# PATCH 2026-05-24 — Endpoints Portfolio Construction (Jalon 2)
+# =============================================================================
+#
+# OÙ COLLER CE CODE :
+#   Ouvre api_server_with_static.py.
+#   Repère la section des imports en haut du fichier.
+#   Colle le bloc d'import ci-dessous juste après les imports existants
+#   (après les lignes "from models import ..." ou "from execution_engine ...").
+#
+# IMPORT — AJOUTER (si pas déjà présent) :
+#
+#   from portfolio_construction_agent_jalon2 import run_construction_agent
+#
+# Puis colle les deux routes FastAPI n'importe où dans le fichier,
+# avant la ligne `if __name__ == "__main__":` ou avant le bloc uvicorn.
+#
+# DÉPENDANCES :
+#   - portfolio_construction_agent_jalon2.py (Jalon 2) dans le même répertoire
+#   - Les fonctions get_db() et DB_PATH doivent exister dans api_server_with_static.py
+#     (ce sont des helpers déjà présents dans la plupart des versions)
+#
+# =============================================================================
+
+# --- Colle cet import après les imports existants ---
+from portfolio_construction_agent_jalon2 import run_construction_agent  # noqa: E402
+import sqlite3
+import os
+DB_PATH = os.environ.get('THESIUM_DB', 'thesium.db')
+
+
+
+# --- Colle ces deux routes dans le corps de l'application FastAPI ---
+
+@app.post("/api/construction/run")
+async def run_construction():
+    """Relance le PortfolioConstructionAgent Jalon 2 pour recalculer les cibles.
+
+    Lance un cycle complet : lecture du régime, calcul conviction/macro/vol/diversif,
+    normalisation, softmax, écriture portfolio_targets + snapshot history.
+
+    Retourne le résumé du cycle : snapshot_id, régime, nb tickers évalués/inclus,
+    et la liste des cibles calculées.
+    """
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row
+    try:
+        # [CONVERGENCE_CYCLE_RESOLVER_V2] Resolution auto du cycle_id
+        _resolved_cid = None
+        try:
+            _cur = conn.execute(
+                "SELECT cycle_id FROM convergence_snapshots "
+                "ORDER BY rowid DESC LIMIT 1"
+            )
+            _row = _cur.fetchone()
+            if _row:
+                _resolved_cid = _row[0] if not hasattr(_row, "keys") else _row["cycle_id"]
+        except Exception as _e:
+            print(f"[construction/run] WARN resolution cycle_id : {_e}")
+        print(f"[construction/run] cycle_id utilise : {_resolved_cid}")
+
+        result = run_construction_agent(
+            conn,
+            cycle_id=_resolved_cid,   # [CONVERGENCE_CYCLE_RESOLVER_V2]
+            regime_info=None, # détecté automatiquement via portfolio_state
+            dry_run=False,
+        )
+        return {
+            "status": "ok",
+            "snapshot_id":        result.get("snapshot_id"),
+            "regime":             result.get("regime"),
+            "macro_env":          result.get("macro_env"),
+            "n_tickers_evaluated": result.get("n_tickers_evaluated"),
+            "n_tickers_included": result.get("n_tickers_included"),
+            "targets":            result.get("targets", []),
+        }
+    except Exception as e:
+        # On renvoie l'erreur en JSON plutôt que de crasher le serveur
+        import traceback
+        return {
+            "status": "error",
+            "detail": str(e),
+            "traceback": traceback.format_exc(),
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/api/construction/targets")
+async def get_construction_targets():
+    """Retourne les cibles actives + le portefeuille actuel pour le panel UI.
+
+    Calcule pour chaque ticker cible :
+      - actual_weight_pct  : poids actuel en portefeuille (depuis portfolio_positions)
+      - target_weight_pct  : poids cible (depuis portfolio_targets WHERE active=1)
+      - delta_pct          : cible - actuel
+      - action             : 'Accumuler' / 'Réduire' / 'Neutre'
+      - signal             : 'BUY' / 'SELL' / 'NEUTRAL'
+      - score / source / agent_decided / snapshot_id
+
+    Inclut aussi une ligne synthétique pour le cash résiduel.
+    """
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row
+    try:
+        # Cibles actives triées par poids décroissant
+        targets = conn.execute('''
+            SELECT pt.ticker, pt.target_weight_pct, pt.score, pt.source,
+                   pt.agent_decided, pt.updated_at, pt.snapshot_id
+            FROM portfolio_targets pt
+            WHERE pt.active = 1
+            ORDER BY pt.target_weight_pct DESC
+        ''').fetchall()
+
+        # Positions actuelles avec poids
+        positions = conn.execute('''
+            SELECT i.ticker, pp.quantity, pp.current_price, pp.weight_pct
+            FROM portfolio_positions pp
+            JOIN instruments i ON i.id = pp.instrument_id
+        ''').fetchall()
+
+        # Construire un dict {ticker: position_dict}
+        pos_map = {}
+        for p in positions:
+            tkr = p["ticker"] if hasattr(p, "keys") else p[0]
+            pos_map[tkr] = {
+                "ticker":       tkr,
+                "quantity":     float(p["quantity"]     if hasattr(p, "keys") else p[1] or 0),
+                "current_price": float(p["current_price"] if hasattr(p, "keys") else p[2] or 0),
+                "weight_pct":   float(p["weight_pct"]   if hasattr(p, "keys") else p[3] or 0),
+            }
+
+        # NAV courante
+        ps = conn.execute(
+            'SELECT total_value FROM portfolio_state WHERE id=1'
+        ).fetchone()
+        nav = float(ps["total_value"] if ps and hasattr(ps, "keys") else ps[0]) if ps else 1_000_000
+
+        result = []
+        for t in targets:
+            ticker      = t["ticker"]      if hasattr(t, "keys") else t[0]
+            target_pct  = float(t["target_weight_pct"] if hasattr(t, "keys") else t[1] or 0)
+            score       = float(t["score"]  if hasattr(t, "keys") else t[2] or 0)
+            source      = t["source"]      if hasattr(t, "keys") else t[3]
+            agent_dec   = t["agent_decided"] if hasattr(t, "keys") else t[4]
+            updated_at  = t["updated_at"]  if hasattr(t, "keys") else t[5]
+            snapshot_id = t["snapshot_id"] if hasattr(t, "keys") else t[6]
+
+            pos = pos_map.get(ticker, {})
+            actual_pct = float(pos.get("weight_pct", 0.0) or 0.0)
+            delta      = round(target_pct - actual_pct, 4)
+
+            # Seuil 0.30 % : cohérent avec TARGET_GAP_MIN_DELTA_PCT de l'engine
+            if abs(delta) < 0.30:
+                action = "Neutre"
+                signal = "NEUTRAL"
+            elif delta > 0:
+                action = "Accumuler"
+                signal = "BUY"
+            else:
+                action = "Réduire"
+                signal = "SELL"
+
+            result.append({
+                "ticker":            ticker,
+                "actual_weight_pct": round(actual_pct, 4),
+                "target_weight_pct": round(target_pct, 4),
+                "delta_pct":         delta,
+                "action":            action,
+                "signal":            signal,
+                "score":             round(score, 4),
+                "source":            source,
+                "agent_decided":     bool(agent_dec),
+                "snapshot_id":       snapshot_id,
+                "updated_at":        updated_at,
+            })
+
+        # Ligne synthétique cash
+        sum_actual  = sum(r["actual_weight_pct"]  for r in result)
+        sum_target  = sum(r["target_weight_pct"]  for r in result)
+        cash_actual = round(100.0 - sum_actual,  4)
+        cash_target = round(100.0 - sum_target,  4)
+
+        first_updated = None
+        if targets:
+            first_updated = (
+                targets[0]["updated_at"] if hasattr(targets[0], "keys")
+                else targets[0][5]
+            )
+
+        return {
+            "targets": result,
+            "cash": {
+                "actual_pct":  cash_actual,
+                "target_pct":  cash_target,
+                "delta_pct":   round(cash_target - cash_actual, 4),
+            },
+            "nav":        nav,
+            "updated_at": first_updated,
+        }
+
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "detail": str(e),
+            "traceback": traceback.format_exc(),
+        }
+    finally:
+        conn.close()
+
+
+# =============================================================================
+# [API_CONVERGENCE_V1] Convergence Engine snapshot endpoint
+# =============================================================================
+@app.get("/api/convergence/snapshot")
+async def get_convergence_snapshot(cycle_id: str = None):
+    """[API_CONVERGENCE_V1]
+    Retourne le snapshot Convergence Engine pour un cycle donne.
+    Si cycle_id non fourni, prend le plus recent.
+    """
+    import json as _json
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        # Resolution cycle_id
+        resolved_cid = cycle_id
+        if not resolved_cid:
+            cur = conn.execute(
+                "SELECT cycle_id FROM convergence_snapshots "
+                "ORDER BY rowid DESC LIMIT 1"
+            )
+            row = cur.fetchone()
+            if row:
+                resolved_cid = row["cycle_id"]
+        if not resolved_cid:
+            return {"status": "empty", "cycle_id": None, "rows": [], "totals": {}}
+
+        cur = conn.execute(
+            "SELECT MAX(created_at) AS created_at FROM convergence_snapshots "
+            "WHERE cycle_id = ?",
+            (resolved_cid,)
+        )
+        created_at = cur.fetchone()["created_at"]
+
+        cur = conn.execute("""
+            SELECT ticker, is_crypto, direction_consensus, sizing_multiplier,
+                   convergence_pct, n_aligned, n_present, forced_exit, drift,
+                   buckets_json
+            FROM convergence_snapshots
+            WHERE cycle_id = ?
+        """, (resolved_cid,))
+
+        rows = []
+        n_fe = 0
+        n_dr = 0
+        n_strong = 0
+        n_conflict = 0
+        n_neutral = 0
+
+        for r in cur.fetchall():
+            _mult = r["sizing_multiplier"]
+            mult = float(_mult) if _mult is not None else 1.0
+            cons = r["direction_consensus"] or ""
+            _fe = r["forced_exit"]
+            fe = int(_fe) if _fe is not None else 0
+            _dr = r["drift"]
+            dr = int(_dr) if _dr is not None else 0
+            n_al = int(r["n_aligned"] or 0)
+
+            if fe:
+                regime_label = "forced_exit"
+                n_fe += 1
+            elif dr:
+                regime_label = "drift"
+                n_dr += 1
+            elif mult >= 1.0 and n_al >= 3:
+                regime_label = "strong_" + cons
+                n_strong += 1
+            elif mult < 1.0:
+                regime_label = "conflict_" + cons
+                n_conflict += 1
+            else:
+                regime_label = "neutral_stable"
+                n_neutral += 1
+
+            buckets = {}
+            try:
+                if r["buckets_json"]:
+                    buckets = _json.loads(r["buckets_json"])
+            except Exception:
+                buckets = {}
+
+            rows.append({
+                "ticker": r["ticker"],
+                "is_crypto": int(r["is_crypto"] or 0),
+                "direction_consensus": cons,
+                "sizing_multiplier": round(mult, 3),
+                "convergence_pct": round(float(r["convergence_pct"] or 0), 3),
+                "n_aligned": n_al,
+                "n_present": int(r["n_present"] or 0),
+                "forced_exit": fe,
+                "drift": dr,
+                "regime_label": regime_label,
+                "buckets": buckets,
+            })
+
+        def _sort_key(x):
+            return (
+                -x["forced_exit"],
+                -x["drift"],
+                x["sizing_multiplier"],
+                x["ticker"],
+            )
+        rows.sort(key=_sort_key)
+
+        return {
+            "status": "ok",
+            "cycle_id": resolved_cid,
+            "created_at": created_at,
+            "totals": {
+                "n_tickers": len(rows),
+                "forced_exit": n_fe,
+                "drift": n_dr,
+                "strong": n_strong,
+                "conflict": n_conflict,
+                "neutral": n_neutral,
+            },
+            "rows": rows,
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "detail": str(e),
+            "traceback": traceback.format_exc(),
+        }
+    finally:
+        conn.close()
+
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+# ---------- UTF-8 StaticFiles patch ----------
+from starlette.staticfiles import StaticFiles as _StaticFiles_UTF8
+class UTF8StaticFiles(_StaticFiles_UTF8):
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        if hasattr(resp, "media_type") and resp.media_type:
+            mt = resp.media_type.lower()
+            if mt.startswith("text/") or mt in (
+                "application/javascript", "application/json", "application/xml"):
+                ct = resp.headers.get("content-type") or ""
+                if "charset" not in ct:
+                    resp.headers["content-type"] = f"{resp.media_type}; charset=utf-8"
+        return resp
+# ----------------------------------------------
+
+app.mount("/", UTF8StaticFiles(directory=str(Path(__file__).parent), html=True), name="static")

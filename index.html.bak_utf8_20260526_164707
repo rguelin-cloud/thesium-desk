@@ -1,0 +1,2019 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<!--
+   ______                            __
+  / ____/___  ____ ___  ____  __  __/ /____  _____
+ / /   / __ \/ __ `__ \/ __ \/ / / / __/ _ \/ ___/
+/ /___/ /_/ / / / / / / /_/ / /_/ / /_/  __/ /
+\____/\____/_/ /_/ /_/ .___/\__,_/\__/\___/_/
+                    /_/
+        Created with Perplexity Computer
+        https://www.perplexity.ai/computer
+-->
+
+<!-- Perplexity Computer Attribution — SEO Meta Tags -->
+<meta name="generator" content="Perplexity Computer">
+<meta name="author" content="Perplexity Computer">
+<meta property="og:see_also" content="https://www.perplexity.ai/computer">
+<link rel="author" href="https://www.perplexity.ai/computer">
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Nextones Desk — AI-native fund operating system. Live theses, auditable trades.">
+<title>Nextones Desk — Live theses, auditable trades.</title>
+
+<!-- Google Fonts: Inter + JetBrains Mono -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="style.css?v=20260308z1">
+
+<!-- Favicon inline SVG -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%234db8bf'/><path d='M8 10h16v2.5H17.5V23h-3V12.5H8z' fill='white'/></svg>">
+
+<style>
+/* === [PPLX_PANEL_DARK_CSS_V2] â€” AlignÃ© sur le thÃ¨me Hydra Teal (light/dark) === */
+#pplx-insights-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 0.5rem);
+  color: var(--color-text);
+  padding: var(--space-5, 1.25rem);
+  margin: var(--space-5, 1.25rem) 0;
+  box-shadow: var(--shadow-sm);
+}
+#pplx-insights-panel header,
+#pplx-insights-panel > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3, 0.75rem);
+}
+#pplx-insights-panel h2,
+#pplx-insights-panel h3,
+#pplx-insights-panel h4 {
+  color: var(--color-text);
+  margin: 0;
+}
+#pplx-insights-panel small,
+#pplx-insights-panel .pplx-muted,
+#pplx-insights-panel .pplx-age,
+#pplx-insights-panel .pplx-ts {
+  color: var(--color-text-muted);
+}
+#pplx-insights-panel table {
+  width: 100%;
+  border-collapse: collapse;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+#pplx-insights-panel th {
+  background: var(--color-surface-offset);
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-divider);
+  text-align: left;
+  font-weight: 600;
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  text-transform: uppercase;
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+}
+#pplx-insights-panel td {
+  border-bottom: 1px solid var(--color-divider);
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+}
+#pplx-insights-panel tr:hover td {
+  background: var(--color-surface-2);
+}
+#pplx-insights-panel button {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 0.25rem);
+  padding: var(--space-1, 0.25rem) var(--space-3, 0.75rem);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  transition: background var(--transition-interactive, 180ms);
+}
+#pplx-insights-panel button:hover {
+  background: var(--color-surface-offset);
+  border-color: var(--color-primary);
+}
+#pplx-insights-panel a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+#pplx-insights-panel a:hover {
+  text-decoration: underline;
+}
+/* Sections internes (Crypto, Equity, Thesis) */
+#pplx-insights-panel h3 {
+  margin-top: var(--space-4, 1rem);
+  font-size: var(--text-lg);
+}
+#pplx-insights-panel h3:first-of-type {
+  margin-top: 0;
+}
+/* Audit ligne du bas (texte verbeux gris) */
+#pplx-insights-panel .pplx-audit,
+#pplx-insights-panel [class*="audit"] {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  margin-top: var(--space-3, 0.75rem);
+  word-break: break-word;
+}
+/* Modal dÃ©tail challenge */
+#pplx-detail-modal,
+.pplx-detail-modal {
+  background: oklch(0 0 0 / 0.6) !important;
+}
+#pplx-detail-content,
+.pplx-detail-content {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 0.5rem);
+  box-shadow: var(--shadow-panel);
+}
+#pplx-detail-content h2,
+#pplx-detail-content h3,
+.pplx-detail-content h2,
+.pplx-detail-content h3 {
+  color: var(--color-text);
+}
+/* === FIN [PPLX_PANEL_DARK_CSS_V2] === */
+</style>
+
+
+
+
+
+<style>
+/* === [PPLX_GEO_PANEL_CSS_V1] BEGIN === */
+.pplx-geo-section {
+  margin-top: var(--space-lg, 24px);
+  padding: var(--space-lg, 24px);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 12px);
+  color: var(--color-text);
+}
+.pplx-geo-section .pplx-geo-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-lg, 24px);
+  margin-bottom: var(--space-lg, 24px);
+  flex-wrap: wrap;
+}
+.pplx-geo-section .pplx-geo-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+}
+.pplx-geo-section .pplx-geo-title h3 {
+  margin: 0;
+  font-size: var(--text-lg, 1.1rem);
+  font-weight: 600;
+  color: var(--color-text);
+}
+.pplx-geo-section .pplx-geo-title .pplx-badge-source {
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-text-muted);
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-surface-offset, var(--color-surface-2, transparent));
+}
+.pplx-geo-section .pplx-geo-score-block {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.pplx-geo-section .pplx-geo-score {
+  font-size: 2.4rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-text);
+}
+.pplx-geo-section .pplx-geo-score-suffix {
+  font-size: 1rem;
+  color: var(--color-text-muted);
+  margin-left: 4px;
+  font-weight: 400;
+}
+.pplx-geo-section .pplx-regime-badge {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: var(--text-xs, 0.75rem);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border: 1px solid transparent;
+}
+.pplx-geo-section .pplx-regime-calm     { background: rgba(46,160,67,0.15);  color: #2ea043; border-color: rgba(46,160,67,0.4); }
+.pplx-geo-section .pplx-regime-elevated { background: rgba(212,167,44,0.15); color: #d4a72c; border-color: rgba(212,167,44,0.4); }
+.pplx-geo-section .pplx-regime-stressed { background: rgba(219,109,40,0.18); color: #db6d28; border-color: rgba(219,109,40,0.5); }
+.pplx-geo-section .pplx-regime-crisis   { background: rgba(229,57,53,0.20);  color: #e53935; border-color: rgba(229,57,53,0.55); }
+.pplx-geo-section .pplx-geo-summary {
+  flex: 1 1 100%;
+  margin-top: 8px;
+  font-size: var(--text-sm, 0.875rem);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+.pplx-geo-section .pplx-geo-meta {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-text-faint, var(--color-text-muted));
+  margin-top: 4px;
+}
+.pplx-geo-section .pplx-geo-meta button {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  font-size: var(--text-xs, 0.75rem);
+}
+.pplx-geo-section .pplx-geo-meta button:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.pplx-geo-section .pplx-geo-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: var(--space-lg, 24px);
+}
+@media (max-width: 1100px) {
+  .pplx-geo-section .pplx-geo-grid { grid-template-columns: 1fr; }
+}
+.pplx-geo-section .pplx-col-title {
+  font-size: var(--text-sm, 0.875rem);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-divider, var(--color-border));
+}
+.pplx-geo-section .pplx-risk-card {
+  background: var(--color-surface-offset, var(--color-surface-2, var(--color-surface)));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.pplx-geo-section .pplx-risk-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.pplx-geo-section .pplx-risk-title {
+  font-weight: 600;
+  font-size: var(--text-sm, 0.875rem);
+  color: var(--color-text);
+  flex: 1;
+}
+.pplx-geo-section .pplx-risk-sev {
+  font-weight: 700;
+  font-size: var(--text-sm, 0.875rem);
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+.pplx-geo-section .pplx-risk-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.pplx-geo-section .pplx-tag {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+.pplx-geo-section .pplx-risk-narrative {
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin: 6px 0;
+}
+.pplx-geo-section .pplx-risk-tickers {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.pplx-geo-section .pplx-ticker-chip {
+  font-size: 0.7rem;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--color-primary, #01696f);
+  color: #fff;
+  font-weight: 600;
+}
+.pplx-geo-section .pplx-exp-row {
+  display: grid;
+  grid-template-columns: 60px 60px 1fr 90px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--color-divider, var(--color-border));
+  font-size: var(--text-xs, 0.75rem);
+}
+.pplx-geo-section .pplx-exp-row:last-child { border-bottom: none; }
+.pplx-geo-section .pplx-exp-ticker {
+  font-weight: 700;
+  color: var(--color-text);
+  font-size: 0.85rem;
+}
+.pplx-geo-section .pplx-exp-weight {
+  color: var(--color-text-muted);
+}
+.pplx-geo-section .pplx-exp-risks {
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+}
+.pplx-geo-section .pplx-exp-score {
+  text-align: right;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.pplx-geo-section .pplx-exp-bar {
+  height: 4px;
+  background: var(--color-surface-offset, var(--color-surface-2));
+  border-radius: 2px;
+  margin-top: 4px;
+  overflow: hidden;
+  grid-column: 1 / -1;
+}
+.pplx-geo-section .pplx-exp-bar-fill {
+  height: 100%;
+  background: var(--color-primary, #01696f);
+  border-radius: 2px;
+}
+.pplx-geo-section .pplx-loading, .pplx-geo-section .pplx-empty {
+  text-align: center;
+  padding: 20px;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+/* === [PPLX_GEO_PANEL_CSS_V1] END === */
+</style>
+
+</head>
+<body>
+
+<!-- ====================== LOGIN SCREEN ====================== -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div class="login-logo">
+      <img src="nextones-logo.jpg" alt="Nextones Logo" style="width:48px;height:48px;object-fit:contain;border-radius:var(--radius-sm)">
+      <h1 class="login-title">Nextones Desk</h1>
+      <p class="login-subtitle">AI-native fund operating system</p>
+    </div>
+    <form id="loginForm" autocomplete="on">
+      <div class="login-field">
+        <label for="loginUsername">Identifiant</label>
+        <input type="text" id="loginUsername" class="input-field" placeholder="Nom d'utilisateur" required autocomplete="username" autofocus>
+      </div>
+      <div class="login-field">
+        <label for="loginPassword">Mot de passe</label>
+        <input type="password" id="loginPassword" class="input-field" placeholder="Mot de passe" required autocomplete="current-password">
+      </div>
+      <div class="login-error" id="loginError" hidden></div>
+      <button type="submit" class="btn btn-primary login-btn" id="loginBtn">Se connecter</button>
+    </form>
+    <p class="login-footer-text">Nextones.finance &mdash; Live theses, auditable trades.</p>
+  </div>
+</div>
+
+<div class="dashboard" id="dashboard">
+
+  <!-- ====================== SIDEBAR ====================== -->
+  <aside class="sidebar" id="sidebar" role="navigation" aria-label="Main navigation">
+
+    <!-- Logo -->
+    <div class="sidebar-logo">
+      <img src="nextones-logo.jpg" alt="Nextones Desk logo" style="width:28px;height:28px;object-fit:contain;border-radius:3px;flex-shrink:0">
+
+      <div class="sidebar-logo-text">
+        <span class="sidebar-logo-name">Nextones Desk</span>
+        <span class="sidebar-logo-tagline">Live theses, auditable trades.</span>
+      </div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="sidebar-nav">
+      <span class="nav-label">Views</span>
+
+      <a class="nav-item active" href="#today" data-tab="today" role="button" tabindex="0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+          <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+          <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+        </svg>
+        <span>Today</span>
+      </a>
+
+      <a class="nav-item" href="#theses" data-tab="theses" role="button" tabindex="0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+          <line x1="10" y1="9" x2="8" y2="9"/>
+        </svg>
+        <span>Theses</span>
+      </a>
+
+      <a class="nav-item" href="#orders" data-tab="orders" role="button" tabindex="0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
+          <polyline points="16 7 22 7 22 13"/>
+        </svg>
+        <span>Orders &amp; Fills</span>
+        <span class="nav-badge" id="ordersBadge" style="display:none">0</span>
+      </a>
+
+      <a class="nav-item" href="#market" data-tab="market" role="button" tabindex="0">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        <span>Market Intel</span>
+      </a>
+
+      <a class="nav-item" href="#macro" data-tab="macro" role="button" tabindex="0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M2 12h20"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+        <span>Macro US</span>
+      </a>
+
+      <a class="nav-item" href="#memos" data-tab="memos" role="button" tabindex="0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span>IC Memos</span>
+      </a>
+
+      <a class="nav-item" href="#backtest" data-tab="backtest" role="button" tabindex="0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        <span>Backtest</span>
+      </a>
+
+      <a class="nav-item" href="#admin" data-tab="admin" role="button" tabindex="0" id="navAdmin" style="display:none">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+        <span>Admin</span>
+      </a>
+    </nav>
+
+    <!-- Footer disclaimer -->
+    <footer class="sidebar-footer">
+      <p class="sidebar-disclaimer">
+        Nextones.finance does not provide investment advice. Research and execution automation tool operated under user control.
+      </p>
+    </footer>
+  </aside>
+
+  <!-- ====================== HEADER ====================== -->
+  <header class="header" id="header">
+    <button class="header-collapse-btn btn" id="sidebarToggle" aria-label="Toggle sidebar" title="Toggle sidebar">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+        <line x1="3" y1="6" x2="21" y2="6"/>
+        <line x1="3" y1="12" x2="21" y2="12"/>
+        <line x1="3" y1="18" x2="21" y2="18"/>
+      </svg>
+    </button>
+
+    <span class="header-title" id="headerTitle">Today</span>
+
+    <span class="header-datetime" id="headerDatetime" aria-live="polite"></span>
+
+    <div class="header-actions">
+      <!-- User info -->
+      <span class="header-user" id="headerUser" style="font-size:var(--text-xs); color:var(--color-text-muted); font-family:var(--font-mono); margin-right:var(--space-2)"></span>
+
+      <!-- Refresh button -->
+      <button class="btn btn-ghost btn-icon" id="refreshBtn" title="Refresh data" aria-label="Refresh data">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="refreshIcon">
+          <polyline points="23 4 23 10 17 10"/>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
+      </button>
+
+      <!-- Theme toggle -->
+      <button class="btn btn-ghost btn-icon" data-theme-toggle id="themeToggle" aria-label="Switch to light mode" title="Toggle theme">
+        <!-- Moon (default dark mode icon) -->
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+
+      <!-- Run Decision Cycle CTA -->
+      <button class="btn btn-primary" id="runCycleBtn">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        Run Decision Cycle
+      </button>
+
+      <!-- Logout -->
+      <button class="btn btn-ghost btn-icon" id="logoutBtn" title="Déconnexion" aria-label="Déconnexion">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/>
+          <line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ====================== MAIN CONTENT ====================== -->
+  <main class="main" id="mainContent" role="main">
+
+    <!-- ========== TAB: TODAY ========== -->
+    <section class="tab-content active" id="tab-today" aria-label="Today overview">
+
+      <!-- KPI Grid -->
+      <div class="kpi-grid" id="kpiGrid">
+        <!-- Skeleton loaders -->
+        <div class="kpi-card"><div class="skeleton skeleton-card"></div></div>
+        <div class="kpi-card"><div class="skeleton skeleton-card"></div></div>
+        <div class="kpi-card"><div class="skeleton skeleton-card"></div></div>
+        <div class="kpi-card"><div class="skeleton skeleton-card"></div></div>
+      </div>
+
+      <!-- Portfolio chart -->
+      <div class="chart-section">
+        <div class="section-header">
+          <span class="section-title">Portfolio Value — 30 Days</span>
+          <span class="text-muted" style="font-size: var(--text-xs); font-family: var(--font-mono); color: var(--color-text-faint)" id="chartUpdateLabel"></span>
+        </div>
+        <div class="chart-container" id="chartContainer">
+          <canvas id="portfolioChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Bottom two columns -->
+      <div class="bottom-grid">
+        <!-- Positions table -->
+        <div class="table-section">
+          <div class="section-header" style="padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-divider); margin-bottom:0">
+            <span class="section-title">Positions</span>
+            <div style="display:flex;gap:var(--space-2);align-items:center">
+              <button class="btn btn-ghost" id="portfolioEditBtn" onclick="togglePortfolioEditMode()" title="Modifier le portefeuille" style="font-size:var(--text-xs);padding:2px 8px;border:1px solid var(--color-border);border-radius:var(--radius-sm);cursor:pointer;color:var(--color-text-muted)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:2px"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                Modifier
+              </button>
+              <button class="btn" id="portfolioResetBtn" onclick="resetPortfolio()" title="Réinitialiser" style="display:none;font-size:var(--text-xs);padding:2px 8px;border:1px solid rgba(231,76,60,0.4);border-radius:var(--radius-sm);cursor:pointer;color:#e74c3c;background:transparent">
+                Réinitialiser
+              </button>
+            </div>
+          </div>
+          <!-- Cash disponible row (edit mode) -->
+          <div id="portfolioCashRow" style="display:none;padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--color-divider);align-items:center;justify-content:space-between">
+            <span style="font-size:var(--text-sm);color:var(--color-text-muted)">Cash disponible</span>
+            <input id="cashInput" type="number" step="0.01" style="background:var(--color-surface-alt,rgba(255,255,255,0.04));color:var(--color-text);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:4px 8px;font-size:var(--text-sm);font-family:var(--font-mono);width:160px;text-align:right" />
+          </div>
+          <div class="table-scroll">
+            <table id="positionsTable">
+              <thead>
+                <tr>
+                  <th>Ticker</th>
+                  <th>Qty</th>
+                  <th class="num">Avg Cost</th>
+                  <th class="num">Price</th>
+                  <th class="num">P&amp;L</th>
+                  <th class="num">P&amp;L %</th>
+                  <th class="num">Weight</th>
+                </tr>
+              </thead>
+              <tbody id="positionsBody">
+                <tr><td colspan="7"><div class="skeleton skeleton-row"></div></td></tr>
+                <tr><td colspan="7"><div class="skeleton skeleton-row"></div></td></tr>
+                <tr><td colspan="7"><div class="skeleton skeleton-row"></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Portfolio Idéal -->
+        <div class="table-section" id="portfolioIdealSection" style="grid-column: 1 / -1; margin-top: var(--space-2)">
+          <div class="section-header" style="padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-divider); margin-bottom:0">
+            <span class="section-title">Portfolio Idéal vs Actuel</span>
+            <span style="font-size:var(--text-xs);color:var(--color-text-muted)">Cibles basées sur les recommandations agents</span>
+          </div>
+          <div class="table-scroll">
+            <table id="portfolioIdealTable">
+              <thead>
+                <tr>
+                  <th>Ticker</th>
+                  <th class="num">Poids Actuel</th>
+                  <th class="num">Poids Cible</th>
+                  <th class="num">Delta</th>
+                  <th>Action</th>
+                  <th>Signal</th>
+                </tr>
+              </thead>
+              <tbody id="portfolioIdealBody">
+                <tr><td colspan="6" class="empty-state">Lancer un Decision Cycle pour calculer les cibles</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Activity feed -->
+        <div class="activity-feed">
+          <div class="section-header">
+            <span class="section-title">Recent Activity</span>
+          </div>
+          <div class="activity-list" id="activityList">
+            <div class="activity-item"><div class="skeleton skeleton-row"></div></div>
+            <div class="activity-item"><div class="skeleton skeleton-row"></div></div>
+            <div class="activity-item"><div class="skeleton skeleton-row"></div></div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ========== TAB: THESES ========== -->
+    <section class="tab-content" id="tab-theses" aria-label="Investment theses">
+
+      <div class="section-header" style="margin-bottom: var(--space-3)">
+        <span class="section-title">Active Theses</span>
+        <div class="filter-bar">
+          <select class="input-field" id="thesisAssetFilter" aria-label="Filter by asset class">
+            <option value="">All assets</option>
+            <option value="crypto">â‚¿ Crypto</option>
+            <option value="equity">ðŸ“Š Equity</option>
+          </select>
+          <select class="input-field" id="thesisHorizonFilter" aria-label="Filter by horizon">
+            <option value="">All horizons</option>
+            <option value="short">Short</option>
+            <option value="medium">Medium</option>
+            <option value="long">Long</option>
+          </select>
+          <select class="input-field" id="thesisAgentFilter" aria-label="Filter by agent">
+            <option value="">All agents</option>
+            <option value="macro">Macro</option>
+            <option value="factor">Factor</option>
+            <option value="microstructure">Microstructure</option>
+            <option value="alt">Alt-data</option>
+            <option value="crypto">Crypto</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="table-section">
+        <div class="table-scroll">
+          <table id="thesesTable">
+            <thead>
+              <tr>
+                <th>Instrument</th>
+                <th>Agent</th>
+                <th>Conviction</th>
+                <th>Horizon</th>
+                <th>Summary</th>
+                <th>Action</th>
+                <th>Updated</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="thesesBody">
+              <tr><td colspan="8"><div class="skeleton skeleton-row"></div></td></tr>
+              <tr><td colspan="8"><div class="skeleton skeleton-row"></div></td></tr>
+              <tr><td colspan="8"><div class="skeleton skeleton-row"></div></td></tr>
+              <tr><td colspan="8"><div class="skeleton skeleton-row"></div></td></tr>
+              <tr><td colspan="8"><div class="skeleton skeleton-row"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ========== TAB: ORDERS & FILLS ========== -->
+    <section class="tab-content" id="tab-orders" aria-label="Orders and executions">
+
+      <div class="orders-layout">
+
+        <!-- Pending Validation Panel (populated by JS) -->
+        <div id="pendingValidationPanel"></div>
+
+        <!-- Open Orders -->
+        <div>
+          <div class="section-header" style="margin-bottom: var(--space-3)">
+            <span class="section-title">Open Orders</span>
+          </div>
+          <div class="table-section">
+            <div class="table-scroll">
+              <table id="ordersTable">
+                <thead>
+                  <tr>
+                    <th>Instrument</th>
+                    <th>Side</th>
+                    <th class="num">Qty</th>
+                    <th>Type</th>
+                    <th class="num">Limit</th>
+                    <th>Status</th>
+                    <th>Risk Check</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody id="ordersBody">
+                  <tr><td colspan="8"><div class="skeleton skeleton-row"></div></td></tr>
+                  <tr><td colspan="8"><div class="skeleton skeleton-row"></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Fills -->
+        <div>
+          <div class="section-header" style="margin-bottom: var(--space-3)">
+            <span class="section-title">Recent Fills</span>
+          </div>
+          <div class="table-section">
+            <div class="table-scroll">
+              <table id="fillsTable">
+                <thead>
+                  <tr>
+                    <th>Instrument</th>
+                    <th>Side</th>
+                    <th class="num">Qty</th>
+                    <th class="num">Fill Price</th>
+                    <th class="num">Slippage</th>
+                    <th class="num">Fees</th>
+                    <th>Memo</th>
+                    <th>Filled</th>
+                  </tr>
+                </thead>
+                <tbody id="fillsBody">
+                  <tr><td colspan="8"><div class="skeleton skeleton-row"></div></td></tr>
+                  <tr><td colspan="8"><div class="skeleton skeleton-row"></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ========== TAB: MARKET INTEL ========== -->
+    <section class="tab-content" id="tab-market" aria-label="Market Intel">
+      <div class="section-header">
+        <h2>Stock Signals</h2>
+        <p class="text-muted" style="font-size:var(--text-xs)">Données Finviz — Mise à jour toutes les 15 min</p>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Ticker</th><th>Prix</th><th>Chg</th><th>RSI(14)</th>
+              <th>SMA20</th><th>SMA50</th><th>SMA200</th>
+              <th>Analyste</th><th>Target</th><th>Short%</th>
+              <th>Rel Vol</th><th>Perf S</th><th>Perf M</th><th>Perf YTD</th>
+            </tr>
+          </thead>
+          <tbody id="signalsBody">
+            <tr><td colspan="14" class="empty-state">Chargement...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section-header" style="margin-top:var(--space-6)">
+        <h2>Dynamique Sectorielle</h2>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Secteur</th><th>Chg</th><th>Perf S</th><th>Perf M</th>
+              <th>Perf T</th><th>Perf YTD</th><th>P/E</th><th>Fwd P/E</th><th>Div</th>
+            </tr>
+          </thead>
+          <tbody id="sectorsBody">
+            <tr><td colspan="9" class="empty-state">Chargement...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section-header" style="margin-top:var(--space-6)">
+        <h2>Crypto — TOP 25</h2>
+        <p class="text-muted" style="font-size:var(--text-xs)">TOP 25 par market cap (hors stablecoins) — CoinGecko + Signaux ETF proxy Finviz</p>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Ticker</th><th>Prix</th><th>Chg 24h</th><th>Market Cap</th>
+              <th>Vol 24h</th><th>RSI(14)</th><th>SMA20</th><th>SMA50</th>
+              <th>SMA200</th><th>Perf S</th><th>Perf M</th><th>Perf YTD</th>
+              <th>Vol S</th><th>Vol M</th>
+            </tr>
+          </thead>
+          <tbody id="cryptoBody">
+            <tr><td colspan="14" class="empty-state">Chargement...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========== TAB: MACRO US ========== -->
+    <section class="tab-content" id="tab-macro" aria-label="US Macro Vulnerability">
+
+      <!-- Score global + Jauge -->
+      <div class="macro-hero" id="macroHero">
+        <div class="macro-score-card">
+          <div class="macro-score-label">SCORE GLOBAL DE VULNERABILITE</div>
+          <div class="macro-score-value" id="macroScoreValue">—</div>
+          <div class="macro-score-regime" id="macroScoreRegime">Chargement...</div>
+          <div class="macro-score-delta" id="macroScoreDelta"></div>
+        </div>
+        <div class="macro-gauge-wrap">
+          <canvas id="macroGauge" width="220" height="120"></canvas>
+        </div>
+        <div class="macro-weights">
+          <div class="macro-weight-item">Dette & Fiscal <span class="mono">35%</span></div>
+          <div class="macro-weight-item">Prix & USD <span class="mono">25%</span></div>
+          <div class="macro-weight-item">Emploi & Social <span class="mono">20%</span></div>
+          <div class="macro-weight-item">IA & Productivite <span class="mono">20%</span></div>
+        </div>
+      </div>
+
+      <!-- Risk-On / Risk-Off Gauge -->
+      <div class="risk-regime-card" id="riskRegimeCard">
+        <div class="section-header">
+          <span class="section-title">Regime Risk-On / Risk-Off</span>
+          <span class="text-muted" style="font-size:var(--text-xs)">Base: HY Spread (ICE BofA)</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:var(--space-5);flex-wrap:wrap">
+          <div class="risk-regime-gauge-wrap">
+            <canvas id="riskRegimeGauge" width="220" height="120"></canvas>
+          </div>
+          <div class="risk-regime-info">
+            <div class="risk-regime-label" id="riskRegimeLabel">—</div>
+            <div class="risk-regime-spread" id="riskRegimeSpread">—</div>
+            <div class="risk-regime-delta" id="riskRegimeDelta"></div>
+            <div class="risk-regime-thresholds" style="margin-top:var(--space-2);font-size:var(--text-xs);color:var(--color-text-muted)">
+              <div><span style="color:#70AD47">â—</span> Risk-On &lt; 300 bps</div>
+              <div><span style="color:#FFD966">â—</span> Neutre 300–400 bps</div>
+              <div><span style="color:#F4B942">â—</span> Risk-Off 400–500 bps</div>
+              <div><span style="color:#C00000">â—</span> Stress &gt; 500 bps</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CCC OAS Stress Indicator -->
+      <div class="ccc-oas-card" id="cccOasCard">
+        <div class="section-header">
+          <span class="section-title">CCC OAS Stress</span>
+          <span class="text-muted" style="font-size:var(--text-xs)">ICE BofA CCC & Lower (BAMLH0A3HYC)</span>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:var(--space-5);flex-wrap:wrap">
+          <div class="ccc-oas-gauge-wrap">
+            <canvas id="cccOasGauge" width="220" height="120"></canvas>
+          </div>
+          <div class="ccc-oas-info">
+            <div class="ccc-oas-label" id="cccOasLabel">—</div>
+            <div class="ccc-oas-spread" id="cccOasSpread">—</div>
+            <div class="ccc-oas-delta" id="cccOasDelta"></div>
+            <div class="ccc-oas-thresholds" style="margin-top:var(--space-2);font-size:var(--text-xs);color:var(--color-text-muted)">
+              <div><span style="color:#70AD47">â—</span> Sain &lt; 700 bps</div>
+              <div><span style="color:#FFD966">â—</span> Attention 700–868 bps</div>
+              <div><span style="color:#F4B942">â—</span> Stress naissant 868–944 bps</div>
+              <div><span style="color:#E05D6A">â—</span> Stress modéré 944–1050 bps</div>
+              <div><span style="color:#C00000">â—</span> Risk-Off total 1050–1100 bps</div>
+              <div><span style="color:#8B0000">â—</span> Crise CCC &gt; 1100 bps</div>
+            </div>
+          </div>
+          <div class="ccc-oas-rules" id="cccOasRules">
+            <div style="font-size:var(--text-xs);font-weight:600;margin-bottom:var(--space-1);color:var(--color-text-secondary)">Règles de trading</div>
+            <div style="font-size:var(--text-xs);color:var(--color-text-muted)">
+              <div>CCC &lt; 868 â†’ <span style="color:#70AD47">Neutre</span></div>
+              <div>868–944 â†’ <span style="color:#F4B942">Surveiller</span></div>
+              <div>&gt; 944 â†’ <span style="color:#E05D6A">Réduire 50%</span></div>
+              <div>&gt; 1050 â†’ <span style="color:#C00000">Risk-off total, 1x max</span></div>
+              <div>&gt; 1100 â†’ <span style="color:#8B0000">Sortie totale</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sentiment Social -->
+      <div class="sentiment-card" id="sentimentCard">
+        <div class="section-header">
+          <span class="section-title">Sentiment Social</span>
+          <span class="text-muted" style="font-size:var(--text-xs)">Fear & Greed Index</span>
+        </div>
+        <div class="sentiment-grid">
+          <!-- Crypto Sentiment -->
+          <div class="sentiment-item">
+            <div class="sentiment-item-label">CRYPTO</div>
+            <div class="sentiment-score" id="sentCryptoScore">—</div>
+            <div class="sentiment-label" id="sentCryptoLabel">—</div>
+            <div class="sentiment-delta" id="sentCryptoDelta"></div>
+            <canvas id="sentCryptoSparkline" width="120" height="40" style="margin-top:var(--space-1)"></canvas>
+            <div class="text-muted" style="font-size:9px">alternative.me</div>
+          </div>
+          <!-- Equities Sentiment -->
+          <div class="sentiment-item">
+            <div class="sentiment-item-label">EQUITIES</div>
+            <div class="sentiment-score" id="sentEquitiesScore">—</div>
+            <div class="sentiment-label" id="sentEquitiesLabel">—</div>
+            <div class="sentiment-delta" id="sentEquitiesDelta"></div>
+            <canvas id="sentEquitiesSparkline" width="120" height="40" style="margin-top:var(--space-1)"></canvas>
+            <div class="text-muted" style="font-size:9px">CBOE VIX via FRED</div>
+          </div>
+          <!-- Combined Gauge -->
+          <div class="sentiment-item sentiment-combined">
+            <div class="sentiment-item-label">COMBINE</div>
+            <canvas id="sentCombinedGauge" width="180" height="100"></canvas>
+            <div class="sentiment-combined-score" id="sentCombinedLabel">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sub-scores -->
+      <div class="macro-subscores" id="macroSubscores">
+        <div class="macro-subscore-card skeleton"><div class="skeleton skeleton-card" style="height:140px"></div></div>
+        <div class="macro-subscore-card skeleton"><div class="skeleton skeleton-card" style="height:140px"></div></div>
+        <div class="macro-subscore-card skeleton"><div class="skeleton skeleton-card" style="height:140px"></div></div>
+        <div class="macro-subscore-card skeleton"><div class="skeleton skeleton-card" style="height:140px"></div></div>
+      </div>
+
+      <!-- Calendrier economique -->
+      <div class="macro-calendar">
+        <div class="section-header">
+          <span class="section-title">Calendrier Economique</span>
+          <span class="text-muted" style="font-size:var(--text-xs)">Evenements cles de la semaine</span>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th><th>Heure</th><th>Evenement</th>
+                <th>Impact</th><th>Précédent</th><th>Prévision</th><th>Réel</th><th>Catégorie</th>
+              </tr>
+            </thead>
+            <tbody id="calendarBody">
+              <tr><td colspan="8" class="empty-state">Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Historique 12 mois (graph principal) -->
+      <div class="macro-history">
+        <div class="section-header">
+          <span class="section-title">Historique 12 Mois</span>
+          <span class="text-muted" style="font-size:var(--text-xs)">Source: FRED (Federal Reserve Bank of St. Louis)</span>
+        </div>
+        <div class="chart-container" style="height:360px">
+          <canvas id="macroHistoryChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Alertes -->
+      <div class="macro-alerts" id="macroAlerts">
+        <div class="section-header"><span class="section-title">Alertes & Tendances</span></div>
+        <div id="macroAlertsList" class="macro-alerts-list">
+          <div class="skeleton skeleton-row" style="height:32px"></div>
+          <div class="skeleton skeleton-row" style="height:32px;margin-top:var(--space-2)"></div>
+        </div>
+      </div>
+
+      <!-- Correlations BTC/NDX — Front-Run System -->
+      <div class="macro-correlations">
+        <div class="section-header">
+          <span class="section-title">Front-Run Signals — Corrélations 24M</span>
+          <span class="text-muted" style="font-size:var(--text-xs)">GlobalScore vs BTC & NDX — Corrélation glissante 24 mois</span>
+        </div>
+        <div class="macro-corr-summary" id="macroCorrSummary">
+          <div class="macro-corr-item">
+            <span class="macro-corr-label">BTC</span>
+            <span class="macro-corr-val mono" id="corrBtcVal">—</span>
+            <span class="badge badge-gray" id="corrBtcSignal">NEUTRE</span>
+          </div>
+          <div class="macro-corr-item">
+            <span class="macro-corr-label">NDX</span>
+            <span class="macro-corr-val mono" id="corrNdxVal">—</span>
+            <span class="badge badge-gray" id="corrNdxSignal">NEUTRE</span>
+          </div>
+        </div>
+        <div class="chart-container" style="height:280px;margin-top:var(--space-3)">
+          <canvas id="corrChart"></canvas>
+        </div>
+        <!-- BTC & QQQ Price Chart -->
+        <div style="margin-top:var(--space-4)">
+          <div class="section-header" style="margin-bottom:var(--space-2)">
+            <span class="section-title" style="font-size:var(--text-sm)">Cours BTC & QQQ</span>
+            <span class="text-muted" style="font-size:var(--text-xs)">Ã‰volution sur la même période</span>
+          </div>
+          <div class="chart-container" style="height:220px">
+            <canvas id="frontRunPriceChart"></canvas>
+          </div>
+        </div>
+        <!-- Signal history log -->
+        <div id="corrSignalLog" style="margin-top:var(--space-3)"></div>
+
+        <!-- Front-Run Signal Timing -->
+        <div id="frontRunTiming" style="margin-top:var(--space-4);border-top:1px solid var(--color-border);padding-top:var(--space-4)">
+          <div class="section-header" style="margin-bottom:var(--space-3)">
+            <span class="section-title" style="font-size:var(--text-sm)">Chronologie du Signal</span>
+            <span class="text-muted" style="font-size:var(--text-xs)">Délai signal â†’ action</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--space-2)">
+            <div style="background:var(--color-surface-2);border-radius:var(--radius-sm);padding:var(--space-2) var(--space-3)">
+              <div style="font-size:var(--text-xs);color:var(--text-muted)">Clôture mensuelle</div>
+              <div class="mono" style="font-size:var(--text-sm);font-weight:600">Fin mois M</div>
+            </div>
+            <div style="background:var(--color-surface-2);border-radius:var(--radius-sm);padding:var(--space-2) var(--space-3)">
+              <div style="font-size:var(--text-xs);color:var(--text-muted)">Calcul GlobalScore</div>
+              <div class="mono" style="font-size:var(--text-sm);font-weight:600">J+1 à J+5</div>
+            </div>
+            <div style="background:var(--color-surface-2);border-radius:var(--radius-sm);padding:var(--space-2) var(--space-3)">
+              <div style="font-size:var(--text-xs);color:var(--text-muted)">Signal détecté</div>
+              <div class="mono" style="font-size:var(--text-sm);font-weight:600">~J+5</div>
+            </div>
+            <div style="background:var(--color-surface-2);border-radius:var(--radius-sm);padding:var(--space-2) var(--space-3)">
+              <div style="font-size:var(--text-xs);color:var(--text-muted)">Front-run capture</div>
+              <div class="mono" style="font-size:var(--text-sm);font-weight:600;color:#2ecc71">~88% du move</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Checklist de confirmation -->
+        <div id="frontRunChecklist" style="margin-top:var(--space-4);border-top:1px solid var(--color-border);padding-top:var(--space-4)">
+          <div class="section-header" style="margin-bottom:var(--space-3)">
+            <span class="section-title" style="font-size:var(--text-sm)">Checklist de Confirmation</span>
+            <span class="text-muted" style="font-size:var(--text-xs)">â‰¥3/5 critères requis pour valider un signal ROUGE</span>
+          </div>
+          <div id="checklistItems" style="display:flex;flex-direction:column;gap:var(--space-2)">
+            <!-- Populated dynamically -->
+          </div>
+          <div id="checklistScore" style="margin-top:var(--space-3);padding:var(--space-2) var(--space-3);border-radius:var(--radius-sm);background:var(--color-surface-2);display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:var(--text-xs);color:var(--text-muted)">Critères validés</span>
+            <span id="checklistCount" class="mono" style="font-size:var(--text-sm);font-weight:700">—</span>
+          </div>
+        </div>
+
+        <!-- Statistiques historiques -->
+        <div id="frontRunStats" style="margin-top:var(--space-4);border-top:1px solid var(--color-border);padding-top:var(--space-4)">
+          <div class="section-header" style="margin-bottom:var(--space-3)">
+            <span class="section-title" style="font-size:var(--text-sm)">Historique des Signaux (2017–2022)</span>
+            <span class="text-muted" style="font-size:var(--text-xs)">Performance du front-run sur 6 signaux historiques</span>
+          </div>
+          <div class="table-scroll">
+            <table style="font-size:var(--text-xs)">
+              <thead>
+                <tr>
+                  <th>Signal</th><th>Type</th><th>Décalage</th><th>Amplitude</th><th>Capture J+10</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class="mono">Fév 2017</td><td><span class="badge badge-red">SELL NDX</span></td><td>+2 mois</td><td>âˆ’20%</td><td style="color:#2ecc71;font-weight:600">~85%</td></tr>
+                <tr><td class="mono">Avr 2017</td><td><span class="badge badge-red">SELL BTC</span></td><td>+8 mois</td><td>âˆ’90%</td><td style="color:#2ecc71;font-weight:600">~92%</td></tr>
+                <tr><td class="mono">Mai 2019</td><td><span class="badge badge-green">BUY NDX</span></td><td>+1 mois</td><td>+77%</td><td style="color:#2ecc71;font-weight:600">~95%</td></tr>
+                <tr><td class="mono">Avr 2020</td><td><span class="badge badge-green">BUY NDX</span></td><td>~0</td><td>+80%</td><td style="color:#F4B942;font-weight:600">~80%</td></tr>
+                <tr><td class="mono">Avr 2020</td><td><span class="badge badge-green">BUY BTC</span></td><td>+2 mois</td><td>+890%</td><td style="color:#2ecc71;font-weight:600">~98%</td></tr>
+                <tr><td class="mono">Sep 2022</td><td><span class="badge badge-red">SELL BTC</span></td><td>+1 mois</td><td>âˆ’55%</td><td style="color:#2ecc71;font-weight:600">~88%</td></tr>
+                <tr><td class="mono">Oct 2022</td><td><span class="badge badge-red">SELL NDX</span></td><td>+2 mois</td><td>âˆ’26%</td><td style="color:#2ecc71;font-weight:600">~82%</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--space-2);margin-top:var(--space-3)">
+            <div style="background:var(--color-surface-2);border-radius:var(--radius-sm);padding:var(--space-2) var(--space-3);text-align:center">
+              <div style="font-size:var(--text-xs);color:var(--text-muted)">Taux de succès</div>
+              <div class="mono" style="font-size:var(--text-base);font-weight:700;color:#2ecc71">86%</div>
+              <div style="font-size:9px;color:var(--text-muted)">6/7 signaux</div>
+            </div>
+            <div style="background:var(--color-surface-2);border-radius:var(--radius-sm);padding:var(--space-2) var(--space-3);text-align:center">
+              <div style="font-size:var(--text-xs);color:var(--text-muted)">Capture moyenne</div>
+              <div class="mono" style="font-size:var(--text-base);font-weight:700;color:#4db8bf">88%</div>
+              <div style="font-size:9px;color:var(--text-muted)">du move total</div>
+            </div>
+            <div style="background:var(--color-surface-2);border-radius:var(--radius-sm);padding:var(--space-2) var(--space-3);text-align:center">
+              <div style="font-size:var(--text-xs);color:var(--text-muted)">Avec checklist â‰¥3</div>
+              <div class="mono" style="font-size:var(--text-base);font-weight:700;color:#2ecc71">93%</div>
+              <div style="font-size:9px;color:var(--text-muted)">probabilité</div>
+            </div>
+            <div style="background:var(--color-surface-2);border-radius:var(--radius-sm);padding:var(--space-2) var(--space-3);text-align:center">
+              <div style="font-size:var(--text-xs);color:var(--text-muted)">Faux signal</div>
+              <div class="mono" style="font-size:var(--text-base);font-weight:700;color:#e74c3c">14%</div>
+              <div style="font-size:9px;color:var(--text-muted)">1/7 historique</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Guide d'action par style -->
+        <div id="frontRunActionGuide" style="margin-top:var(--space-4);border-top:1px solid var(--color-border);padding-top:var(--space-4)">
+          <div class="section-header" style="margin-bottom:var(--space-3)">
+            <span class="section-title" style="font-size:var(--text-sm)">Actions par Style (Signal ROUGE)</span>
+          </div>
+          <div class="table-scroll">
+            <table style="font-size:var(--text-xs)">
+              <thead>
+                <tr><th>Style</th><th>Action suggérée</th></tr>
+              </thead>
+              <tbody>
+                <tr><td style="font-weight:600">Long-only équités</td><td>Réduire exposition NDX de 30–50%, rotation défensive</td></tr>
+                <tr><td style="font-weight:600">Crypto holder</td><td>Alléger BTC de 20–40%, renforcer stablecoins</td></tr>
+                <tr><td style="font-weight:600">Options</td><td>Acheter puts 3–6 mois OTM sur QQQ / BTC</td></tr>
+                <tr><td style="font-weight:600">Swing trader</td><td>Serrer stop-loss, ne pas acheter les dips immédiats</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top:var(--space-2);padding:var(--space-2) var(--space-3);border-radius:var(--radius-sm);background:rgba(231,76,60,0.08);border:1px solid rgba(231,76,60,0.15)">
+            <div style="font-size:var(--text-xs);color:#e74c3c;font-weight:600;margin-bottom:2px">Risques à connaître</div>
+            <div style="font-size:10px;color:var(--text-muted);line-height:1.5">
+              <strong>Faux signal (14%) :</strong> 1 cas en 10 ans (Jul 2019 NDX SELL â†’ rebond immédiat).<br>
+              <strong>Signal lent :</strong> Indicateur 24 mois — ne capte pas les flash crashs (ex: Covid mars 2020).
+            </div>
+          </div>
+        </div>
+
+        <!-- Guide d'action par style — Signal VERT (BUY) -->
+        <div style="margin-top:var(--space-4);border-top:1px solid var(--color-border);padding-top:var(--space-4)">
+          <div class="section-header" style="margin-bottom:var(--space-3)">
+            <span class="section-title" style="font-size:var(--text-sm)">Actions par Style (Signal VERT)</span>
+          </div>
+          <div class="table-scroll">
+            <table style="font-size:var(--text-xs)">
+              <thead>
+                <tr><th>Style</th><th>Action suggérée</th></tr>
+              </thead>
+              <tbody>
+                <tr><td style="font-weight:600">Long-only équités</td><td>Augmenter exposition NDX de 20–40%, rotation croissance/momentum</td></tr>
+                <tr><td style="font-weight:600">Crypto holder</td><td>Renforcer BTC de 20–30%, accumuler ETH sur replis</td></tr>
+                <tr><td style="font-weight:600">Options</td><td>Vendre puts OTM 2–4 mois sur QQQ / SPY (collecter la prime)</td></tr>
+                <tr><td style="font-weight:600">Swing trader</td><td>Acheter les dips, élargir stop-loss, laisser courir les gains</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top:var(--space-2);padding:var(--space-2) var(--space-3);border-radius:var(--radius-sm);background:rgba(46,204,113,0.08);border:1px solid rgba(46,204,113,0.15)">
+            <div style="font-size:var(--text-xs);color:#2ecc71;font-weight:600;margin-bottom:2px">Contexte Signal VERT</div>
+            <div style="font-size:10px;color:var(--text-muted);line-height:1.5">
+              <strong>Conditions :</strong> Corrélations repassent positives + GlobalScore en baisse sur 3 mois + spreads HY en contraction.<br>
+              <strong>Historique :</strong> Sur 7 signaux (2017–2024), les phases VERT ont généré +18% en moyenne sur NDX à 6 mois.<br>
+              <strong>Timing :</strong> Le signal VERT arrive généralement 2–5 jours avant le point bas — patience sur l'entrée.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== RISQUE GEOPOLITIQUE ===== -->
+      <div class="geo-section" id="geoSection">
+        <div class="section-header">
+          <span class="section-title">Risque Géopolitique</span>
+          <span class="text-muted" style="font-size:var(--text-xs)">Sources : GDELT Project, USGS Earthquake Hazards</span>
+        </div>
+
+        <!-- Composite score + gauge -->
+        <div class="geo-hero">
+          <div class="geo-score-card">
+            <div class="macro-score-label">SCORE COMPOSITE GÃ‰OPOLITIQUE</div>
+            <div class="geo-score-value" id="geoScoreValue">—</div>
+            <div class="geo-score-regime" id="geoScoreRegime">Chargement...</div>
+          </div>
+          <div class="geo-gauge-wrap">
+            <canvas id="geoGauge" width="220" height="120"></canvas>
+          </div>
+          <div class="macro-weights">
+            <div class="macro-weight-item">Conflits <span class="mono">35%</span></div>
+            <div class="macro-weight-item">Supply Chain <span class="mono">25%</span></div>
+            <div class="macro-weight-item">Théâtres <span class="mono">25%</span></div>
+            <div class="macro-weight-item">Infrastructure <span class="mono">15%</span></div>
+          </div>
+        </div>
+
+        <!-- Sub-scores -->
+        <div class="macro-subscores" id="geoSubscores">
+          <div class="macro-subscore-card skeleton"><div class="skeleton skeleton-card" style="height:140px"></div></div>
+          <div class="macro-subscore-card skeleton"><div class="skeleton skeleton-card" style="height:140px"></div></div>
+          <div class="macro-subscore-card skeleton"><div class="skeleton skeleton-card" style="height:140px"></div></div>
+          <div class="macro-subscore-card skeleton"><div class="skeleton skeleton-card" style="height:140px"></div></div>
+        </div>
+
+        <!-- Chokepoint risk bars -->
+        <div class="geo-chokepoints">
+          <div class="section-header" style="margin-top:var(--space-4)">
+            <span class="section-title" style="font-size:var(--text-sm)">Risque Chokepoints Stratégiques</span>
+          </div>
+          <div id="geoChokepointBars" class="geo-bar-list">
+            <div class="skeleton skeleton-row" style="height:28px"></div>
+            <div class="skeleton skeleton-row" style="height:28px;margin-top:var(--space-2)"></div>
+          </div>
+        </div>
+
+        <!-- Theater threat map -->
+        <div class="geo-theaters">
+          <div class="section-header" style="margin-top:var(--space-4)">
+            <span class="section-title" style="font-size:var(--text-sm)">Niveau de Menace par Théâtre</span>
+          </div>
+          <div id="geoTheaterList" class="geo-theater-grid">
+            <div class="skeleton skeleton-row" style="height:60px"></div>
+          </div>
+        </div>
+
+        <!-- Geo alerts -->
+        <div class="macro-alerts" id="geoAlerts" style="margin-top:var(--space-4)">
+          <div class="section-header"><span class="section-title" style="font-size:var(--text-sm)">Alertes Géopolitiques</span></div>
+          <div id="geoAlertsList" class="macro-alerts-list">
+            <div class="skeleton skeleton-row" style="height:32px"></div>
+          </div>
+        </div>
+
+        <!-- Historique score géopolitique composite -->
+        <div class="geo-score-history" style="margin-top:var(--space-4)">
+          <div class="section-header">
+            <span class="section-title" style="font-size:var(--text-sm)">Historique 12 Mois — Score Vulnérabilité</span>
+          </div>
+          <div style="padding:var(--space-3);position:relative">
+            <canvas id="geoScoreHistoryChart" width="700" height="260" style="width:100%;height:260px"></canvas>
+          </div>
+        </div>
+      </div>
+
+
+
+    
+
+
+<!-- === [PPLX_GEO_PANEL_HTML_V1] BEGIN === -->
+<div id="pplxGeoSection" class="pplx-geo-section">
+  <div class="pplx-geo-header">
+    <div class="pplx-geo-title">
+      <h3>Contexte gÃ©opolitique IA</h3>
+      <span class="pplx-badge-source">Perplexity sonar-pro</span>
+    </div>
+    <div class="pplx-geo-score-block">
+      <div>
+        <span class="pplx-geo-score" id="pplxGeoScoreValue">â€”</span><span class="pplx-geo-score-suffix">/100</span>
+      </div>
+      <span class="pplx-regime-badge pplx-regime-calm" id="pplxGeoRegimeBadge">â€”</span>
+    </div>
+    <div class="pplx-geo-summary" id="pplxGeoSummary">Chargement du contexte gÃ©opolitiqueâ€¦</div>
+    <div class="pplx-geo-meta">
+      <span id="pplxGeoTimestamp">â€”</span>
+      <button onclick="loadPplxGeoData(true)">RafraÃ®chir</button>
+    </div>
+  </div>
+  <div class="pplx-geo-grid">
+    <div>
+      <h4 class="pplx-col-title">Top 5 risques</h4>
+      <div id="pplxGeoRisksList" class="pplx-loading">Chargementâ€¦</div>
+    </div>
+    <div>
+      <h4 class="pplx-col-title">Exposition du portefeuille</h4>
+      <div id="pplxGeoExposureList" class="pplx-loading">Chargementâ€¦</div>
+    </div>
+  </div>
+</div>
+<!-- === [PPLX_GEO_PANEL_HTML_V1] END === -->
+</section>
+
+    <!-- ========== TAB: IC MEMOS ========== -->
+    <section class="tab-content" id="tab-memos" aria-label="IC Memos">
+
+      <div class="memos-layout">
+
+        <!-- Left: memo list -->
+        <div class="memo-list-panel">
+          <div class="memo-list-filter">
+            <button class="btn btn-primary" style="width:100%;margin-bottom:var(--space-2)" onclick="openNewMemoModal()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Nouveau Memo
+            </button>
+            <div class="filter-bar">
+              <input type="date" class="input-field" id="memoDateFrom" aria-label="From date" style="flex:1">
+              <input type="date" class="input-field" id="memoDateTo" aria-label="To date" style="flex:1">
+            </div>
+            <select class="input-field" id="memoAgentFilter" aria-label="Filter by agent" style="width:100%">
+              <option value="">All agents</option>
+              <option value="macro">Macro</option>
+              <option value="factor">Factor</option>
+              <option value="microstructure">Microstructure</option>
+              <option value="alt-data">Alt-data</option>
+            </select>
+          </div>
+          <div class="memo-list-scroll" id="memoList">
+            <div class="activity-item"><div class="skeleton skeleton-row"></div></div>
+            <div class="activity-item"><div class="skeleton skeleton-row"></div></div>
+            <div class="activity-item"><div class="skeleton skeleton-row"></div></div>
+          </div>
+        </div>
+
+        <!-- Right: memo reader -->
+        <div class="memo-reader-panel">
+          <div class="memo-reader-header" id="memoReaderHeader">
+            <div class="skeleton skeleton-text w-3-4"></div>
+            <div class="skeleton skeleton-text w-1-2" style="margin-top: var(--space-2)"></div>
+          </div>
+          <div class="memo-reader-scroll">
+            <div class="memo-content" id="memoContent">
+              <div class="empty-state">Select a memo to read</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ========== TAB: BACKTEST ========== -->
+    <section class="tab-content" id="tab-backtest" aria-label="Portfolio Backtest">
+
+      <!-- Controls -->
+      <div class="section-header">
+        <h2>Backtest Portfolio</h2>
+        <p class="text-muted" style="font-size:var(--text-xs)">Simulation historique — données Yahoo Finance (equity) + CoinGecko (crypto)</p>
+      </div>
+
+      <div class="backtest-controls" style="display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:end;margin-bottom:var(--space-4)">
+        <div style="display:flex;flex-direction:column;gap:var(--space-1)">
+          <label class="text-muted" style="font-size:var(--text-xs)">Preset</label>
+          <select class="input-field" id="btPreset" style="min-width:160px">
+            <option value="equity">Equity Only</option>
+            <option value="crypto">Crypto Only</option>
+            <option value="mixed">Mixte 60/40</option>
+            <option value="full">Full Portfolio</option>
+          </select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:var(--space-1)">
+          <label class="text-muted" style="font-size:var(--text-xs)">Période</label>
+          <select class="input-field" id="btMonths" style="min-width:100px">
+            <option value="12" selected>12 mois</option>
+            <option value="24">24 mois</option>
+            <option value="60">5 ans</option>
+          </select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:var(--space-1)">
+          <label class="text-muted" style="font-size:var(--text-xs)">Capital initial</label>
+          <input class="input-field mono" id="btCapital" type="number" value="100000" style="min-width:120px">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:var(--space-1)">
+          <label class="text-muted" style="font-size:var(--text-xs)">Benchmark</label>
+          <select class="input-field" id="btBenchmark" style="min-width:100px">
+            <option value="SPY" selected>SPY</option>
+            <option value="QQQ">QQQ</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="btRunBtn" style="height:36px">
+          Lancer le backtest
+        </button>
+      </div>
+
+      <!-- Loading state -->
+      <div id="btLoading" style="display:none;text-align:center;padding:var(--space-6)">
+        <div class="spinner"></div>
+        <p class="text-muted" style="margin-top:var(--space-2);font-size:var(--text-sm)">Téléchargement des données historiques... Cela peut prendre 30-60s.</p>
+      </div>
+
+      <!-- Results (hidden until run) -->
+      <div id="btResults" style="display:none">
+
+        <!-- KPI row -->
+        <div class="kpi-grid" id="btKPIs" style="grid-template-columns:repeat(6, 1fr);margin-bottom:var(--space-4)"></div>
+
+        <!-- Equity curve chart -->
+        <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-4);margin-bottom:var(--space-4)">
+          <h3 style="font-size:var(--text-sm);margin-bottom:var(--space-3)">Courbe d'équité</h3>
+          <div style="position:relative;height:260px">
+            <canvas id="btChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Stats comparison table -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);margin-bottom:var(--space-4)">
+          <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-4)">
+            <h3 style="font-size:var(--text-sm);margin-bottom:var(--space-3)">Portfolio vs Benchmark</h3>
+            <table style="width:100%">
+              <thead>
+                <tr><th>Métrique</th><th>Portfolio</th><th id="btBenchLabel">SPY</th></tr>
+              </thead>
+              <tbody id="btStatsBody"></tbody>
+            </table>
+          </div>
+
+          <!-- Per-asset performance -->
+          <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-4)">
+            <h3 style="font-size:var(--text-sm);margin-bottom:var(--space-3)">Performance par actif</h3>
+            <div class="table-scroll" style="max-height:320px;overflow-y:auto">
+              <table style="width:100%">
+                <thead>
+                  <tr><th>Ticker</th><th>Poids</th><th>Rendement</th><th>Contribution</th></tr>
+                </thead>
+                <tbody id="btAssetBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Meta info -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:var(--space-3)">
+          <p class="text-muted" style="font-size:var(--text-xs);margin:0" id="btMeta"></p>
+          <button class="btn" id="btExportCsv" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-3);border:1px solid var(--border);background:var(--surface-1);cursor:pointer;display:flex;align-items:center;gap:var(--space-1)" title="Exporter le journal de trading en CSV">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Exporter CSV
+          </button>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ========== TAB: ADMIN ========== -->
+    <section class="tab-content" id="tab-admin" aria-label="Administration">
+      <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-4)">
+        <h2>Administration des utilisateurs</h2>
+        <button class="btn btn-primary" id="adminAddBtn" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-3)">
+          + Nouvel utilisateur
+        </button>
+      </div>
+
+      <!-- Create user form (hidden by default) -->
+      <div id="adminCreateForm" style="display:none;background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-4);margin-bottom:var(--space-4)">
+        <h3 style="font-size:var(--text-sm);margin-bottom:var(--space-3)">Créer un utilisateur</h3>
+        <form id="adminNewUserForm" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
+          <div>
+            <label style="font-size:var(--text-xs);color:var(--text-2)">Nom d'utilisateur</label>
+            <input class="input-field" id="adminNewUsername" required style="width:100%" placeholder="ex: jdupont">
+          </div>
+          <div>
+            <label style="font-size:var(--text-xs);color:var(--text-2)">Email</label>
+            <input class="input-field" id="adminNewEmail" type="email" required style="width:100%" placeholder="j.dupont@nextones.fr">
+          </div>
+          <div>
+            <label style="font-size:var(--text-xs);color:var(--text-2)">Nom complet</label>
+            <input class="input-field" id="adminNewFullname" style="width:100%" placeholder="Jean Dupont">
+          </div>
+          <div>
+            <label style="font-size:var(--text-xs);color:var(--text-2)">Rôle</label>
+            <select class="input-field" id="adminNewRole" style="width:100%">
+              <option value="viewer">Viewer — Lecture seule</option>
+              <option value="analyst" selected>Analyst — Consultation + thèses</option>
+              <option value="manager">Manager — Validation + cycles</option>
+              <option value="admin">Admin — Accès total</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:var(--text-xs);color:var(--text-2)">Mot de passe</label>
+            <input class="input-field" id="adminNewPassword" type="password" required style="width:100%" minlength="8">
+          </div>
+          <div style="display:flex;align-items:end;gap:var(--space-2)">
+            <button type="submit" class="btn btn-primary" style="height:36px">Créer</button>
+            <button type="button" class="btn" id="adminCancelBtn" style="height:36px;border:1px solid var(--border)">Annuler</button>
+          </div>
+        </form>
+        <p id="adminCreateError" class="text-muted" style="color:#e74c3c;font-size:var(--text-xs);margin-top:var(--space-2)" hidden></p>
+      </div>
+
+      <!-- Users table -->
+      <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-4)">
+        <div class="table-scroll">
+          <table style="width:100%">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Utilisateur</th>
+                <th>Email</th>
+                <th>Nom complet</th>
+                <th>Rôle</th>
+                <th>Statut</th>
+                <th>Dernière connexion</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminUsersBody">
+              <tr><td colspan="8" class="text-muted" style="text-align:center;padding:var(--space-4)">Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Scheduler Status -->
+      <div style="margin-top:var(--space-4);background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-4)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+          <h3 style="font-size:var(--text-sm);margin:0">Scheduler — Tâches planifiées</h3>
+          <div style="display:flex;gap:var(--space-2)">
+            <button class="btn btn-primary" onclick="schedulerForceRefresh('all')" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-3)">âŸ³ Refresh All</button>
+            <button class="btn" onclick="loadSchedulerStatus()" style="font-size:var(--text-xs);padding:var(--space-1) var(--space-3);border:1px solid var(--border)">Actualiser</button>
+          </div>
+        </div>
+        <div id="schedulerStatusIndicator" style="font-size:var(--text-xs);color:var(--text-2);margin-bottom:var(--space-3)"></div>
+        <div class="table-scroll">
+          <table style="width:100%">
+            <thead>
+              <tr>
+                <th>Job ID</th>
+                <th>Fréquence</th>
+                <th>Prochain run</th>
+                <th>Action rapide</th>
+              </tr>
+            </thead>
+            <tbody id="schedulerJobsBody">
+              <tr><td colspan="4" class="text-muted" style="text-align:center;padding:var(--space-4)">Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Role descriptions -->
+      <div style="margin-top:var(--space-4);background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-4)">
+        <h3 style="font-size:var(--text-sm);margin-bottom:var(--space-3)">Rôles et permissions</h3>
+        <table style="width:100%">
+          <thead>
+            <tr><th>Rôle</th><th>Permissions</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><span class="badge" style="background:#95a5a6;color:#fff">Viewer</span></td><td class="text-muted" style="font-size:var(--text-xs)">Lecture seule — dashboards, rapports, consultation des thèses et mémos</td></tr>
+            <tr><td><span class="badge" style="background:#20808D;color:#fff">Analyst</span></td><td class="text-muted" style="font-size:var(--text-xs)">Viewer + propositions de thèses, backtests, export CSV</td></tr>
+            <tr><td><span class="badge" style="background:#e67e22;color:#fff">Manager</span></td><td class="text-muted" style="font-size:var(--text-xs)">Analyst + validation des thèses, lancement de cycles d'exécution et d'ingestion</td></tr>
+            <tr><td><span class="badge" style="background:#e74c3c;color:#fff">Admin</span></td><td class="text-muted" style="font-size:var(--text-xs)">Accès total + gestion des utilisateurs, configuration risk, paramètres système</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PPLX footer inside main scroll area -->
+    <div class="pplx-footer">
+      <a href="https://www.perplexity.ai/computer" target="_blank" rel="noopener noreferrer">
+        Created with Perplexity Computer
+      </a>
+    </div>
+
+  </main><!-- /main -->
+
+</div><!-- /dashboard -->
+
+<!-- ====================== THESIS DETAIL PANEL ====================== -->
+<div class="detail-panel-overlay" id="detailOverlay" role="presentation"></div>
+<aside class="detail-panel" id="detailPanel" role="complementary" aria-label="Thesis detail">
+  <div class="detail-panel-header">
+    <span class="detail-panel-title" id="detailTitle">Thesis Detail</span>
+    <button class="btn btn-ghost btn-icon" id="detailClose" aria-label="Close detail panel">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+  </div>
+  <div class="detail-panel-body" id="detailBody">
+    <div class="empty-state">Loading…</div>
+  </div>
+</aside>
+
+<!-- ====================== TOAST CONTAINER ====================== -->
+<div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+
+<!-- ====================== NEW MEMO MODAL ====================== -->
+<div class="modal-overlay" id="newMemoOverlay" style="display:none" role="dialog" aria-modal="true" aria-label="Nouveau IC Memo">
+  <div class="modal-card" style="max-width:520px">
+    <div class="modal-header">
+      <h2 style="font-size:var(--text-base);font-weight:600;margin:0;color:var(--color-text)">Nouveau IC Memo</h2>
+      <button class="btn btn-ghost btn-icon" onclick="closeNewMemoModal()" aria-label="Fermer">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label" for="memoType">Type de memo</label>
+        <select class="input-field" id="memoType" onchange="onMemoTypeChange()">
+          <option value="weekly">Revue Hebdomadaire</option>
+          <option value="position">Position Review</option>
+          <option value="macro">Analyse Macro</option>
+          <option value="strategy">Stratégie / Hedging</option>
+          <option value="crypto">Analyse Crypto</option>
+          <option value="custom">Personnalisé</option>
+        </select>
+      </div>
+      <div class="form-group" id="memoTickerGroup" style="display:none">
+        <label class="form-label" for="memoTicker">Ticker</label>
+        <select class="input-field" id="memoTicker">
+          <option value="">Sélectionner un ticker…</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="memoTitle">Titre</label>
+        <input type="text" class="input-field" id="memoTitleInput" placeholder="Titre auto-généré si vide">
+      </div>
+      <div class="form-group" id="memoCustomGroup" style="display:none">
+        <label class="form-label" for="memoCustomTopic">Sujet / Instructions</label>
+        <textarea class="input-field" id="memoCustomTopic" rows="3" placeholder="Décrivez le sujet du memo…"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="memoConviction">Conviction</label>
+        <select class="input-field" id="memoConviction">
+          <option value="FORTE">FORTE</option>
+          <option value="MOYENNE" selected>MOYENNE</option>
+          <option value="FAIBLE">FAIBLE</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeNewMemoModal()">Annuler</button>
+      <button class="btn btn-primary" id="btnGenerateMemo" onclick="generateNewMemo()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        Générer
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Mock data — the fetch interceptor is in app.js */
+window.MOCK_API_DATA = null;
+</script>
+<script src="app.js?v=20260308z1"></script>
+<!--
+=============================================================================
+PATCH UI — Panel "PORTFOLIO IDÃ‰AL VS ACTUEL" (Jalon 2)
+=============================================================================
+
+OÃ™ COLLER CE CODE :
+  Dans ton fichier HTML principal (ou le template Jinja2 du serveur),
+  repère le bloc <div> ou <section> qui correspond au panel
+  "PORTFOLIO IDÃ‰AL VS ACTUEL".
+  Remplace INTÃ‰GRALEMENT ce bloc par le contenu ci-dessous.
+
+CLASSES CSS UTILISÃ‰ES :
+  - .panel            : conteneur de panneau (déjà utilisé dans l'app)
+  - .panel-title      : titre de section (déjà utilisé)
+  - .data-table       : tableau de données (déjà utilisé)
+  - .btn              : bouton standard (déjà utilisé)
+  - .badge-buy        : badge vert BUY (NOUVEAU — ajoute dans ton CSS global)
+  - .badge-sell       : badge rouge SELL (NOUVEAU)
+  - .badge-neutral    : badge gris NEUTRAL (NOUVEAU)
+  - .delta-positive   : texte vert delta positif (NOUVEAU)
+  - .delta-negative   : texte rouge delta négatif (NOUVEAU)
+  - .delta-neutral    : texte gris delta neutre (NOUVEAU)
+  - .loading-msg      : message de chargement inline (NOUVEAU)
+
+CSS ADDITIONNEL — AJOUTER DANS TON <style> GLOBAL :
+  (Colle ce bloc dans ton fichier CSS ou dans <style> dans <head>)
+
+  .badge-buy     { background: #16a34a; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
+  .badge-sell    { background: #dc2626; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
+  .badge-neutral { background: #6b7280; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
+  .delta-positive { color: #16a34a; font-weight: 600; }
+  .delta-negative { color: #dc2626; font-weight: 600; }
+  .delta-neutral  { color: #6b7280; }
+  .loading-msg    { font-size: 0.85rem; color: #9ca3af; margin: 8px 0; }
+  #construction-table-wrap { overflow-x: auto; }
+
+=============================================================================
+-->
+
+<!-- ===== PANEL PORTFOLIO IDÃ‰AL VS ACTUEL ===== -->
+<div class="panel" id="panel-construction">
+
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+    <h2 class="panel-title" style="margin:0;">Portfolio idéal vs actuel</h2>
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <span id="construction-updated-at" class="loading-msg"></span>
+      <button class="btn" id="btn-recalculate" onclick="runConstruction()" title="Relance le PortfolioConstructionAgent Jalon 2">
+        Recalculer cibles
+      </button>
+    </div>
+  </div>
+
+  <!-- Barre de statut NAV -->
+  <div id="construction-nav-bar" style="font-size:0.85rem; color:#6b7280; margin-bottom:10px;"></div>
+
+  <!-- Message d'état (chargement / erreur) -->
+  <p id="construction-status" class="loading-msg">Chargement...</p>
+
+  <!-- Tableau principal -->
+  <div id="construction-table-wrap" style="display:none;">
+    <table class="data-table" id="construction-table" style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Ticker</th>
+          <th style="text-align:right;">Poids actuel</th>
+          <th style="text-align:right;">Poids cible</th>
+          <th style="text-align:right;">Delta</th>
+          <th style="text-align:center;">Action</th>
+          <th style="text-align:center;">Signal</th>
+          <th style="text-align:right;">Score</th>
+          <th style="text-align:left;">Source</th>
+        </tr>
+      </thead>
+      <tbody id="construction-tbody">
+        <!-- Lignes injectées par JS -->
+      </tbody>
+      <tfoot id="construction-tfoot">
+        <!-- Ligne cash injectée par JS -->
+      </tfoot>
+    </table>
+  </div>
+
+</div>
+<!-- ===== FIN PANEL ===== -->
+
+
+<script>
+// =============================================================================
+// construction_panel.js — Jalon 2 UI (inline, pas de dépendance externe)
+// =============================================================================
+// Charge /api/construction/targets toutes les 30 secondes.
+// Bouton "Recalculer cibles" appelle POST /api/construction/run puis reload.
+// =============================================================================
+
+(function () {
+  "use strict";
+
+  // ---- Configuration ----
+  var REFRESH_INTERVAL_MS = 30000;   // 30 secondes
+  var DELTA_THRESHOLD_PCT  = 0.30;   // seuil "neutre" (cohérent avec engine)
+
+  // ---- Références DOM ----
+  var elStatus     = document.getElementById("construction-status");
+  var elTableWrap  = document.getElementById("construction-table-wrap");
+  var elTbody      = document.getElementById("construction-tbody");
+  var elTfoot      = document.getElementById("construction-tfoot");
+  var elUpdatedAt  = document.getElementById("construction-updated-at");
+  var elNavBar     = document.getElementById("construction-nav-bar");
+  var elBtnRecalc  = document.getElementById("btn-recalculate");
+
+  // ---- Utilitaires ----
+  function fmtPct(v) {
+    if (v === null || v === undefined) return "—";
+    return parseFloat(v).toFixed(2) + " %";
+  }
+
+  function fmtDelta(v) {
+    if (v === null || v === undefined) return "—";
+    var n = parseFloat(v);
+    var cls = "delta-neutral";
+    var prefix = "";
+    if (n > DELTA_THRESHOLD_PCT)  { cls = "delta-positive"; prefix = "+"; }
+    if (n < -DELTA_THRESHOLD_PCT) { cls = "delta-negative"; }
+    return '<span class="' + cls + '">' + prefix + n.toFixed(2) + " %</span>";
+  }
+
+  function fmtSignal(signal) {
+    var badgeClass = {
+      "BUY":     "badge-buy",
+      "SELL":    "badge-sell",
+      "NEUTRAL": "badge-neutral"
+    }[signal] || "badge-neutral";
+    return '<span class="' + badgeClass + '">' + (signal || "?") + "</span>";
+  }
+
+  function fmtScore(v) {
+    if (v === null || v === undefined) return "—";
+    return parseFloat(v).toFixed(3);
+  }
+
+  function escHtml(s) {
+    if (!s) return "";
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function fmtDate(s) {
+    if (!s) return "";
+    // Affiche uniquement les 16 premiers caractères : "2026-05-24 15:40"
+    return String(s).substring(0, 16);
+  }
+
+  // ---- Rendu du tableau ----
+  function renderTable(data) {
+    var targets = data.targets || [];
+    var cash    = data.cash    || {};
+    var nav     = data.nav;
+
+    // Ligne NAV
+    if (nav) {
+      elNavBar.textContent = "NAV : " + parseFloat(nav).toLocaleString("fr-FR", {
+        style: "currency", currency: "USD", maximumFractionDigits: 0
+      });
+    }
+
+    // Mise à jour de l'horodatage
+    if (data.updated_at) {
+      elUpdatedAt.textContent = "Mis à jour : " + fmtDate(data.updated_at);
+    }
+
+    // Construction des lignes ticker
+    var rows = targets.map(function (t) {
+      return [
+        "<tr>",
+        "<td><strong>" + escHtml(t.ticker) + "</strong></td>",
+        "<td style='text-align:right;'>" + fmtPct(t.actual_weight_pct) + "</td>",
+        "<td style='text-align:right;'>" + fmtPct(t.target_weight_pct) + "</td>",
+        "<td style='text-align:right;'>" + fmtDelta(t.delta_pct) + "</td>",
+        "<td style='text-align:center;'>" + escHtml(t.action || "—") + "</td>",
+        "<td style='text-align:center;'>" + fmtSignal(t.signal) + "</td>",
+        "<td style='text-align:right;'>" + fmtScore(t.score) + "</td>",
+        "<td>" + escHtml(t.source || "—") + "</td>",
+        "</tr>",
+      ].join("");
+    });
+
+    elTbody.innerHTML = rows.join("");
+
+    // Ligne cash dans le pied de tableau
+    var cashDelta = cash.delta_pct;
+    elTfoot.innerHTML = [
+      "<tr style='border-top:2px solid #374151; font-style:italic; color:#9ca3af;'>",
+      "<td><em>Cash résiduel</em></td>",
+      "<td style='text-align:right;'>" + fmtPct(cash.actual_pct) + "</td>",
+      "<td style='text-align:right;'>" + fmtPct(cash.target_pct) + "</td>",
+      "<td style='text-align:right;'>" + fmtDelta(cashDelta) + "</td>",
+      "<td colspan='4'></td>",
+      "</tr>",
+    ].join("");
+
+    // Afficher le tableau, masquer le message de statut
+    elStatus.style.display = "none";
+    elTableWrap.style.display = "block";
+  }
+
+  // ---- Chargement des données ----
+  function loadTargets() {
+    fetch("/api/construction/targets")
+      .then(function (resp) {
+        if (!resp.ok) {
+          throw new Error("HTTP " + resp.status + " : " + resp.statusText);
+        }
+        return resp.json();
+      })
+      .then(function (data) {
+        if (data.status === "error") {
+          elStatus.textContent = "Erreur serveur : " + (data.detail || "inconnue");
+          elStatus.style.display = "block";
+          elTableWrap.style.display = "none";
+          return;
+        }
+        if (!data.targets || data.targets.length === 0) {
+          elStatus.textContent = "Aucune cible active. Cliquez sur 'Recalculer cibles'.";
+          elStatus.style.display = "block";
+          elTableWrap.style.display = "none";
+          return;
+        }
+        renderTable(data);
+      })
+      .catch(function (err) {
+        elStatus.textContent = "Impossible de charger les cibles : " + err.message;
+        elStatus.style.display = "block";
+        elTableWrap.style.display = "none";
+        console.error("[construction_panel] loadTargets error:", err);
+      });
+  }
+
+  // ---- Déclenchement manuel du recalcul ----
+  window.runConstruction = function () {
+    elBtnRecalc.disabled = true;
+    elBtnRecalc.textContent = "Calcul en cours...";
+    elStatus.textContent = "Recalcul en cours, veuillez patienter...";
+    elStatus.style.display = "block";
+
+    fetch("/api/construction/run", { method: "POST" })
+      .then(function (resp) {
+        if (!resp.ok) {
+          throw new Error("HTTP " + resp.status + " : " + resp.statusText);
+        }
+        return resp.json();
+      })
+      .then(function (data) {
+        if (data.status === "error") {
+          elStatus.textContent = "Erreur recalcul : " + (data.detail || "inconnue");
+          console.error("[construction_panel] run error:", data);
+        } else {
+          elStatus.textContent =
+            "Recalcul OK — snapshot " + (data.snapshot_id || "?") +
+            " — régime " + (data.regime || "?") +
+            " — " + (data.n_tickers_included || 0) + " tickers inclus.";
+          // Rechargement du tableau
+          loadTargets();
+        }
+      })
+      .catch(function (err) {
+        elStatus.textContent = "Erreur réseau lors du recalcul : " + err.message;
+        console.error("[construction_panel] runConstruction error:", err);
+      })
+      .finally(function () {
+        elBtnRecalc.disabled = false;
+        elBtnRecalc.textContent = "Recalculer cibles";
+      });
+  };
+
+  // ---- Initialisation ----
+  loadTargets();
+  setInterval(loadTargets, REFRESH_INTERVAL_MS);
+
+})();
+</script>
+
+
+<!-- [PPLX_PANEL_INLINE_STRIP_V1] inline styles retirÃ©s pour que CSS V2 prenne effet -->
+<!-- [PPLX_PANEL_V1_HTML] Panel Perplexity Insights -->
+<section id="pplx-insights-panel" class="card">
+  <header>
+    <h2>Perplexity Insights</h2>
+    <div>
+      <span id="pplx-snapshot-age">-</span>
+      <button id="pplx-refresh-btn" type="button">Rafraichir</button>
+    </div>
+  </header>
+
+  <div>
+    <div>
+      <h3>Crypto (CryptoAgent)</h3>
+      <table id="pplx-crypto-table">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Score</th>
+            <th>Sentiment</th>
+            <th>Age</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div>
+      <h3>Equity Quality (FactorAgent)</h3>
+      <table id="pplx-equity-table">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Qualite</th>
+            <th>Moat</th>
+            <th>RF</th>
+            <th>Age</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+<!-- [PPLX_THESIS_PANEL_V2_HTML] -->
+<div class="pplx-section" id="pplx-thesis-section">
+  <h3>Thesis Challenges (Perplexity)</h3>
+  <div>
+    Auto-challenge sur top-5 theses haute conviction. Badge rouge = remise en cause forte.
+  </div>
+  <table id="pplx-thesis-table">
+    <thead>
+      <tr>
+        <th>Ticker</th>
+        <th>Side</th>
+        <th>Conv</th>
+        <th>Challenge</th>
+        <th>Verdict</th>
+        <th>TS</th>
+      </tr>
+    </thead>
+    <tbody id="pplx-thesis-tbody">
+      <tr><td colspan="6">Chargement...</td></tr>
+    </tbody>
+  </table>
+</div>
+<!-- /[PPLX_THESIS_PANEL_V2_HTML] -->
+
+  </div>
+
+  <div id="pplx-detail-panel" style="margin-top:12px;padding:12px;background:#fff;border:1px solid #e0e0e0;border-radius:4px;display:none;">
+    <button id="pplx-detail-close" type="button">x</button>
+    <div id="pplx-detail-content"></div>
+  </div>
+
+  <footer id="pplx-audit-line">-</footer>
+</section>
+
+</body>
+</html>

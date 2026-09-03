@@ -1,0 +1,230 @@
+
+========================================================================
+[1] risk_broker_check.py - structure complete
+------------------------------------------------------------------------
+  ABSENT
+
+========================================================================
+[3] risk_pretrade.py - bloc [NEXTONES-BROKER-CHECK-V1] : risk_pretrade.py (L378-510)
+------------------------------------------------------------------------
+  L 378 # --------------------------------------------------------------
+  L 379 
+  L 380 
+  L 381 # [NEXTONES-BROKER-CHECK-V1] - import lazy du module broker_check
+  L 382 def _nx_broker_check_load():
+  L 383     """Charge nextones-risk-broker-check.py si present. Fail-safe : None sinon."""
+  L 384     try:
+  L 385         import importlib.util as _ilu
+  L 386         import os as _os
+  L 387         _p = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+  L 388                            "nextones-risk-broker-check.py")
+  L 389         if not _os.path.exists(_p):
+  L 390             return None
+  L 391         _spec = _ilu.spec_from_file_location("_nx_broker_check", _p)
+  L 392         if _spec is None or _spec.loader is None:
+  L 393             return None
+  L 394         _mod = _ilu.module_from_spec(_spec)
+  L 395         _spec.loader.exec_module(_mod)
+  L 396         return _mod
+  L 397     except Exception as _e:
+  L 398         try:
+  L 399             import sys as _sys
+  L 400             print("[WARN] nx_broker_check load: " + str(_e), file=_sys.stderr)
+  L 401         except Exception:
+  L 402             pass
+  L 403         return None
+  L 404 
+  L 405 
+  L 406 _NX_BROKER_CHECK = None
+  L 407 
+  L 408 
+  L 409 def _nx_broker_precheck(ticker, qty, price, side, db_path):
+  L 410     """
+  L 411     Hook broker_mapping_ok EN PREMIER (Phase 2 - option A1, regle A strict).
+  L 412     Renvoie:
+  L 413       - None si broker autorise (le pretrade normal continue)
+  L 414       - dict format risk_pretrade V2 si broker refuse l'instrument
+  L 415     """
+  L 416     global _NX_BROKER_CHECK
+  L 417     if _NX_BROKER_CHECK is None:
+  L 418         _NX_BROKER_CHECK = _nx_broker_check_load()
+  L 419     if _NX_BROKER_CHECK is None:
+  L 420         # module absent -> on n'interrompt pas la prod, mais on log warning
+  L 421         try:
+  L 422             import sys as _sys
+  L 423             print("[WARN] [NEXTONES-BROKER-CHECK-V1] module absent, bypass",
+  L 424                   file=_sys.stderr)
+  L 425         except Exception:
+  L 426             pass
+  L 427         return None
+  L 428     try:
+  L 429         result = _NX_BROKER_CHECK.check_broker_mapping({
+  L 430             "thesium_ticker": ticker,
+  L 431             "side": side,
+  L 432             "qty": qty,
+  L 433         })
+  L 434     except Exception as _e:
+  L 435         try:
+  L 436             import sys as _sys
+  L 437             print("[WARN] [NEXTONES-BROKER-CHECK-V1] check error: " + str(_e),
+  L 438                   file=_sys.stderr)
+  L 439         except Exception:
+  L 440             pass
+  L 441         return None
+  L 442 
+  L 443     if result.get("ok"):
+  L 444         return None  # broker OK -> on laisse pretrade continuer
+  L 445 
+  L 446     # Broker refuse : trace dans risk_pretrade_log + retour format V2
+  L 447     import json as _json
+  L 448     import sqlite3 as _sql
+  L 449     from datetime import datetime as _dt, timezone as _tz
+  L 450     details = {
+  L 451         "broker_mapping_ok": {
+  L 452             "ok": False,
+  L 453             "reason": result.get("reason"),
+  L 454             "broker_symbol": result.get("broker_symbol"),
+  L 455             "volume_lots": result.get("volume_lots"),
+  L 456             "diagnostics": result.get("diagnostics"),
+  L 457             "policy": "A_strict_refuse",
+  L 458         }
+  L 459     }
+  L 460     ts = _dt.now(_tz.utc).isoformat(timespec="seconds")
+  L 461     try:
+  L 462         _c = _sql.connect(db_path or _os.environ.get("THESIUM_DB",
+  L 463                                                      r"C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db"))
+  L 464         _c.execute(
+  L 465             "INSERT INTO risk_pretrade_log("
+  L 466             "  ts, symbol, side, qty, price, passed, blocked_by,"
+  L 467             "  details_json, marker"
+  L 468             ") VALUES(?,?,?,?,?,?,?,?,?)",
+  L 469             (ts, ticker, side, float(qty or 0), float(price or 0), 0,
+  L 470              "broker_mapping_ok", _json.dumps(details),
+  L 471              "[NEXTONES-BROKER-CHECK-V1]"),
+  L 472         )
+  L 473         _c.commit()
+  L 474         _c.close()
+  L 475     except Exception as _e:
+  L 476         try:
+  L 477             import sys as _sys
+  L 478             print("[WARN] [NEXTONES-BROKER-CHECK-V1] log insert: " + str(_e),
+  L 479                   file=_sys.stderr)
+  L 480         except Exception:
+  L 481             pass
+  L 482 
+  L 483     return {
+  L 484         "passed": 0,
+  L 485         "blocked_by": "broker_mapping_ok",
+  L 486         "details_json": _json.dumps(details),
+  L 487         "marker": "[NEXTONES-BROKER-CHECK-V1]",
+  L 488     }
+  L 489 
+  L 490 
+  L 491 def run_pretrade_checks(
+  L 492     ticker: str,
+  L 493     qty: float,
+  L 494     price: float,
+  L 495     side: str,
+  L 496     db_path: Optional[str] = None,
+  L 497     params: Optional[Dict[str, Any]] = None,
+  L 498     conn: Optional[sqlite3.Connection] = None,  # [RISK_V2_DBLOCK_FIX_V2] accepte conn existante
+  L 499 ) -> Dict[str, Any]:
+  L 500     # [NEXTONES-BROKER-CHECK-V1] - 5e controle broker_mapping_ok EN PREMIER
+  L 501     _nx_pre = _nx_broker_precheck(ticker, qty, price, side, db_path)
+  L 502     if _nx_pre is not None:
+  L 503         return _nx_pre
+  L 504     if db_path is None:
+  L 505         db_path = str(Path(__file__).resolve().parent / "thesium.db")
+  L 506     p = dict(DEFAULT_PARAMS)
+  L 507     if params:
+  L 508         p.update(params)
+  L 509 
+  L 510     # [RISK_V2_DBLOCK_FIX_V2] reutilise la conn existante pour eviter le 2e writer lock
+
+========================================================================
+[4] risk_pretrade.py - run_pretrade_checks + appel broker_check
+------------------------------------------------------------------------
+  L 491 def run_pretrade_checks(
+  L 492     ticker: str,
+  L 493     qty: float,
+  L 494     price: float,
+  L 495     side: str,
+  L 496     db_path: Optional[str] = None,
+  L 497     params: Optional[Dict[str, Any]] = None,
+  L 498     conn: Optional[sqlite3.Connection] = None,  # [RISK_V2_DBLOCK_FIX_V2] accepte conn existante
+  L 499 ) -> Dict[str, Any]:
+  L 500     # [NEXTONES-BROKER-CHECK-V1] - 5e controle broker_mapping_ok EN PREMIER
+  L 501     _nx_pre = _nx_broker_precheck(ticker, qty, price, side, db_path)
+  L 502     if _nx_pre is not None:
+  L 503         return _nx_pre
+  L 504     if db_path is None:
+  L 505         db_path = str(Path(__file__).resolve().parent / "thesium.db")
+  L 506     p = dict(DEFAULT_PARAMS)
+  L 507     if params:
+  L 508         p.update(params)
+  L 509 
+  L 510     # [RISK_V2_DBLOCK_FIX_V2] reutilise la conn existante pour eviter le 2e writer lock
+  L 511     _own_conn = conn is None
+  L 512     c = conn if conn is not None else _conn(db_path)
+  L 513     try:
+  L 514         _ensure_log_table(c)
+  L 515 
+  L 516         conc_ok, conc_d = check_concentration(c, ticker, qty, price, side, p)
+  L 517         var_ok, var_blocked, var_d = check_var_marginal(c, ticker, qty, price, side, p)
+  L 518         corr_ok, corr_d = check_correlation(c, ticker, side, p)
+  L 519 
+  L 520         blocked_by: Optional[str] = None
+  L 521         if not conc_ok:
+  L 522             blocked_by = "concentration"
+  L 523         elif not var_ok:
+  L 524             blocked_by = var_blocked or "var"
+  L 525         elif not corr_ok:
+  L 526             blocked_by = "correlation"
+  L 527 
+  L 528         passed = blocked_by is None
+  L 529         details = {
+  L 530             "concentration": conc_d,
+  L 531             "var": var_d,
+  L 532             "correlation": corr_d,
+  L 533         }
+  L 534 
+  L 535         # Timezone-aware (fix DeprecationWarning utcnow)
+  L 536         ts = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+  L 537 
+  L 538         c.execute(
+  L 539             """
+  L 540             INSERT INTO risk_pretrade_log
+  L 541                 (ts, symbol, side, qty, price, passed, blocked_by, details_json, marker)
+  L 542             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  L 543             """,
+  L 544             (
+  L 545                 ts,
+  L 546                 ticker,
+  L 547                 side.upper(),
+  L 548                 float(qty),
+  L 549                 float(price),
+  L 550                 1 if passed else 0,
+  L 551                 blocked_by,
+  L 552                 json.dumps(details, ensure_ascii=False),
+  L 553                 MARKER,
+  L 554             ),
+  L 555         )
+  L 556         c.commit()
+  L 557         return {
+  L 558             "passed": passed,
+  L 559             "blocked_by": blocked_by,
+  L 560             "details": details,
+  L 561             "marker": MARKER,
+  L 562         }
+  L 563     finally:
+  L 564         if _own_conn:  # [RISK_V2_DBLOCK_FIX_V2] ne ferme pas la conn empruntee
+  L 565             c.close()
+  L 566 
+  L 567 
+  L 568 # --------------------------------------------------------------
+  L 569 # Smoke test
+  L 570 # --------------------------------------------------------------
+
+========================================================================
+FIN DIAG
+========================================================================

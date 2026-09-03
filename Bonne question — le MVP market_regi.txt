@@ -1,0 +1,69 @@
+Bonne question — le MVP market_regime_v1 est en prod et observable. Voici les options classées par valeur / effort :
+
+Court terme (consolidation MVP)
+A. Backtest historique du régime (HIGH VALUE)
+
+Rejouer detect_market_regime sur les 12-24 derniers mois (SPY+BTC+VIX via FRED + yfinance)
+
+Mesurer combien de fois on aurait basculé STRESS / CALM et l'impact théorique sur le PnL si les mults avaient été appliqués
+
+Output : graphique régime overlay sur equity curve + tableau "trades évités / take-profits anticipés"
+
+Justifie les seuils (VIX 25/15, vol 25%/15%, dd -5%/-2%) auprès du CIO
+
+B. Historique régime UI (LOW EFFORT)
+
+Page "Market Intel" : timeline des 30-90 derniers cycles avec sparkline VIX + chips régime
+
+Permet de voir visuellement les transitions et la stabilité
+
+C. Alerte sur transition de régime (LOW EFFORT)
+
+Quand equity_regime ou crypto_regime change vs cycle précédent → notification (Telegram déjà branché ?) avec diff signaux
+
+Évite de rater une bascule STRESS
+
+Moyen terme (enrichissement du modèle)
+D. Ajouter signaux complémentaires
+
+Equity : MOVE index (vol obligataire), HY-IG credit spread, breadth (% SPX > MA200) via FRED
+
+Crypto : funding rates BTC/ETH, dominance BTC, fear & greed
+
+Passer de 3 signaux à 5-6 → régime plus robuste
+
+E. Régime sector-level
+
+Aujourd'hui : 2 régimes (equity / crypto). Ajouter régime par secteur (tech, energy, financials) via XLK/XLE/XLF vol
+
+Permet caps différenciés intra-equity
+
+F. Régime intraday vs daily
+
+Actuellement détection au moment du cycle. Ajouter un cache 4h pour éviter de re-calculer mais permettre re-détection si VIX bouge fort
+
+Long terme (intégration stratégique)
+G. Régime → influence convergence_thresh dynamique
+
+Déjà câblé en théorie (0.50 / 0.60 / 0.65) mais à valider que convergence_engine lit bien la valeur du regime_log courant
+
+Diag à faire
+
+H. Régime → influence sizing risk_v2
+
+Aujourd'hui mults appliqués SEULEMENT sur caps de portfolio_construction. Pourrait aussi modifier max_position_pct ou stop-loss distance en STRESS
+
+I. ML / régime probabiliste
+
+Hidden Markov Model sur signaux → probas de transition au lieu de seuils durs
+
+Plus tard, après accumulation de données prod
+
+Recommandation
+Je propose la séquence A → C → B sur 1-2 sessions :
+
+Backtest historique : valide scientifiquement les seuils, livre un PDF pour le CIO/audit (skill office/pdf)
+
+Alerte transition : 30 min de travail, valeur opérationnelle immédiate
+
+Timeline UI Market Intel : 1h, complète l'observabilité

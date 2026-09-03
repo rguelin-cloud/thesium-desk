@@ -1,0 +1,314 @@
+"""
+models.py - SQLite database models and schema for Thesium.finance
+All tables use raw SQL. init_db() creates all tables if they don't exist.
+"""
+import sqlite3
+import json
+from datetime import datetime
+from pathlib import Path
+
+DB_PATH = Path(__file__).parent / "thesium.db"
+
+
+def get_db() -> sqlite3.Connection:
+    """Return a connection with row_factory set to sqlite3.Row for dict-like access."""
+    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout = 10000")  # [DB_LOCK_FIX_V1]_GETDB
+    conn.execute("PRAGMA synchronous = NORMAL")  # [DB_LOCK_FIX_V1]_GETDB
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+def init_db():
+    """Create all tables if they do not already exist."""
+    conn = get_db()
+    c = conn.cursor()
+
+    # 1. instruments
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS instruments (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticker      TEXT UNIQUE NOT NULL,
+            name        TEXT NOT NULL,
+            sector      TEXT,
+            asset_class TEXT DEFAULT 'equity',
+            created_at  TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    # 2. prices
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS prices (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            instrument_id INTEGER NOT NULL REFERENCES instruments(id),
+            date          TEXT NOT NULL,
+            open          REAL,
+            high          REAL,
+            low           REAL,
+            close         REAL,
+            volume        REAL,
+            UNIQUE(instrument_id, date)
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_prices_instrument_date ON prices(instrument_id, date)")
+
+    # 3. theses
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS theses (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            instrument_id   INTEGER REFERENCES instruments(id),
+            agent_type      TEXT NOT NULL,
+            thesis_text     TEXT,
+            conviction_score REAL DEFAULT 5,
+            horizon         TEXT DEFAULT 'medium',
+            key_drivers     TEXT DEFAULT '[]',
+            proposed_action TEXT,
+            status          TEXT DEFAULT 'active',
+            created_at      TEXT DEFAULT (datetime('now')),
+            updated_at      TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    # 4. portfolio_positions
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio_positions (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            instrument_id  INTEGER UNIQUE NOT NULL REFERENCES instruments(id),
+            quantity       REAL DEFAULT 0,
+            avg_cost       REAL DEFAULT 0,
+            current_price  REAL DEFAULT 0,
+            unrealized_pnl REAL DEFAULT 0,
+            weight_pct     REAL DEFAULT 0,
+            updated_at     TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    # 5. orders
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            instrument_id     INTEGER NOT NULL REFERENCES instruments(id),
+            thesis_id         INTEGER REFERENCES theses(id),
+            side              TEXT NOT NULL CHECK(side IN ('buy','sell')),
+            quantity          REAL NOT NULL,
+            order_type        TEXT DEFAULT 'market' CHECK(order_type IN ('market','limit')),
+            limit_price       REAL,
+            status            TEXT DEFAULT 'pending_validation' CHECK(status IN ('pending','pending_validation','approved','filled','rejected','cancelled')),
+            risk_check_result TEXT DEFAULT '{}',
+            created_at        TEXT DEFAULT (datetime('now')),
+            validated_by      TEXT,
+            rejection_reason  TEXT,
+            validated_at      TEXT
+        )
+    """)
+
+    # 6. fills
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS fills (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id      INTEGER NOT NULL REFERENCES orders(id),
+            fill_price    REAL NOT NULL,
+            fill_quantity REAL NOT NULL,
+            slippage      REAL DEFAULT 0,
+            fees          REAL DEFAULT 0,
+            filled_at     TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    # 7. ic_memos
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ic_memos (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            date             TEXT NOT NULL,
+            title            TEXT NOT NULL,
+            macro_summary    TEXT,
+            factor_tilts     TEXT DEFAULT '{}',
+            thesis_summaries TEXT DEFAULT '[]',
+            proposed_changes TEXT DEFAULT '[]',
+            full_markdown    TEXT,
+            created_at       TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    # 8. event_log (append-only audit trail)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS event_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type  TEXT NOT NULL,
+            entity_type TEXT,
+            entity_id   INTEGER,
+            details     TEXT DEFAULT '{}',
+            agent       TEXT,
+            created_at  TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_event_log_created ON event_log(created_at DESC)")
+
+    # 9. portfolio_state (single-row summary, updated on each cycle)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio_state (
+            id            INTEGER PRIMARY KEY DEFAULT 1,
+            cash          REAL DEFAULT 1000000,
+            total_value   REAL DEFAULT 1000000,
+            total_pnl     REAL DEFAULT 0,
+            total_pnl_pct REAL DEFAULT 0,
+            daily_pnl     REAL DEFAULT 0,
+            daily_pnl_pct REAL DEFAULT 0,
+            var_95        REAL DEFAULT 0,
+            max_drawdown  REAL DEFAULT 0,
+            updated_at    TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    # 10. risk_config (single-row configuration)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS risk_config (
+            id                  INTEGER PRIMARY KEY DEFAULT 1,
+            max_position_pct    REAL DEFAULT 10.0,
+            max_sector_pct      REAL DEFAULT 25.0,
+            max_single_name_pct REAL DEFAULT 10.0,
+            max_var_pct         REAL DEFAULT 5.0,
+            stop_loss_pct       REAL DEFAULT 8.0,
+            updated_at          TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    # 11. portfolio_history (daily snapshots for chart)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio_history (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            date        TEXT NOT NULL UNIQUE,
+            total_value REAL,
+            cash        REAL,
+            total_pnl   REAL
+        )
+    """)
+
+    conn.commit()
+    migrate_db(conn)
+    conn.close()
+
+
+def migrate_db(conn: sqlite3.Connection = None):
+    """Run migrations: add columns, fix CHECK constraints."""
+    own_conn = False
+    if conn is None:
+        conn = get_db()
+        own_conn = True
+    try:
+        # Step 1: Add new columns if missing
+        new_columns = [
+            ("orders", "validated_by",     "TEXT"),
+            ("orders", "rejection_reason", "TEXT"),
+            ("orders", "validated_at",     "TEXT"),
+        ]
+        for table, col, col_type in new_columns:
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
+
+        # Step 2: Recreate orders table to update CHECK constraint
+        # (SQLite cannot ALTER CHECK constraints, must rebuild)
+        # Check if pending_validation is already in the CHECK constraint
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='orders'").fetchone()
+        needs_rebuild = row is not None and 'pending_validation' not in (row[0] or '')
+        if not needs_rebuild:
+            pass  # Already has pending_validation — skip rebuild
+        else:
+            # CHECK constraint rejects pending_validation — need to rebuild table
+            print("[migrate] Rebuilding orders table to add pending_validation status...")
+            conn.execute("PRAGMA foreign_keys=OFF")
+            conn.execute("BEGIN")
+            # Rebuild fills first (to remove FK to _orders_old)
+            conn.execute("ALTER TABLE fills RENAME TO _fills_old")
+            conn.execute("""
+                CREATE TABLE fills (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id      INTEGER NOT NULL REFERENCES orders(id),
+                    fill_price    REAL NOT NULL,
+                    fill_quantity REAL NOT NULL,
+                    slippage      REAL DEFAULT 0,
+                    fees          REAL DEFAULT 0,
+                    filled_at     TEXT DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute("""
+                INSERT INTO fills (id, order_id, fill_price, fill_quantity, slippage, fees, filled_at)
+                SELECT id, order_id, fill_price, fill_quantity, slippage, fees, filled_at
+                FROM _fills_old
+            """)
+            conn.execute("DROP TABLE _fills_old")
+            # Now rebuild orders table
+            conn.execute("ALTER TABLE orders RENAME TO _orders_old")
+            conn.execute("""
+                CREATE TABLE orders (
+                    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                    instrument_id     INTEGER NOT NULL REFERENCES instruments(id),
+                    thesis_id         INTEGER REFERENCES theses(id),
+                    side              TEXT NOT NULL CHECK(side IN ('buy','sell')),
+                    quantity          REAL NOT NULL,
+                    order_type        TEXT DEFAULT 'market' CHECK(order_type IN ('market','limit')),
+                    limit_price       REAL,
+                    status            TEXT DEFAULT 'pending_validation' CHECK(status IN ('pending','pending_validation','approved','filled','rejected','cancelled')),
+                    risk_check_result TEXT DEFAULT '{}',
+                    created_at        TEXT DEFAULT (datetime('now')),
+                    validated_by      TEXT,
+                    rejection_reason  TEXT,
+                    validated_at      TEXT
+                )
+            """)
+            conn.execute("""
+                INSERT INTO orders (id, instrument_id, thesis_id, side, quantity, order_type,
+                    limit_price, status, risk_check_result, created_at,
+                    validated_by, rejection_reason, validated_at)
+                SELECT id, instrument_id, thesis_id, side, quantity, order_type,
+                    limit_price, status, risk_check_result, created_at,
+                    validated_by, rejection_reason, validated_at
+                FROM _orders_old
+            """)
+            conn.execute("DROP TABLE _orders_old")
+            conn.execute("COMMIT")
+            conn.execute("PRAGMA foreign_keys=ON")
+            print("[migrate] Orders + fills tables rebuilt successfully.")
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def log_event(conn: sqlite3.Connection, event_type: str, entity_type: str = None,
+              entity_id: int = None, details: dict = None, agent: str = None):
+    """Append an entry to the event_log table."""
+    conn.execute(
+        """INSERT INTO event_log (event_type, entity_type, entity_id, details, agent)
+           VALUES (?, ?, ?, ?, ?)""",
+        (event_type, entity_type, entity_id, json.dumps(details or {}), agent)
+    )
+
+
+def row_to_dict(row) -> dict:
+    """Convert a sqlite3.Row to a plain dict, parsing JSON fields."""
+    if row is None:
+        return None
+    d = dict(row)
+    # Auto-parse any field that looks like JSON
+    for k, v in d.items():
+        if isinstance(v, str) and v and v[0] in ('{', '['):
+            try:
+                d[k] = json.loads(v)
+            except (json.JSONDecodeError, ValueError):
+                pass
+    return d
+
+
+def rows_to_list(rows) -> list:
+    """Convert a list of sqlite3.Row objects to plain dicts."""
+    return [row_to_dict(r) for r in rows]
+
+
+if __name__ == "__main__":
+    init_db()
+    print(f"Database initialized at {DB_PATH}")

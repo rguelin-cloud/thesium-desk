@@ -1,0 +1,40 @@
+﻿Latest cycle  : 20260609-091332 @ 2026-06-09 09:13:32
+Previous cycle ends @ : 2026-06-09 08:55:51
+
+==============================================================================
+THESES TABLE
+==============================================================================
+Columns (11) : id, instrument_id, agent_type, thesis_text, conviction_score, horizon, key_drivers, proposed_action, status, created_at, updated_at
+Total rows : 6666
+
+
+------------------------------------------------------------------------------
+Agents all-time (agent_type)
+------------------------------------------------------------------------------
+  MicrostructureAgent              2436
+  FactorAgent                      1654
+  AltDataAgent                     1653
+  CryptoAgent                       446
+  ExitAgent                         200
+  PortfolioConstructionAgent        144
+  MacroAgent                        133
+
+Filter window for 'this cycle' : created_at > 2026-06-09 08:55:51 AND <= 2026-06-09 09:13:32
+
+------------------------------------------------------------------------------
+Per-agent dump (cycle 20260609-091332)
+------------------------------------------------------------------------------
+Agents on this cycle : 1
+
+------------------------------------------------------------------------------
+Agent : ExitAgent
+------------------------------------------------------------------------------
+  rows on cycle : 10
+  conviction_score : min=7.0 max=7.0 avg=7.0
+  proposed_action distribution :
+    STOP_LOSS               9
+    DRIFT                   1
+  status :
+    active                 10
+  horizon :
+    medium                 10

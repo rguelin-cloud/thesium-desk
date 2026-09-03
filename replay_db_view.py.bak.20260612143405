@@ -1,0 +1,265 @@
+# -*- coding: utf-8 -*-
+# replay_db_view.py
+# Jalon 8B.1 - Helper : DB replay en memoire avec vues temporellement filtrees
+# Tech-4 : ATTACH prod en RO + CREATE TEMP TABLE filtrees par day_t
+# Garantie no look-ahead : detect_market_regime(conn_replay) voit prices/instruments
+# avec date <= day_t et rien au-dela.
+
+import os
+import sqlite3
+from typing import Optional, List
+
+DB_PATH_DEFAULT = r"C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db"
+
+
+def open_replay_conn_at(day_t: str, db_path: str = DB_PATH_DEFAULT) -> sqlite3.Connection:
+    """
+    Cree une connexion SQLite en memoire avec :
+      - table prices       : copie filtree WHERE date <= day_t
+      - table instruments  : copie complete (referentiel statique)
+      - table macro_history: copie filtree WHERE date <= day_t
+
+    La connexion retournee EST utilisable telle quelle par les fonctions prod
+    (detect_market_regime, compute_convergence, etc.) sans aucune modification.
+
+    Garantie : aucune ecriture vers la DB prod possible (prod attachee en RO).
+    """
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(f"DB prod introuvable: {db_path}")
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    # ATTACH prod : on attache la DB prod en lecture seule par construction.
+    # NOTE : PRAGMA prod.query_only = ON bloque les CREATE TABLE AS SELECT FROM prod
+    # (rejetes comme transactions implicit-write meme en lecture seule cote prod).
+    # On s'appuie sur le DETACH immediat apres copie (cf. fin de fonction) :
+    # une fois detachee, la DB replay (:memory:) est totalement isolee de prod,
+    # aucune ecriture vers le fichier prod n'est plus possible.
+    cur.execute("ATTACH DATABASE ? AS prod", (db_path,))
+
+    # Verifie tables sources
+    cur.execute("SELECT name FROM prod.sqlite_master WHERE type='table'")
+    prod_tables = {row[0] for row in cur.fetchall()}
+
+    # ----- TABLES FILTREES PAR day_t (no-lookahead strict) -----
+
+    # 1. prices filtres
+    if "prices" in prod_tables:
+        cur.execute(
+            "CREATE TABLE main.prices AS SELECT * FROM prod.prices WHERE date <= ?",
+            (day_t,),
+        )
+        cur.execute("CREATE INDEX idx_prices_instr_date ON prices(instrument_id, date)")
+
+    # 2. macro_history filtres
+    if "macro_history" in prod_tables:
+        cur.execute(
+            "CREATE TABLE main.macro_history AS SELECT * FROM prod.macro_history WHERE date <= ?",
+            (day_t,),
+        )
+        cur.execute("CREATE INDEX idx_macro_date ON macro_history(series_code, date)")
+
+    # ----- TABLES STATIQUES (referentiel, copie complete) -----
+
+    static_tables = [
+        ("instruments",                "ticker"),
+        ("target_universe",            "ticker"),
+        ("target_construction_config", None),
+        ("crypto_context",             "symbol"),
+        # theses : copie complete (Option A 8B.2). Les premiers jours de la fenetre
+        # replay (< 2026-01) auront 0 these car prod.theses n'existe que depuis fin
+        # janvier 2026 - acceptable pour smoke-test pipeline. Une option C future
+        # filtrera par created_at <= day_t avec generation synthetique de theses.
+        ("theses",                     "instrument_id"),
+    ]
+    for tname, idx_col in static_tables:
+        if tname in prod_tables:
+            cur.execute(f"CREATE TABLE main.{tname} AS SELECT * FROM prod.{tname}")
+            if idx_col:
+                try:
+                    cur.execute(f"CREATE INDEX idx_{tname}_{idx_col} ON {tname}({idx_col})")
+                except sqlite3.OperationalError:
+                    pass  # colonne absente, on continue
+
+    # ----- TABLES D'ETAT (schema seul, vides ou seedees) -----
+    # Le PCA + convergence_engine y inscrivent pendant le cycle. On copie juste
+    # le schema depuis prod (CREATE TABLE ... AS SELECT * FROM ... WHERE 0).
+
+    state_tables = [
+        "convergence_snapshots",
+        "portfolio_targets",
+        "portfolio_targets_history",
+        "portfolio_positions",
+        "portfolio_history",
+        "portfolio_state",
+        "regime_log",
+    ]
+    for tname in state_tables:
+        if tname in prod_tables:
+            cur.execute(f"CREATE TABLE main.{tname} AS SELECT * FROM prod.{tname} WHERE 0")
+
+    # ----- DETACH prod : isolation totale a partir d'ici -----
+    cur.execute("DETACH DATABASE prod")
+
+    # ----- SEED ETAT INITIAL : portfolio_state cash=$1M -----
+    if "portfolio_state" in prod_tables:
+        cur.execute(
+            """
+            INSERT INTO portfolio_state
+              (id, cash, total_value, total_pnl, total_pnl_pct, daily_pnl,
+               daily_pnl_pct, var_95, max_drawdown, updated_at,
+               unrealized_pnl, unrealized_pnl_pct)
+            VALUES (1, 1000000.0, 1000000.0, 0, 0, 0, 0, 0, 0, ?, 0, 0)
+            """,
+            (day_t,),
+        )
+
+    conn.commit()
+
+    return conn
+
+
+def get_snapshot_stats(conn: sqlite3.Connection) -> dict:
+    """Stats rapides sur la conn replay pour debug."""
+    cur = conn.cursor()
+    out = {}
+    all_tables = (
+        "prices", "instruments", "macro_history",
+        "theses", "target_universe", "crypto_context",
+        "convergence_snapshots", "portfolio_targets", "portfolio_state",
+    )
+    for t in all_tables:
+        try:
+            cur.execute(f"SELECT COUNT(*) FROM {t}")
+            out[t] = cur.fetchone()[0]
+        except sqlite3.OperationalError:
+            out[t] = None
+        # Max date pour les tables temporelles
+        if t in ("prices", "macro_history"):
+            try:
+                cur.execute(f"SELECT MAX(date) FROM {t}")
+                r = cur.fetchone()
+                out[f"{t}_max_date"] = r[0]
+            except sqlite3.OperationalError:
+                pass
+    return out
+
+
+def monkey_patch_fred_vix(day_t: str, db_path: str = DB_PATH_DEFAULT):
+    """
+    Remplace market_regime_v1._fetch_vix_from_fred par une lecture de macro_history
+    a la date <= day_t. Retourne la fonction originale pour restauration.
+
+    Usage:
+        original = monkey_patch_fred_vix(day_t)
+        try:
+            result = market_regime_v1.detect_market_regime(conn_replay)
+        finally:
+            restore_fred_vix(original)
+    """
+    import market_regime_v1
+    original = market_regime_v1._fetch_vix_from_fred
+
+    def _patched(timeout: int = 8):
+        # Lecture macro_history pour VIX a la derniere date <= day_t
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10.0)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT value FROM macro_history
+                WHERE series_code='VIX' AND date <= ?
+                ORDER BY date DESC LIMIT 1
+                """,
+                (day_t,),
+            )
+            row = cur.fetchone()
+            conn.close()
+            if row and row[0] is not None:
+                return float(row[0])
+        except Exception:
+            pass
+        return None
+
+    market_regime_v1._fetch_vix_from_fred = _patched
+    return original
+
+
+def restore_fred_vix(original):
+    """Restaure la fonction originale apres usage."""
+    import market_regime_v1
+    market_regime_v1._fetch_vix_from_fred = original
+
+
+def monkey_patch_freshness(day_t: str):
+    """
+    Remplace market_regime_v1._check_freshness pour evaluer la fraicheur par
+    rapport a day_t (pseudo-now du replay) au lieu de datetime.utcnow().
+
+    En replay, prices.max(date) == day_t par construction (DB filtree), donc
+    la prod _check_freshness compare a today() reel et rejette toujours.
+
+    Retourne la fonction originale pour restauration.
+    """
+    import datetime as _dt
+    import market_regime_v1
+    original = market_regime_v1._check_freshness
+    # Recupere MAX_PRICE_STALE_DAYS du module prod (defaut 5 si introuvable)
+    max_stale = getattr(market_regime_v1, "MAX_PRICE_STALE_DAYS", 5)
+    day_t_dt = _dt.datetime.strptime(day_t, "%Y-%m-%d")
+
+    def _patched(closes):
+        if not closes:
+            return False
+        try:
+            last_date = closes[-1][0]
+            if "T" in last_date:
+                last_date = last_date.split("T")[0]
+            dt = _dt.datetime.strptime(last_date[:10], "%Y-%m-%d")
+            age = (day_t_dt - dt).days
+            return age <= max_stale
+        except Exception:
+            return False
+
+    market_regime_v1._check_freshness = _patched
+    return original
+
+
+def restore_freshness(original):
+    """Restaure _check_freshness original."""
+    import market_regime_v1
+    market_regime_v1._check_freshness = original
+
+
+def monkey_patch_for_replay(day_t: str, db_path: str = DB_PATH_DEFAULT):
+    """
+    Patch combine pour le wrapper market_regime en replay :
+      - _fetch_vix_from_fred -> lit macro_history <= day_t
+      - _check_freshness     -> evalue age vs day_t (pas vs utcnow())
+
+    Retourne (orig_vix, orig_fresh) pour restauration via restore_for_replay.
+    """
+    orig_vix = monkey_patch_fred_vix(day_t, db_path)
+    orig_fresh = monkey_patch_freshness(day_t)
+    return (orig_vix, orig_fresh)
+
+
+def restore_for_replay(originals):
+    """Restaure les 2 fonctions patchees par monkey_patch_for_replay."""
+    orig_vix, orig_fresh = originals
+    restore_fred_vix(orig_vix)
+    restore_freshness(orig_fresh)
+
+
+__all__ = [
+    "open_replay_conn_at",
+    "get_snapshot_stats",
+    "monkey_patch_fred_vix",
+    "restore_fred_vix",
+    "monkey_patch_freshness",
+    "restore_freshness",
+    "monkey_patch_for_replay",
+    "restore_for_replay",
+]

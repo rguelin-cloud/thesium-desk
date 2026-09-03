@@ -1,0 +1,680 @@
+# -*- coding: utf-8 -*-
+# [FIX_JALON4_IMPORTS_V1]
+"""
+NEXTONES - Jalon 4 - UniverseExpansionAgent v1
+Marker: [UNIVERSE_EXPANSION_V1]
+
+Agent mensuel propose le Top 5 candidats a l'univers tradable.
+Mode human-in-the-loop : ecrit dans universe_candidates avec status='pending'.
+Gerant approuve / rejette via UI.
+
+Pipeline:
+  1. Collecte univers candidat (CoinGecko Top 20 cryptos + 11 ETFs SPDR sectoriels)
+  2. Filtres : pas deja dans instruments, volume 30j > 10M USD, historique > 90j
+  3. Calcul features : momentum_12m_minus_1m, sharpe_90d, trend_strength_r2, volume_growth_3m
+  4. Score composite : 40% momentum + 30% sharpe + 20% trend + 10% volume_growth
+  5. Filtre correlation max < 0.85 vs portefeuille existant
+  6. Cap variable : score>0.8 -> 5% / 0.5-0.8 -> 3% / <0.5 -> 2%
+  7. Top 5 -> rationale Perplexity -> insert dans universe_candidates
+
+Sauvegarde dans: agents/universe_expansion_agent.py
+"""
+from __future__ import annotations
+
+import json
+import logging
+import math
+import sqlite3
+import time
+import uuid
+from dataclasses import dataclass, field, asdict
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Iterable
+
+import numpy as np
+import pandas as pd
+import requests
+
+try:
+    # Reutilise le client deja en place
+    from pplx_client import PerplexityClient
+except Exception:  # pragma: no cover
+    PerplexityClient = None  # fallback : rationale = "(Perplexity indisponible)"
+
+log = logging.getLogger("universe_expansion")
+log.setLevel(logging.INFO)
+
+MARKER = "[UNIVERSE_EXPANSION_V1]"
+
+# ---------------------------------------------------------------------------
+# Constantes
+# ---------------------------------------------------------------------------
+DB_PATH = Path(r"C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db")
+
+ETF_SPDR_SECTORIELS: list[dict[str, str]] = [
+    {"ticker": "XLK",  "name": "SPDR Tech Select Sector",         "sector": "Technology"},
+    {"ticker": "XLF",  "name": "SPDR Financial Select Sector",    "sector": "Financials"},
+    {"ticker": "XLE",  "name": "SPDR Energy Select Sector",       "sector": "Energy"},
+    {"ticker": "XLV",  "name": "SPDR Health Care Select Sector",  "sector": "Healthcare"},
+    {"ticker": "XLI",  "name": "SPDR Industrial Select Sector",   "sector": "Industrials"},
+    {"ticker": "XLY",  "name": "SPDR Consumer Discretionary",     "sector": "ConsumerDiscretionary"},
+    {"ticker": "XLP",  "name": "SPDR Consumer Staples",           "sector": "ConsumerStaples"},
+    {"ticker": "XLU",  "name": "SPDR Utilities Select Sector",    "sector": "Utilities"},
+    {"ticker": "XLB",  "name": "SPDR Materials Select Sector",    "sector": "Materials"},
+    {"ticker": "XLRE", "name": "SPDR Real Estate Select Sector",  "sector": "RealEstate"},
+    {"ticker": "XLC",  "name": "SPDR Communication Services",     "sector": "Communication"},
+]
+
+# Cryptos : noms communs mappes vers ticker upper.
+CG_API_TOP = "https://api.coingecko.com/api/v3/coins/markets"
+CG_API_HIST = "https://api.coingecko.com/api/v3/coins/{id}/market_chart"
+
+# Filtres seuils
+MIN_VOLUME_USD_30D = 10_000_000.0   # > 10M USD
+MIN_HISTORY_DAYS = 90
+CORREL_MAX_VS_EXISTING = 0.85
+
+# Scoring weights
+W_MOMENTUM = 0.40
+W_SHARPE = 0.30
+W_TREND = 0.20
+W_VOLUME = 0.10
+
+# Caps variables
+CAP_HIGH_SCORE = 0.05   # 5% si score > 0.8
+CAP_MID_SCORE = 0.03    # 3% si 0.5 <= score <= 0.8
+CAP_LOW_SCORE = 0.02    # 2% si score < 0.5
+
+TOP_N = 5
+
+
+# ---------------------------------------------------------------------------
+# Helpers DB
+# ---------------------------------------------------------------------------
+def _conn() -> sqlite3.Connection:
+    c = sqlite3.connect(str(DB_PATH), timeout=30.0)
+    c.execute("PRAGMA busy_timeout=30000;")
+    c.row_factory = sqlite3.Row
+    return c
+
+
+def _existing_instrument_tickers(conn: sqlite3.Connection) -> set[str]:
+    cur = conn.execute("SELECT ticker FROM instruments;")
+    return {r["ticker"].upper() for r in cur.fetchall()}
+
+
+def _existing_portfolio_returns(conn: sqlite3.Connection, window_days: int = 90) -> pd.DataFrame:
+    """Recupere les retours quotidiens des tickers en portefeuille pour calcul correlation."""
+    # [FIX_UNIV_PORTFOLIO_RETURNS_V1]
+    cur = conn.execute(
+        """
+        SELECT i.ticker AS ticker, p.date AS date, p.close AS close
+        FROM prices p
+        JOIN instruments i ON i.id = p.instrument_id
+        JOIN portfolio_targets t ON UPPER(t.ticker) = UPPER(i.ticker)
+        WHERE t.active = 1
+          AND p.date >= date('now', ?)
+        ORDER BY i.ticker, p.date;
+        """,
+        (f'-{window_days + 30} day',),
+    )
+    rows = cur.fetchall()
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows, columns=["ticker", "date", "close"])
+    df["date"] = pd.to_datetime(df["date"])
+    wide = df.pivot(index="date", columns="ticker", values="close").sort_index()
+    rets = wide.pct_change().dropna(how="all")
+    return rets.tail(window_days)
+
+
+def fetch_top_cryptos(top: int = 20, vs_currency: str = "usd") -> list[dict[str, Any]]:
+    """Top N cryptos par cap de marche."""
+    try:
+        r = requests.get(
+            CG_API_TOP,
+            params={
+                "vs_currency": vs_currency,
+                "order": "market_cap_desc",
+                "per_page": top,
+                "page": 1,
+                "sparkline": "false",
+            },
+            timeout=15,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except Exception as exc:
+        log.error("CoinGecko top failed: %s", exc)
+        return []
+    out = []
+    for c in data:
+        sym = (c.get("symbol") or "").upper()
+        if not sym:
+            continue
+        out.append({
+            "id": c.get("id"),
+            "ticker": sym,
+            "name": c.get("name"),
+            "asset_class": "crypto",
+            "sector": "crypto",
+            "current_price": c.get("current_price"),
+            "market_cap": c.get("market_cap"),
+            "total_volume_24h": c.get("total_volume"),
+        })
+    return out
+
+
+def fetch_crypto_history(coin_id: str, days: int = 365) -> pd.Series | None:
+    """Serie de prix close quotidiens via CoinGecko."""
+    try:
+        r = requests.get(
+            CG_API_HIST.format(id=coin_id),
+            params={"vs_currency": "usd", "days": days, "interval": "daily"},
+            timeout=20,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except Exception as exc:
+        log.warning("CoinGecko hist %s failed: %s", coin_id, exc)
+        return None
+    prices = data.get("prices") or []
+    if len(prices) < MIN_HISTORY_DAYS:
+        return None
+    df = pd.DataFrame(prices, columns=["ts", "price"])
+    df["date"] = pd.to_datetime(df["ts"], unit="ms").dt.normalize()
+    s = df.groupby("date")["price"].last().sort_index()
+    return s
+
+
+def fetch_etf_history(conn: sqlite3.Connection, ticker: str, days: int = 365) -> pd.Series | None:
+    """ETFs : on suppose qu'ils sont charges via le pipeline prices existant (yfinance).
+    Si la table prices ne contient pas ce ticker, on tente un fetch yfinance ad-hoc."""
+    cur = conn.execute(
+        """
+        SELECT p.date, p.close FROM prices p
+        JOIN instruments i ON i.id = p.instrument_id
+        WHERE UPPER(i.ticker) = UPPER(?) AND p.date >= date('now', ?)
+        ORDER BY p.date;
+        """ # [FIX_ETF_SQL_V1],
+        (ticker, f"-{days} day"),
+    )
+    rows = cur.fetchall()
+    if rows and len(rows) >= MIN_HISTORY_DAYS:
+        df = pd.DataFrame(rows, columns=["date", "close"])
+        df["date"] = pd.to_datetime(df["date"])
+        return df.set_index("date")["close"].sort_index()
+
+    # Fallback yfinance
+    try:
+        import yfinance as yf
+        hist = yf.Ticker(ticker).history(period=f"{days}d", auto_adjust=False)
+        if hist is None or hist.empty:
+            return None
+        s = hist["Close"].copy()
+        s.index = pd.to_datetime(s.index).tz_localize(None).normalize()
+        return s.sort_index() if len(s) >= MIN_HISTORY_DAYS else None
+    except Exception as exc:
+        log.warning("yfinance %s failed: %s", ticker, exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Features
+# ---------------------------------------------------------------------------
+@dataclass
+class Features:
+    ticker: str
+    asset_class: str
+    sector: str | None
+    name: str | None
+    momentum_12m_minus_1m: float = float("nan")
+    momentum_3m: float = float("nan")
+    realized_vol_90d: float = float("nan")
+    sharpe_90d: float = float("nan")
+    trend_strength_r2: float = float("nan")
+    volume_growth_3m: float = float("nan")
+    volume_usd_30d_avg: float = float("nan")
+    max_correl_existing: float = float("nan")
+    max_correl_with: str | None = None
+    score: float = float("nan")
+    suggested_cap_pct: float = float("nan")
+    rationale: str = ""
+    rationale_source: str = ""
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+def _annualized_sharpe(daily_returns: pd.Series, rf: float = 0.0) -> float:
+    r = daily_returns.dropna()
+    if len(r) < 10 or r.std() == 0:
+        return float("nan")
+    mean_ann = r.mean() * 252
+    vol_ann = r.std() * math.sqrt(252)
+    return float((mean_ann - rf) / vol_ann)
+
+
+def _trend_strength_r2(prices: pd.Series) -> float:
+    s = prices.dropna()
+    if len(s) < 30:
+        return float("nan")
+    y = np.log(s.values)
+    x = np.arange(len(y), dtype=float)
+    if y.std() == 0:
+        return float("nan")
+    slope, intercept = np.polyfit(x, y, 1)
+    fitted = slope * x + intercept
+    ss_res = float(np.sum((y - fitted) ** 2))
+    ss_tot = float(np.sum((y - y.mean()) ** 2))
+    if ss_tot == 0:
+        return float("nan")
+    return max(0.0, 1.0 - ss_res / ss_tot)
+
+
+def compute_features(
+    prices: pd.Series,
+    volumes_usd: pd.Series | None,
+    meta: dict[str, Any],
+) -> Features | None:
+    if prices is None or len(prices) < MIN_HISTORY_DAYS:
+        return None
+
+    f = Features(
+        ticker=meta["ticker"],
+        asset_class=meta["asset_class"],
+        sector=meta.get("sector"),
+        name=meta.get("name"),
+    )
+
+    # Momentum
+    if len(prices) >= 252 + 21:
+        last = float(prices.iloc[-21])
+        ref = float(prices.iloc[-(252 + 21)])
+        if ref > 0:
+            f.momentum_12m_minus_1m = last / ref - 1.0
+    elif len(prices) >= 90 + 21:
+        last = float(prices.iloc[-21])
+        ref = float(prices.iloc[0])
+        if ref > 0:
+            f.momentum_12m_minus_1m = last / ref - 1.0  # approx
+
+    if len(prices) >= 63:
+        ref = float(prices.iloc[-63])
+        last = float(prices.iloc[-1])
+        if ref > 0:
+            f.momentum_3m = last / ref - 1.0
+
+    # Returns
+    rets = prices.pct_change().dropna()
+    if len(rets) >= 60:
+        f.realized_vol_90d = float(rets.tail(90).std() * math.sqrt(252))
+        f.sharpe_90d = _annualized_sharpe(rets.tail(90))
+
+    # Trend strength
+    f.trend_strength_r2 = _trend_strength_r2(prices.tail(180))
+
+    # Volume
+    if volumes_usd is not None and len(volumes_usd) >= 90:
+        v = volumes_usd.dropna()
+        last_30 = v.tail(30).mean()
+        prev_60 = v.tail(90).head(60).mean()
+        f.volume_usd_30d_avg = float(last_30) if not math.isnan(last_30) else float("nan")
+        if prev_60 and prev_60 > 0:
+            f.volume_growth_3m = float(last_30 / prev_60 - 1.0)
+
+    return f
+
+
+# ---------------------------------------------------------------------------
+# Scoring
+# ---------------------------------------------------------------------------
+def _safe_clip(x: float, lo: float, hi: float) -> float:
+    if math.isnan(x):
+        return 0.0
+    return max(lo, min(hi, x))
+
+
+def _normalize_features(features: list[Features]) -> None:
+    """Normalise les features sur [0,1] par rang (robuste outliers)."""
+    if not features:
+        return
+    df = pd.DataFrame([{
+        "i": i,
+        "mom": f.momentum_12m_minus_1m,
+        "sharpe": f.sharpe_90d,
+        "trend": f.trend_strength_r2,
+        "vol_g": f.volume_growth_3m,
+    } for i, f in enumerate(features)])
+
+    def rank_norm(col: str) -> pd.Series:
+        s = df[col]
+        if s.isna().all():
+            return pd.Series([0.5] * len(s), index=s.index)
+        ranks = s.rank(method="average", na_option="bottom")
+        n = ranks.max()
+        if n <= 1:
+            return pd.Series([0.5] * len(s), index=s.index)
+        return (ranks - 1) / (n - 1)
+
+    nm = rank_norm("mom")
+    nsh = rank_norm("sharpe")
+    ntr = rank_norm("trend")
+    nvg = rank_norm("vol_g")
+
+    for idx, f in enumerate(features):
+        score = (
+            W_MOMENTUM * float(nm.iloc[idx])
+            + W_SHARPE * float(nsh.iloc[idx])
+            + W_TREND * float(ntr.iloc[idx])
+            + W_VOLUME * float(nvg.iloc[idx])
+        )
+        f.score = round(score, 4)
+        if score > 0.8:
+            f.suggested_cap_pct = CAP_HIGH_SCORE
+        elif score >= 0.5:
+            f.suggested_cap_pct = CAP_MID_SCORE
+        else:
+            f.suggested_cap_pct = CAP_LOW_SCORE
+
+
+# ---------------------------------------------------------------------------
+# Correlation vs portefeuille existant
+# ---------------------------------------------------------------------------
+def compute_max_correl(
+    candidate_prices: pd.Series,
+    portfolio_returns: pd.DataFrame,
+) -> tuple[float, str | None]:
+    if portfolio_returns.empty:
+        return float("nan"), None
+    rets = candidate_prices.pct_change().dropna()
+    rets.index = pd.to_datetime(rets.index).normalize()
+    common = rets.index.intersection(portfolio_returns.index)
+    if len(common) < 30:
+        return float("nan"), None
+    r = rets.loc[common]
+    p = portfolio_returns.loc[common]
+    correls = {}
+    for col in p.columns:
+        v = p[col].dropna()
+        idx = v.index.intersection(r.index)
+        if len(idx) < 30:
+            continue
+        c = float(np.corrcoef(r.loc[idx].values, v.loc[idx].values)[0, 1])
+        if not math.isnan(c):
+            correls[col] = c
+    if not correls:
+        return float("nan"), None
+    sym, val = max(correls.items(), key=lambda kv: abs(kv[1]))
+    return float(val), sym
+
+
+# ---------------------------------------------------------------------------
+# Rationale via Perplexity
+# ---------------------------------------------------------------------------
+def build_rationale(features: Features) -> tuple[str, str]:
+    """4-5 lignes via PerplexityClient. Fallback texte deterministe."""
+    if PerplexityClient is None:
+        return _deterministic_rationale(features), "deterministic"
+
+    try:
+        client = PerplexityClient()
+        prompt = (
+            f"Tu es un analyste quantitatif. En 4 a 5 lignes maximum, francais sobre, "
+            f"explique pourquoi {features.ticker} ({features.name or features.asset_class}) "
+            f"merite d'etre ajoute a un portefeuille discretionnaire en {datetime.now().year}. "
+            f"Indicateurs : momentum 12m-1m = {features.momentum_12m_minus_1m:+.1%}, "
+            f"sharpe 90j = {features.sharpe_90d:.2f}, trend R2 = {features.trend_strength_r2:.2f}, "
+            f"volatilite annualisee = {features.realized_vol_90d:.1%}. "
+            f"Mentionne 1 catalyseur fondamental court et 1 risque. Ne donne pas d'objectif de prix."
+        )
+        resp = client.ask(prompt, model="sonar", max_tokens=350)
+        text = (resp or {}).get("content") or ""
+        if text.strip():
+            return text.strip(), "perplexity"
+    except Exception as exc:
+        log.warning("Perplexity rationale failed for %s: %s", features.ticker, exc)
+    return _deterministic_rationale(features), "deterministic_fallback"
+
+
+def _deterministic_rationale(f: Features) -> str:
+    parts = [
+        f"{f.ticker} ({f.name or f.asset_class}) presente un score composite de {f.score:.2f}.",
+        f"Momentum 12m-1m {f.momentum_12m_minus_1m:+.1%}, sharpe 90j {f.sharpe_90d:.2f}, trend R2 {f.trend_strength_r2:.2f}.",
+        f"Volatilite annualisee 90j a {f.realized_vol_90d:.1%}, correlation max au portefeuille "
+        f"{('NA' if math.isnan(f.max_correl_existing) else f'{f.max_correl_existing:+.2f} ({f.max_correl_with})')}.",
+        f"Cap suggere : {f.suggested_cap_pct:.0%}. Rationale generee localement (Perplexity indisponible).",
+    ]
+    return " ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Persistence
+# ---------------------------------------------------------------------------
+def insert_candidates(
+    conn: sqlite3.Connection,
+    features: list[Features],
+    scan_batch: str,
+) -> int:
+    sql = """
+        INSERT INTO universe_candidates (
+            ticker, name, asset_class, sector, proposed_at, scan_batch, score,
+            momentum_12m_minus_1m, momentum_3m, realized_vol_90d, sharpe_90d,
+            trend_strength_r2, volume_growth_3m, volume_usd_30d_avg,
+            max_correl_existing, max_correl_with, suggested_cap_pct,
+            rationale, rationale_source, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending');
+    """
+    n = 0
+    ts = datetime.utcnow().isoformat(timespec="seconds")
+    for f in features:
+        conn.execute(sql, (
+            f.ticker, f.name, f.asset_class, f.sector, ts, scan_batch, f.score,
+            f.momentum_12m_minus_1m, f.momentum_3m, f.realized_vol_90d, f.sharpe_90d,
+            f.trend_strength_r2, f.volume_growth_3m, f.volume_usd_30d_avg,
+            f.max_correl_existing, f.max_correl_with, f.suggested_cap_pct,
+            f.rationale, f.rationale_source,
+        ))
+        n += 1
+    conn.commit()
+    return n
+
+
+# ---------------------------------------------------------------------------
+# Action operations (approve / reject)
+# ---------------------------------------------------------------------------
+def approve_candidate(candidate_id: int, reviewed_by: str, max_weight_pct: float | None = None) -> dict[str, Any]:
+    """Approuve un candidat :
+       1. status = 'approved'
+       2. Insert dans instruments si absent
+       3. Insert dans target_universe (is_active=1, max_weight_pct = suggested_cap_pct sauf override)
+    """
+    conn = _conn()
+    try:
+        cur = conn.execute(
+            "SELECT * FROM universe_candidates WHERE id = ? AND status = 'pending';",
+            (candidate_id,),
+        )
+        cand = cur.fetchone()
+        if not cand:
+            return {"ok": False, "error": "candidate_not_found_or_not_pending"}
+
+        ticker = cand["ticker"]
+        cap = max_weight_pct if max_weight_pct is not None else (cand["suggested_cap_pct"] or 0.02)
+
+        # 1) instruments
+        cur2 = conn.execute("SELECT id FROM instruments WHERE ticker = ?;", (ticker,))
+        instr = cur2.fetchone()
+        if not instr:
+            conn.execute(
+                """INSERT INTO instruments (ticker, name, sector, asset_class)
+                   VALUES (?, ?, ?, ?);""",
+                (ticker, cand["name"] or ticker, cand["sector"] or "Other", cand["asset_class"]),
+            )
+
+        # 2) target_universe
+        cur3 = conn.execute("SELECT id FROM target_universe WHERE ticker = ?;", (ticker,))
+        tu = cur3.fetchone()
+        if not tu:
+            conn.execute(
+                """INSERT INTO target_universe
+                   (ticker, asset_class, sector, is_active, max_weight_pct, min_weight_pct, added_at)
+                   VALUES (?, ?, ?, 1, ?, 0.5, datetime('now'));""",
+                (ticker, cand["asset_class"], cand["sector"] or "Other", cap * 100.0),
+            )
+        else:
+            conn.execute(
+                "UPDATE target_universe SET is_active = 1, max_weight_pct = ? WHERE ticker = ?;",
+                (cap * 100.0, ticker),
+            )
+
+        # 3) candidate
+        conn.execute(
+            """UPDATE universe_candidates
+               SET status = 'approved', reviewed_by = ?, reviewed_at = datetime('now')
+               WHERE id = ?;""",
+            (reviewed_by, candidate_id),
+        )
+        conn.commit()
+        return {"ok": True, "ticker": ticker, "max_weight_pct": cap}
+    finally:
+        conn.close()
+
+
+def reject_candidate(candidate_id: int, reviewed_by: str, notes: str | None = None) -> dict[str, Any]:
+    conn = _conn()
+    try:
+        conn.execute(
+            """UPDATE universe_candidates
+               SET status = 'rejected', reviewed_by = ?, reviewed_at = datetime('now'), notes = ?
+               WHERE id = ? AND status = 'pending';""",
+            (reviewed_by, notes or "", candidate_id),
+        )
+        n = conn.total_changes
+        conn.commit()
+        return {"ok": n > 0, "updated": n}
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Run scan
+# ---------------------------------------------------------------------------
+def run_scan(top_n: int = TOP_N, dry_run: bool = False) -> dict[str, Any]:
+    """Execute un scan complet. Retourne metadata + nombre de candidats inseres."""
+    started = time.time()
+    scan_batch = f"scan-{datetime.utcnow().strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    log.info("%s scan %s started", MARKER, scan_batch)
+
+    conn = _conn()
+    try:
+        existing = _existing_instrument_tickers(conn)
+        portfolio_returns = _existing_portfolio_returns(conn, window_days=90)
+        log.info("Tickers deja en instruments: %d - portfolio returns shape: %s",
+                 len(existing), portfolio_returns.shape)
+
+        # ---- Sources ----
+        candidates_meta: list[dict[str, Any]] = []
+
+        # Cryptos
+        cryptos = fetch_top_cryptos(top=20)
+        for c in cryptos:
+            if c["ticker"].upper() in existing:
+                continue
+            if (c.get("total_volume_24h") or 0) * 30 < MIN_VOLUME_USD_30D:
+                continue
+            candidates_meta.append(c)
+
+        # ETFs SPDR
+        for etf in ETF_SPDR_SECTORIELS:
+            if etf["ticker"].upper() in existing:
+                continue
+            candidates_meta.append({
+                "id": None,
+                "ticker": etf["ticker"],
+                "name": etf["name"],
+                "asset_class": "etf",
+                "sector": etf["sector"],
+                "current_price": None,
+                "market_cap": None,
+                "total_volume_24h": None,
+            })
+
+        log.info("Candidats post-filtre-univers : %d", len(candidates_meta))
+
+        # ---- Features ----
+        features: list[Features] = []
+        for meta in candidates_meta:
+            if meta["asset_class"] == "crypto":
+                series = fetch_crypto_history(meta["id"], days=365)
+                volumes = None  # CoinGecko renvoie aussi volume si demande, simplifie ici
+            else:
+                series = fetch_etf_history(conn, meta["ticker"], days=365)
+                volumes = None
+            if series is None or len(series) < MIN_HISTORY_DAYS:
+                log.info("Skip %s: history < %dj", meta["ticker"], MIN_HISTORY_DAYS)
+                continue
+            f = compute_features(series, volumes, meta)
+            if f is None:
+                continue
+            # Correl portefeuille
+            mc, with_sym = compute_max_correl(series, portfolio_returns)
+            f.max_correl_existing = mc
+            f.max_correl_with = with_sym
+            features.append(f)
+
+        # Filtre correl
+        kept = [
+            f for f in features
+            if math.isnan(f.max_correl_existing) or abs(f.max_correl_existing) < CORREL_MAX_VS_EXISTING
+        ]
+        log.info("Apres filtre correlation < %.2f : %d / %d",
+                 CORREL_MAX_VS_EXISTING, len(kept), len(features))
+
+        # Scoring + cap
+        _normalize_features(kept)
+        kept.sort(key=lambda f: -f.score)
+        top = kept[:top_n]
+
+        # Rationale
+        for f in top:
+            f.rationale, f.rationale_source = build_rationale(f)
+
+        inserted = 0
+        if top and not dry_run:
+            inserted = insert_candidates(conn, top, scan_batch)
+
+        elapsed = time.time() - started
+        log.info("%s scan %s done in %.1fs - inserted %d candidats",
+                 MARKER, scan_batch, elapsed, inserted)
+
+        return {
+            "ok": True,
+            "marker": MARKER,
+            "scan_batch": scan_batch,
+            "elapsed_s": round(elapsed, 2),
+            "candidates_universe": len(candidates_meta),
+            "after_features": len(features),
+            "after_correl_filter": len(kept),
+            "inserted": inserted,
+            "top_tickers": [f.ticker for f in top],
+            "top_scores": [f.score for f in top],
+        }
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    import argparse
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
+    p = argparse.ArgumentParser(description="UniverseExpansionAgent v1")
+    p.add_argument("--dry-run", action="store_true", help="Ne pas inserer dans DB")
+    p.add_argument("--top", type=int, default=TOP_N)
+    args = p.parse_args()
+    result = run_scan(top_n=args.top, dry_run=args.dry_run)
+    print(json.dumps(result, indent=2, ensure_ascii=False))

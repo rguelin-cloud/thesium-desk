@@ -1,0 +1,706 @@
+{
+  "generated_at": "2026-05-29T12:39:16.158013",
+  "session_milestones": {
+    "fred_is_past_datetime": {
+      "marker": "[FRED_IS_PAST_DATETIME_V1]",
+      "status": "applied"
+    },
+    "fred_gdp_series": {
+      "marker": "[FRED_GDP_SERIES_V1]",
+      "status": "applied",
+      "series": "A191RL1Q225SBEA",
+      "fmt": "raw_pct"
+    },
+    "targets_caps_smoothing": {
+      "marker": "[TARGETS_CAPS_SMOOTHING_V1]",
+      "status": "applied"
+    },
+    "risk_v2_dblock_fix": {
+      "marker": "[RISK_V2_DBLOCK_FIX_V1]",
+      "status": "applied"
+    },
+    "build_qty1_override_removed": {
+      "status": "applied"
+    },
+    "geo_panel_mutation_observer": {
+      "status": "applied"
+    }
+  },
+  "controls": {
+    "risk_engine_v1_legacy": {
+      "max_position_pct": 10.0,
+      "max_sector_pct": 25.0,
+      "max_single_name_pct": 10.0,
+      "max_var_pct": 5.0,
+      "stop_loss_pct": 8.0,
+      "updated_at": "2026-03-05 22:38:27"
+    },
+    "risk_engine_v2": {
+      "marker": "[RISK_V2]",
+      "params": {
+        "concentration_max_pct": 0.15,
+        "var_confidence": 0.99,
+        "var_window_days": 60,
+        "var_budget_pct_nav": 0.02,
+        "var_marginal_block_pct": 0.005,
+        "correl_window_days": 60,
+        "correl_block_threshold": 0.85,
+        "correl_min_overlap_days": 30
+      },
+      "fix_applied": "[RISK_V2_DBLOCK_FIX_V1]"
+    },
+    "risk_engine_v2_runtime_sample": {
+      "ts": "2026-05-29T09:50:16+00:00",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "passed": true,
+      "details": {
+        "concentration": {
+          "nav": 1000400.53,
+          "current_qty": 144.0,
+          "new_qty": 145.0,
+          "new_exposure": 29000.0,
+          "new_pct": 0.029,
+          "cap_pct": 0.15
+        },
+        "var": {
+          "current_var_pct": 0.00872,
+          "simulated_var_pct": 0.00866,
+          "delta_marginal_pct": -6e-05,
+          "current_var_eur": 8724.91,
+          "simulated_var_eur": 8662.39,
+          "budget_pct": 0.02,
+          "marginal_cap_pct": 0.005,
+          "window_days": 60,
+          "confidence": 0.99,
+          "n_positions_with_returns": 10
+        },
+        "correlation": {
+          "max_correl_symbol": "AMZN",
+          "max_correl_value": 0.8236,
+          "threshold": 0.85,
+          "n_peers": 9,
+          "all_correls": {
+            "META": -0.6392,
+            "ETH": 0.1061,
+            "LINK": -0.2407,
+            "AMZN": 0.8236,
+            "BTC": -0.0579,
+            "GOOGL": 0.7268,
+            "MSFT": 0.2259,
+            "NVDA": 0.7905,
+            "TSLA": 0.7154
+          }
+        }
+      }
+    }
+  },
+  "config": {
+    "target_construction": {
+      "params": {
+        "w_conviction": 0.4,
+        "w_realized": 0.15,
+        "w_macro": 0.2,
+        "w_diversif": 0.15,
+        "lambda_vol": 0.1,
+        "beta_temp": 3.0,
+        "budget_build": 0.3,
+        "budget_maintain": 0.7,
+        "budget_rebalance": 0.9,
+        "min_score_inclusion": 0.3,
+        "smoothing_max_delta_pct": 2.0,
+        "conviction_halflife_days": 14.0,
+        "conviction_lookback_days": 90,
+        "enable_realized": 1,
+        "enable_macro": 0,
+        "enable_diversif": 0,
+        "enable_vol_penalty": 0
+      },
+      "updated_at": "2026-05-29 10:34:20"
+    }
+  },
+  "runtime": {
+    "portfolio_targets_active": [
+      {
+        "id": 1,
+        "ticker": "META",
+        "target_weight_pct": 6.265,
+        "active": 1,
+        "source": "agent_v1",
+        "updated_at": "2026-05-29 08:45:33",
+        "snapshot_id": "snap-20260529T084533-430d1a",
+        "score": 0.4287,
+        "agent_decided": 1
+      },
+      {
+        "id": 3,
+        "ticker": "ETH",
+        "target_weight_pct": 4.5,
+        "active": 1,
+        "source": "agent_v1",
+        "updated_at": "2026-05-29 08:45:33",
+        "snapshot_id": "snap-20260529T084533-430d1a",
+        "score": 0.4039,
+        "agent_decided": 1
+      },
+      {
+        "id": 4,
+        "ticker": "BTC",
+        "target_weight_pct": 4.5,
+        "active": 1,
+        "source": "agent_v1",
+        "updated_at": "2026-05-29 08:45:33",
+        "snapshot_id": "snap-20260529T084533-430d1a",
+        "score": 0.4152,
+        "agent_decided": 1
+      },
+      {
+        "id": 5,
+        "ticker": "AAPL",
+        "target_weight_pct": 4.5,
+        "active": 1,
+        "source": "agent_v1",
+        "updated_at": "2026-05-29 08:45:33",
+        "snapshot_id": "snap-20260529T084533-430d1a",
+        "score": 0.5039,
+        "agent_decided": 1
+      },
+      {
+        "id": 6,
+        "ticker": "AMZN",
+        "target_weight_pct": 4.5,
+        "active": 1,
+        "source": "agent_v1",
+        "updated_at": "2026-05-29 08:45:33",
+        "snapshot_id": "snap-20260529T084533-430d1a",
+        "score": 0.4542,
+        "agent_decided": 1
+      },
+      {
+        "id": 9,
+        "ticker": "GOOGL",
+        "target_weight_pct": 4.5,
+        "active": 1,
+        "source": "agent_v1",
+        "updated_at": "2026-05-29 08:45:33",
+        "snapshot_id": "snap-20260529T084533-430d1a",
+        "score": 0.4565,
+        "agent_decided": 1
+      },
+      {
+        "id": 12,
+        "ticker": "MSFT",
+        "target_weight_pct": 4.5,
+        "active": 1,
+        "source": "agent_v1",
+        "updated_at": "2026-05-29 08:45:33",
+        "snapshot_id": "snap-20260529T084533-430d1a",
+        "score": 0.3298,
+        "agent_decided": 1
+      },
+      {
+        "id": 13,
+        "ticker": "NVDA",
+        "target_weight_pct": 4.5,
+        "active": 1,
+        "source": "agent_v1",
+        "updated_at": "2026-05-29 08:45:33",
+        "snapshot_id": "snap-20260529T084533-430d1a",
+        "score": 0.4601,
+        "agent_decided": 1
+      },
+      {
+        "id": 14,
+        "ticker": "TSLA",
+        "target_weight_pct": 4.5,
+        "active": 1,
+        "source": "agent_v1",
+        "updated_at": "2026-05-29 08:45:33",
+        "snapshot_id": "snap-20260529T084533-430d1a",
+        "score": 0.4181,
+        "agent_decided": 1
+      },
+      {
+        "id": 2,
+        "ticker": "LINK",
+        "target_weight_pct": 3.0,
+        "active": 1,
+        "source": "agent_v1",
+        "updated_at": "2026-05-29 08:45:33",
+        "snapshot_id": "snap-20260529T084533-430d1a",
+        "score": 0.4256,
+        "agent_decided": 1
+      }
+    ],
+    "portfolio_latest": {
+      "id": 60,
+      "date": "2026-05-29",
+      "total_value": 1000157.88,
+      "cash": 749150.72,
+      "total_pnl": 170.98
+    },
+    "orders_today": {
+      "count": 10,
+      "approx_notional": 0.0
+    },
+    "orders_today_detail": [
+      {
+        "id": 135,
+        "instrument_id": 3,
+        "side": "buy",
+        "quantity": 64.0,
+        "status": "filled",
+        "approved": true,
+        "warnings_v2": [
+          {
+            "source": "[RISK_V2]",
+            "code": "risk_v2_error",
+            "message": "database is locked"
+          }
+        ],
+        "metrics": {
+          "order_value_usd": 24968.32,
+          "portfolio_var_pct": 0.308,
+          "position_size_pct": 2.5,
+          "cash_after_trade": 724182.4
+        },
+        "created_at": "2026-05-29 08:57:13"
+      },
+      {
+        "id": 136,
+        "instrument_id": 7,
+        "side": "buy",
+        "quantity": 33.0,
+        "status": "filled",
+        "approved": true,
+        "warnings_v2": [
+          {
+            "source": "[RISK_V2]",
+            "code": "risk_v2_error",
+            "message": "database is locked"
+          }
+        ],
+        "metrics": {
+          "order_value_usd": 20964.57,
+          "portfolio_var_pct": 0.308,
+          "position_size_pct": 2.1,
+          "cash_after_trade": 728186.15
+        },
+        "created_at": "2026-05-29 08:57:18"
+      },
+      {
+        "id": 137,
+        "instrument_id": 1,
+        "side": "buy",
+        "quantity": 64.0,
+        "status": "filled",
+        "approved": true,
+        "warnings_v2": [
+          {
+            "source": "[RISK_V2]",
+            "code": "risk_v2_error",
+            "message": "database is locked"
+          }
+        ],
+        "metrics": {
+          "order_value_usd": 20000.64,
+          "portfolio_var_pct": 0.308,
+          "position_size_pct": 2.0,
+          "cash_after_trade": 729150.08
+        },
+        "created_at": "2026-05-29 08:57:24"
+      },
+      {
+        "id": 138,
+        "instrument_id": 4,
+        "side": "buy",
+        "quantity": 70.0,
+        "status": "filled",
+        "approved": true,
+        "warnings_v2": [
+          {
+            "source": "[RISK_V2]",
+            "code": "risk_v2_error",
+            "message": "database is locked"
+          }
+        ],
+        "metrics": {
+          "order_value_usd": 19180.0,
+          "portfolio_var_pct": 0.308,
+          "position_size_pct": 1.92,
+          "cash_after_trade": 729970.72
+        },
+        "created_at": "2026-05-29 08:57:29"
+      },
+      {
+        "id": 139,
+        "instrument_id": 2,
+        "side": "buy",
+        "quantity": 52.0,
+        "status": "filled",
+        "approved": true,
+        "warnings_v2": [
+          {
+            "source": "[RISK_V2]",
+            "code": "risk_v2_error",
+            "message": "database is locked"
+          }
+        ],
+        "metrics": {
+          "order_value_usd": 22203.48,
+          "portfolio_var_pct": 0.308,
+          "position_size_pct": 2.22,
+          "cash_after_trade": 726947.24
+        },
+        "created_at": "2026-05-29 08:57:34"
+      },
+      {
+        "id": 140,
+        "instrument_id": 5,
+        "side": "buy",
+        "quantity": 94.0,
+        "status": "filled",
+        "approved": true,
+        "warnings_v2": [
+          {
+            "source": "[RISK_V2]",
+            "code": "risk_v2_error",
+            "message": "database is locked"
+          }
+        ],
+        "metrics": {
+          "order_value_usd": 20139.5,
+          "portfolio_var_pct": 0.308,
+          "position_size_pct": 2.01,
+          "cash_after_trade": 729011.22
+        },
+        "created_at": "2026-05-29 08:57:40"
+      },
+      {
+        "id": 141,
+        "instrument_id": 6,
+        "side": "buy",
+        "quantity": 50.0,
+        "status": "filled",
+        "approved": true,
+        "warnings_v2": [
+          {
+            "source": "[RISK_V2]",
+            "code": "risk_v2_error",
+            "message": "database is locked"
+          }
+        ],
+        "metrics": {
+          "order_value_usd": 22105.0,
+          "portfolio_var_pct": 0.308,
+          "position_size_pct": 2.21,
+          "cash_after_trade": 727045.72
+        },
+        "created_at": "2026-05-29 08:57:45"
+      },
+      {
+        "id": 142,
+        "instrument_id": 15,
+        "side": "buy",
+        "quantity": 0.289765,
+        "status": "filled",
+        "approved": true,
+        "warnings_v2": [
+          {
+            "source": "[RISK_V2]",
+            "code": "risk_v2_error",
+            "message": "database is locked"
+          }
+        ],
+        "metrics": {
+          "order_value_usd": 21314.28,
+          "portfolio_var_pct": 0.308,
+          "position_size_pct": 2.13,
+          "cash_after_trade": 727836.44
+        },
+        "created_at": "2026-05-29 08:57:51"
+      },
+      {
+        "id": 143,
+        "instrument_id": 16,
+        "side": "buy",
+        "quantity": 10.429137,
+        "status": "filled",
+        "approved": true,
+        "warnings_v2": [
+          {
+            "source": "[RISK_V2]",
+            "code": "risk_v2_error",
+            "message": "database is locked"
+          }
+        ],
+        "metrics": {
+          "order_value_usd": 20894.57,
+          "portfolio_var_pct": 0.308,
+          "position_size_pct": 2.09,
+          "cash_after_trade": 728256.15
+        },
+        "created_at": "2026-05-29 08:57:56"
+      },
+      {
+        "id": 144,
+        "instrument_id": 17,
+        "side": "buy",
+        "quantity": 1236.416175,
+        "status": "filled",
+        "approved": true,
+        "warnings_v2": [
+          {
+            "source": "[RISK_V2]",
+            "code": "risk_v2_error",
+            "message": "database is locked"
+          }
+        ],
+        "metrics": {
+          "order_value_usd": 11121.56,
+          "portfolio_var_pct": 0.308,
+          "position_size_pct": 1.11,
+          "cash_after_trade": 738029.16
+        },
+        "created_at": "2026-05-29 08:58:01"
+      }
+    ],
+    "orders_total_history": 144,
+    "risk_pretrade_log_count": 6
+  },
+  "universe": {
+    "target_universe": [
+      {
+        "id": 2,
+        "ticker": "AAPL",
+        "asset_class": "equity",
+        "sector": "tech",
+        "is_active": 1,
+        "max_weight_pct": 7.0,
+        "min_weight_pct": 0.5,
+        "added_at": "2026-05-24 14:57:51"
+      },
+      {
+        "id": 7,
+        "ticker": "AMZN",
+        "asset_class": "equity",
+        "sector": "consumer",
+        "is_active": 1,
+        "max_weight_pct": 7.0,
+        "min_weight_pct": 0.5,
+        "added_at": "2026-05-24 14:57:51"
+      },
+      {
+        "id": 8,
+        "ticker": "BTC",
+        "asset_class": "crypto",
+        "sector": "store_value",
+        "is_active": 1,
+        "max_weight_pct": 5.0,
+        "min_weight_pct": 0.5,
+        "added_at": "2026-05-24 14:57:51"
+      },
+      {
+        "id": 9,
+        "ticker": "ETH",
+        "asset_class": "crypto",
+        "sector": "smart_chain",
+        "is_active": 1,
+        "max_weight_pct": 5.0,
+        "min_weight_pct": 0.5,
+        "added_at": "2026-05-24 14:57:51"
+      },
+      {
+        "id": 5,
+        "ticker": "GOOGL",
+        "asset_class": "equity",
+        "sector": "tech",
+        "is_active": 1,
+        "max_weight_pct": 7.0,
+        "min_weight_pct": 0.5,
+        "added_at": "2026-05-24 14:57:51"
+      },
+      {
+        "id": 10,
+        "ticker": "LINK",
+        "asset_class": "crypto",
+        "sector": "oracle",
+        "is_active": 1,
+        "max_weight_pct": 3.0,
+        "min_weight_pct": 0.5,
+        "added_at": "2026-05-24 14:57:51"
+      },
+      {
+        "id": 1,
+        "ticker": "META",
+        "asset_class": "equity",
+        "sector": "tech",
+        "is_active": 1,
+        "max_weight_pct": 7.0,
+        "min_weight_pct": 0.5,
+        "added_at": "2026-05-24 14:57:51"
+      },
+      {
+        "id": 3,
+        "ticker": "MSFT",
+        "asset_class": "equity",
+        "sector": "tech",
+        "is_active": 1,
+        "max_weight_pct": 7.0,
+        "min_weight_pct": 0.5,
+        "added_at": "2026-05-24 14:57:51"
+      },
+      {
+        "id": 4,
+        "ticker": "NVDA",
+        "asset_class": "equity",
+        "sector": "tech",
+        "is_active": 1,
+        "max_weight_pct": 7.0,
+        "min_weight_pct": 0.5,
+        "added_at": "2026-05-24 14:57:51"
+      },
+      {
+        "id": 11,
+        "ticker": "SOL",
+        "asset_class": "crypto",
+        "sector": "smart_chain",
+        "is_active": 1,
+        "max_weight_pct": 5.0,
+        "min_weight_pct": 0.5,
+        "added_at": "2026-05-24 14:57:51"
+      },
+      {
+        "id": 6,
+        "ticker": "TSLA",
+        "asset_class": "equity",
+        "sector": "auto_tech",
+        "is_active": 1,
+        "max_weight_pct": 5.0,
+        "min_weight_pct": 0.5,
+        "added_at": "2026-05-24 14:57:51"
+      }
+    ],
+    "instruments": [
+      {
+        "id": 1,
+        "ticker": "AAPL",
+        "name": "Apple Inc.",
+        "sector": "Technology",
+        "asset_class": "equity"
+      },
+      {
+        "id": 2,
+        "ticker": "MSFT",
+        "name": "Microsoft Corporation",
+        "sector": "Technology",
+        "asset_class": "equity"
+      },
+      {
+        "id": 3,
+        "ticker": "GOOGL",
+        "name": "Alphabet Inc.",
+        "sector": "Technology",
+        "asset_class": "equity"
+      },
+      {
+        "id": 4,
+        "ticker": "AMZN",
+        "name": "Amazon.com Inc.",
+        "sector": "Consumer Discretionary",
+        "asset_class": "equity"
+      },
+      {
+        "id": 5,
+        "ticker": "NVDA",
+        "name": "NVIDIA Corporation",
+        "sector": "Technology",
+        "asset_class": "equity"
+      },
+      {
+        "id": 6,
+        "ticker": "TSLA",
+        "name": "Tesla Inc.",
+        "sector": "Consumer Discretionary",
+        "asset_class": "equity"
+      },
+      {
+        "id": 7,
+        "ticker": "META",
+        "name": "Meta Platforms Inc.",
+        "sector": "Technology",
+        "asset_class": "equity"
+      },
+      {
+        "id": 8,
+        "ticker": "JPM",
+        "name": "JPMorgan Chase & Co.",
+        "sector": "Financials",
+        "asset_class": "equity"
+      },
+      {
+        "id": 9,
+        "ticker": "BAC",
+        "name": "Bank of America Corporation",
+        "sector": "Financials",
+        "asset_class": "equity"
+      },
+      {
+        "id": 10,
+        "ticker": "XOM",
+        "name": "Exxon Mobil Corporation",
+        "sector": "Energy",
+        "asset_class": "equity"
+      },
+      {
+        "id": 11,
+        "ticker": "JNJ",
+        "name": "Johnson & Johnson",
+        "sector": "Healthcare",
+        "asset_class": "equity"
+      },
+      {
+        "id": 12,
+        "ticker": "UNH",
+        "name": "UnitedHealth Group Inc.",
+        "sector": "Healthcare",
+        "asset_class": "equity"
+      },
+      {
+        "id": 13,
+        "ticker": "SPY",
+        "name": "SPDR S&P 500 ETF Trust",
+        "sector": "Broad Market",
+        "asset_class": "etf"
+      },
+      {
+        "id": 14,
+        "ticker": "QQQ",
+        "name": "Invesco QQQ Trust",
+        "sector": "Technology",
+        "asset_class": "etf"
+      },
+      {
+        "id": 15,
+        "ticker": "BTC",
+        "name": "Bitcoin",
+        "sector": "Crypto",
+        "asset_class": "crypto"
+      },
+      {
+        "id": 16,
+        "ticker": "ETH",
+        "name": "Ethereum",
+        "sector": "Crypto",
+        "asset_class": "crypto"
+      },
+      {
+        "id": 17,
+        "ticker": "LINK",
+        "name": "Chainlink",
+        "sector": "Crypto",
+        "asset_class": "crypto"
+      }
+    ]
+  }
+}

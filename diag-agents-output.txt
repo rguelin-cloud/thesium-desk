@@ -1,0 +1,7 @@
+﻿Latest cycle_id : 20260609-091332
+
+==============================================================================
+THESES TABLE
+==============================================================================
+Columns (11) : id, instrument_id, agent_type, thesis_text, conviction_score, horizon, key_drivers, proposed_action, status, created_at, updated_at
+Total rows : 6666

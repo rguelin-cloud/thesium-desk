@@ -1,0 +1,24 @@
+﻿============================================================
+PPLX MEMO MODAL STRUCTURE
+============================================================
+
+[HTML structure pplxMemoBackdrop]
+<div id="pplxMemoBackdrop" class="pplx-memo-backdrop" onclick="if(event.target===this)pplxMemoClose()">
+  <div class="pplx-memo-modal" role="dialog" aria-modal="true" aria-labelledby="pplxMemoTitle">
+    <button class="pplx-memo-close" onclick="pplxMemoClose()" aria-label="Fermer">├ù</button>
+    <div id="pplxMemoBody">
+      <div class="pplx-memo-loading">Chargement du memo IAÔÇª</div>
+    </div>
+
+[Fonctions JS liees memo]
+  L6138 (pplxMemoOpen\s*=): window.pplxMemoOpen = async function(symbol, force) {
+  L6097 (pplxMemoTitle): <h3 id="pplxMemoTitle">${_escapeHtml(data.symbol)} ÔÇö ${_escapeHtml(p.headline || '')}</h3>
+
+[Fonction pplxMemoOpen body si trouvee]
+  pplxMemoOpen non trouve (peut-etre nom different)
+
+[Boutons Memo IA dans la table convergence ÔÇö generes par renderConvergenceCard?]
+  L6174 (Memo IA): * Injection automatique des boutons "Memo IA" dans le tableau du portfolio.
+  L6207 (pplx-memo-trigger): btn.className = 'pplx-memo-trigger';
+
+[DONE]

@@ -1,0 +1,13 @@
+# -*- coding: utf-8 -*-
+"""
+bridge_config.py
+NEXTONES <-> ActivTrades bridge configuration.
+Cree par nextones-bridge-config-phase3.py
+"""
+
+# [NEXTONES-BRIDGE-CONFIG-PHASE3-V2]
+# Phase 3 broker flags
+BROKER_SHADOW_ENABLED = True  # Phase 2.5+ : shadow executor en parallele de PineConnector
+BROKER_LIVE_ENABLED = False  # Phase 3C : bascule live (False = simu uniquement)
+MAX_LIVE_NAV = 100000.0  # Palier max NAV en mode live (EUR, valide user 2026-05-30)
+BROKER_LIVE_ACCOUNT = "ACTIVTRADES"  # Broker live cible (FTMO desactive)

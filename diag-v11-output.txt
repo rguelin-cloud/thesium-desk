@@ -1,0 +1,270 @@
+==============================================================================
+DIAG V11 - Trace effets reels du patch v5
+==============================================================================
+Total lignes : 3483
+
+------------------------------------------------------------------------------
+[1] Toutes definitions 'def get_memo_pdf'
+------------------------------------------------------------------------------
+Lignes : [1079, 1494]
+Total : 2
+
+------------------------------------------------------------------------------
+[2] Decorator @app.get/router.get pour memo pdf - quelle fonction est exposee ?
+------------------------------------------------------------------------------
+L1078 : @app.get("/api/memos/{memo_id}/pdf")  # [ICMEMO_PDF_V2] [ICMEMO_PDF_V3_LIGHT] [ICMEMO_PDF_V4_COVER]
+  -> def en L1079 : def get_memo_pdf(memo_id: int):
+
+------------------------------------------------------------------------------
+[3] Toutes occurrences 'Thesis Summaries' et 'thesis_summaries'
+------------------------------------------------------------------------------
+L1007 :                    thesis_summaries, proposed_changes, created_at
+L1018 :             # Search in thesis_summaries JSON field
+L1019 :             query += " AND thesis_summaries LIKE ?"
+L1022 :             query += " AND thesis_summaries LIKE ?"
+L1031 :             for field in ("factor_tilts", "thesis_summaries", "proposed_changes"):
+L1415 :     # -- Sections structurees (factor_tilts / thesis_summaries / proposed_changes) --
+L1417 :     thesis_summaries = memo.get("thesis_summaries")
+L1422 :     if thesis_summaries and isinstance(thesis_summaries, str):
+L1423 :         try: thesis_summaries = _json.loads(thesis_summaries)
+L1424 :         except Exception: thesis_summaries = None
+L1429 :     if thesis_summaries and isinstance(thesis_summaries, list) and len(thesis_summaries) > 0:
+L1431 :         story.append(Paragraph("Thesis Summaries", sH2))
+L1433 :         for ts in thesis_summaries:
+L1596 :     # [ICMEMO_V5_R4] - tronque Active Thesis Summaries a top-5 blocs
+L1605 :             if _s.startswith('## Active Thesis Summaries'):
+L1779 :     thesis_summaries = memo.get("thesis_summaries")
+L1788 :     if thesis_summaries and isinstance(thesis_summaries, str):
+L1790 :             thesis_summaries = json.loads(thesis_summaries)
+L1792 :             thesis_summaries = None
+L1800 :     if False:  # [ICMEMO_V5_R2] doublons Thesis Summaries / Proposed Changes neutralises
+L1802 :         if thesis_summaries and isinstance(thesis_summaries, list) and len(thesis_summaries) > 0:
+L1804 :             story.append(Paragraph("Thesis Summaries", sH2))
+L1806 :             for ts in thesis_summaries:
+
+------------------------------------------------------------------------------
+[4] Markers v5 + contexte
+------------------------------------------------------------------------------
+--- [ICMEMO_V5_R2] ---
+   L1798 |             proposed_changes = None
+   L1799 | 
+>> L1800 |     if False:  # [ICMEMO_V5_R2] doublons Thesis Summaries / Proposed Changes neutralises
+   L1801 |         # Thesis summary table
+   L1802 |         if thesis_summaries and isinstance(thesis_summaries, list) and len(thesis_summaries) > 0:
+   L1803 |             story.append(Spacer(1, 8))
+
+--- [ICMEMO_V5_R3] ---
+   L1684 |             ('LEFTPADDING', (0, 0), (-1, -1), 5),
+   L1685 |             ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+>> L1686 |             ('FONTSIZE', (0, 0), (-1, 0), 8.5),  # [ICMEMO_V5_R3] header plus lisible
+   L1687 |             ('TOPPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V5_R3]
+   L1688 |             ('BOTTOMPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V5_R3]
+   L1689 |             ('LINEBELOW', (0, 0), (-1, 0), 1.2, white),  # [ICMEMO_V5_R3]
+
+   L1685 |             ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+   L1686 |             ('FONTSIZE', (0, 0), (-1, 0), 8.5),  # [ICMEMO_V5_R3] header plus lisible
+>> L1687 |             ('TOPPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V5_R3]
+   L1688 |             ('BOTTOMPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V5_R3]
+   L1689 |             ('LINEBELOW', (0, 0), (-1, 0), 1.2, white),  # [ICMEMO_V5_R3]
+   L1690 |         ]))
+
+   L1686 |             ('FONTSIZE', (0, 0), (-1, 0), 8.5),  # [ICMEMO_V5_R3] header plus lisible
+   L1687 |             ('TOPPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V5_R3]
+>> L1688 |             ('BOTTOMPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V5_R3]
+   L1689 |             ('LINEBELOW', (0, 0), (-1, 0), 1.2, white),  # [ICMEMO_V5_R3]
+   L1690 |         ]))
+   L1691 |         elements.append(KeepTogether([t]))
+
+   L1687 |             ('TOPPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V5_R3]
+   L1688 |             ('BOTTOMPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V5_R3]
+>> L1689 |             ('LINEBELOW', (0, 0), (-1, 0), 1.2, white),  # [ICMEMO_V5_R3]
+   L1690 |         ]))
+   L1691 |         elements.append(KeepTogether([t]))
+   L1692 |         return elements
+
+--- [ICMEMO_V5_R4] ---
+   L1594 |     lines = md.split("\n")
+   L1595 | 
+>> L1596 |     # [ICMEMO_V5_R4] - tronque Active Thesis Summaries a top-5 blocs
+   L1597 |     def _truncate_active_thesis_v5(_lines, _keep=5):
+   L1598 |         out = []
+   L1599 |         in_section = False
+
+   L1627 |             out.append(_ln)
+   L1628 |         return out
+>> L1629 |     lines = _truncate_active_thesis_v5(lines, _keep=5)  # [ICMEMO_V5_R4]
+   L1630 | 
+   L1631 | 
+   L1632 |     # -- Helper: flush accumulated markdown table rows into a ReportLab Table --
+
+--- [ICMEMO_PDF_V2] ---
+   L1076 | 
+   L1077 | 
+>> L1078 | @app.get("/api/memos/{memo_id}/pdf")  # [ICMEMO_PDF_V2] [ICMEMO_PDF_V3_LIGHT] [ICMEMO_PDF_V4_COVER]
+   L1079 | def get_memo_pdf(memo_id: int):
+   L1080 |     """Generate and return a styled PDF export of an IC memo. [ICMEMO_PDF_V2]"""
+   L1081 |     conn = db()
+
+   L1078 | @app.get("/api/memos/{memo_id}/pdf")  # [ICMEMO_PDF_V2] [ICMEMO_PDF_V3_LIGHT] [ICMEMO_PDF_V4_COVER]
+   L1079 | def get_memo_pdf(memo_id: int):
+>> L1080 |     """Generate and return a styled PDF export of an IC memo. [ICMEMO_PDF_V2]"""
+   L1081 |     conn = db()
+   L1082 |     try:
+   L1083 |         row = conn.execute("SELECT * FROM ic_memos WHERE id = ?", (memo_id,)).fetchone()
+
+   L1145 |                 break
+   L1146 |             except Exception as _fe:
+>> L1147 |                 print(f"[ICMEMO_PDF_V2] font registration failed for {fr_name}: {_fe}")
+   L1148 | 
+   L1149 |     # -- Substitution glyphes safe : pre-traite le markdown avant rendu --
+   L1150 |     def _normalize_glyphes(text):
+
+   L1490 |         headers={"Content-Disposition": f'inline; filename="ic-memo-{memo_id}-{safe_date}.pdf"'},
+   L1491 |     )
+>> L1492 | # === END [ICMEMO_PDF_V2] ===
+   L1493 | 
+   L1494 | def get_memo_pdf(memo_id: int):
+   L1495 |     """Generate and return a styled PDF export of an IC memo."""
+
+--- [ICMEMO_PDF_V3_LIGHT] ---
+   L1076 | 
+   L1077 | 
+>> L1078 | @app.get("/api/memos/{memo_id}/pdf")  # [ICMEMO_PDF_V2] [ICMEMO_PDF_V3_LIGHT] [ICMEMO_PDF_V4_COVER]
+   L1079 | def get_memo_pdf(memo_id: int):
+   L1080 |     """Generate and return a styled PDF export of an IC memo. [ICMEMO_PDF_V2]"""
+   L1081 |     conn = db()
+
+--- [ICMEMO_PDF_V4_COVER] ---
+   L1076 | 
+   L1077 | 
+>> L1078 | @app.get("/api/memos/{memo_id}/pdf")  # [ICMEMO_PDF_V2] [ICMEMO_PDF_V3_LIGHT] [ICMEMO_PDF_V4_COVER]
+   L1079 | def get_memo_pdf(memo_id: int):
+   L1080 |     """Generate and return a styled PDF export of an IC memo. [ICMEMO_PDF_V2]"""
+   L1081 |     conn = db()
+
+------------------------------------------------------------------------------
+[5] Fonction #2 get_memo_pdf - bornes apres patch
+------------------------------------------------------------------------------
+Fonction #2 : L1494 a L1880
+Span : 387 lignes
+
+Markers presents dans fonction #2 :
+  [ICMEMO_V5_R2] : 1
+  [ICMEMO_V5_R3] : 4
+  [ICMEMO_V5_R4] : 2
+  [ICMEMO_PDF_V2] : 0
+  [ICMEMO_PDF_V3_LIGHT] : 0
+  [ICMEMO_PDF_V4_COVER] : 0
+
+------------------------------------------------------------------------------
+[6] Verif R2 : 'if False:' avec marker ICMEMO_V5_R2
+------------------------------------------------------------------------------
+L1800 :     if False:  # [ICMEMO_V5_R2] doublons Thesis Summaries / Proposed Changes neutralises
+   L1801 |         # Thesis summary table
+   L1802 |         if thesis_summaries and isinstance(thesis_summaries, list) and len(thesis_summaries) > 0:
+** L1803 |             story.append(Spacer(1, 8))
+** L1804 |             story.append(Paragraph("Thesis Summaries", sH2))
+   L1805 |             table_data = [["Ticker", "Agent", "Conviction", "Action"]]
+   L1806 |             for ts in thesis_summaries:
+   L1807 |                 table_data.append([
+** L1808 |                     Paragraph(f"<b>{ts.get('ticker', '—')}</b>", sBody),
+** L1809 |                     Paragraph(str(ts.get('agent', '—')), sSmall),
+** L1810 |                     Paragraph(f"{ts.get('conviction', '—')}/10", sBody),
+** L1811 |                     Paragraph(str(ts.get('action', '—')), sBody),
+   L1812 |                 ])
+   L1813 | 
+** L1814 |             t = Table(table_data, colWidths=[55, 85, 55, None])
+   L1815 |             t.setStyle(TableStyle([
+   L1816 |                 ('BACKGROUND', (0, 0), (-1, 0), DEEP_TEAL),
+   L1817 |                 ('TEXTCOLOR', (0, 0), (-1, 0), white),
+   L1818 |                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+   L1819 |                 ('FONTSIZE', (0, 0), (-1, -1), 8.5),
+   L1820 |                 ('LEADING', (0, 0), (-1, -1), 11),
+   L1821 |                 ('BACKGROUND', (0, 1), (-1, -1), PAPER_WHITE),
+   L1822 |                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [PAPER_WHITE, OFF_WHITE]),
+   L1823 |                 ('GRID', (0, 0), (-1, -1), 0.4, WARM_BEIGE),
+   L1824 |                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+   L1825 |                 ('TOPPADDING', (0, 0), (-1, -1), 4),
+   L1826 |                 ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+   L1827 |                 ('LEFTPADDING', (0, 0), (-1, -1), 6),
+   L1828 |             ]))
+** L1829 |             story.append(t)
+   L1830 | 
+   L1831 |         # Proposed changes table
+   L1832 |         if proposed_changes and isinstance(proposed_changes, list) and len(proposed_changes) > 0:
+** L1833 |             story.append(Spacer(1, 8))
+** L1834 |             story.append(Paragraph("Proposed Changes", sH2))
+   L1835 |             table_data = [["Ticker", "Side", "Qty", "Status"]]
+   L1836 |             for pc in proposed_changes:
+   L1837 |                 side_str = str(pc.get('side', '—')).upper()
+   L1838 |                 side_color = GREEN_OK if side_str == 'BUY' else TERRA
+   L1839 |                 table_data.append([
+** L1840 |                     Paragraph(f"<b>{pc.get('ticker', '—')}</b>", sBody),
+** L1841 |                     Paragraph(f'<font color="{side_color}">{side_str}</font>', sBody),
+** L1842 |                     Paragraph(str(pc.get('quantity', '—')), sBody),
+** L1843 |                     Paragraph(str(pc.get('status', '—')).upper(), sSmall),
+   L1844 |                 ])
+   L1845 | 
+** L1846 |             t = Table(table_data, colWidths=[70, 60, 60, None])
+   L1847 |             t.setStyle(TableStyle([
+   L1848 |                 ('BACKGROUND', (0, 0), (-1, 0), DEEP_TEAL),
+   L1849 |                 ('TEXTCOLOR', (0, 0), (-1, 0), white),
+   L1850 |                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+   L1851 |                 ('FONTSIZE', (0, 0), (-1, -1), 8.5),
+   L1852 |                 ('LEADING', (0, 0), (-1, -1), 11),
+   L1853 |                 ('BACKGROUND', (0, 1), (-1, -1), PAPER_WHITE),
+   L1854 |                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [PAPER_WHITE, OFF_WHITE]),
+   L1855 |                 ('GRID', (0, 0), (-1, -1), 0.4, WARM_BEIGE),
+   L1856 |                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+   L1857 |                 ('TOPPADDING', (0, 0), (-1, -1), 4),
+   L1858 |                 ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+   L1859 |                 ('LEFTPADDING', (0, 0), (-1, -1), 6),
+   L1860 |             ]))
+** L1861 |             story.append(t)
+   L1862 | 
+   L1863 |     doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
+   -> rencontre doc.build() -> fin de zone wrap
+
+------------------------------------------------------------------------------
+[7] Helper R4 _truncate_active_thesis_v5
+------------------------------------------------------------------------------
+L1597 :     def _truncate_active_thesis_v5(_lines, _keep=5):
+L1629 :     lines = _truncate_active_thesis_v5(lines, _keep=5)  # [ICMEMO_V5_R4]
+
+------------------------------------------------------------------------------
+[8] Toutes assignations 'lines = ' dans la fonction #2 (apres helper R4)
+------------------------------------------------------------------------------
+L1594 :     lines = md.split("\n")
+L1629 :     lines = _truncate_active_thesis_v5(lines, _keep=5)  # [ICMEMO_V5_R4]
+
+------------------------------------------------------------------------------
+[9] Imports / outils PDF dans la fonction #2
+------------------------------------------------------------------------------
+L1505 :     import io
+L1506 :     import re
+L1507 :     from reportlab.lib.pagesizes import A4
+L1508 :     from reportlab.lib.units import mm, cm
+L1509 :     from reportlab.lib.colors import HexColor, white, black
+L1510 :     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+L1511 :     from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+L1512 :     from reportlab.platypus import (
+L1513 :         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+L1516 :     from reportlab.pdfbase import pdfmetrics
+L1517 :     from reportlab.pdfbase.ttfonts import TTFont
+L1571 :     sH1 = ParagraphStyle("MemoH1", parent=styles["Heading1"],
+
+------------------------------------------------------------------------------
+[10] memo_generator references
+------------------------------------------------------------------------------
+
+memo_generator.py existe : True
+Taille : 13532 bytes, mtime : 1779895223.3942416
+Total lignes memo_generator : 385
+  def L15 : def _build_header(date_str: str, portfolio_state: dict) -> str:
+  def L40 : def _build_macro_section(macro_result: dict) -> str:
+  def L78 : def _build_factor_section(factor_results: list) -> str:
+  def L111 : def _build_thesis_section(conn: sqlite3.Connection, agent_results: dict) -> str:
+  def L147 : def _build_proposed_changes_section(conn: sqlite3.Connection) -> str:
+  def L191 : def _build_audit_trail_section(conn: sqlite3.Connection) -> str:
+  def L232 : def _build_risk_v2_section(conn: sqlite3.Connection) -> str:
+  def L292 : def generate_ic_memo(conn: sqlite3.Connection, agent_results: dict | None = None) -> int:

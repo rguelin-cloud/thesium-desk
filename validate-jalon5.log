@@ -1,0 +1,61 @@
+﻿
+============================================================
+1. SNAPSHOT CONVERGENCE EN DB
+============================================================
+  [PASS] snapshot_exists  -- cycle 20260609-091332 (30 tickers)
+  [PASS] snapshot_totals_db  -- 30 tickers : 9 fe / 1 drift / 7 strong
+
+============================================================
+2. ENDPOINT API /api/convergence/snapshot
+============================================================
+  [PASS] api_status_ok  -- cycle 20260609-091332
+  [PASS] api_cycle_match  -- API et DB sur le meme cycle
+  [PASS] api_rows_present  -- 30 tickers
+  [PASS] api_row_schema  -- toutes les clefs presentes (sample AMD)
+  [PASS] api_buckets_schema  -- clefs buckets OK : ['L1', 'L2', 'L3', 'L4', 'L5']
+
+============================================================
+3. COHERENCE DB <-> API
+============================================================
+  [PASS] coherence_tickers  -- 30 tickers identiques
+  [PASS] coherence_sizing  -- sizing/forced_exit identiques DB<->API
+
+============================================================
+4. MARKERS IDEMPOTENCE
+============================================================
+  [PASS] marker::portfolio_construction_agent_jalon2.py::# [CONVERGENCE_SIZING_V2]
+  [PASS] marker::portfolio_construction_agent_jalon2.py::# [CONV_FALSY_FIX_V1]
+  [PASS] marker::api_server_with_static.py::# [CONVERGENCE_CYCLE_RESOLVER_V2]
+  [PASS] marker::api_server_with_static.py::# [API_CONVERGENCE_V1]
+  [PASS] marker::app.js::// [CONVERGENCE_JS_V1]
+  [PASS] marker::app.js::// [CONVERGENCE_JS_V2_FIX]
+  [PASS] marker::index.html::<!-- [CONVERGENCE_CARD_V1] -->
+  [PASS] marker::index.html::<!-- [CONVERGENCE_CSS_V2_FIX] -->
+
+============================================================
+5. MEMO_GENERATOR - SECTION DIFF
+============================================================
+  [PASS] memo_diff_section  -- signaux trouves : ['compute_cycle_diff', 'diff_engine', 'J-1']
+  [WARN] memo_convergence_aware  -- memo_generator ne semble pas lire convergence_snapshots
+
+============================================================
+6. MEMOS DISPONIBLES EN DB
+============================================================
+  [WARN] memos_table  -- table 'memos' introuvable (peut-etre nom different)
+    tables memo-like : ['ic_memos', 'pplx_memo_context']
+
+============================================================
+SYNTHESE
+============================================================
+
+  PASS : 18
+  FAIL : 0
+  WARN : 2
+
+  >>> JALON 5 E2E : VALIDE (PASS) <<<
+
+[ETAPE B - GENERATION MEMOS PDF]
+  Ticker forced_exit a tester : AMD
+  Ticker strong a tester       : AAPL
+  Action user : depuis l'UI, cliquer 'Memo IA' sur AMD et AAPL
+             puis exporter en PDF et partager les 2 fichiers

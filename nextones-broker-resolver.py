@@ -1,0 +1,295 @@
+# -*- coding: utf-8 -*-
+# [NEXTONES-BROKER-RESOLVER-V1]
+# Resolveur thesium_ticker -> broker_symbol pour ActivTrades.
+#
+# Strategie:
+#   1. lookup explicite dans instrument_broker_mapping (source de verite)
+#   2. fallback: heuristiques par classe (equity_us, crypto, metal, ...)
+#   3. confronte le candidat a broker_universe_activtrades
+#   4. si introuvable -> ResolverResult(tradable=False, reason='unmapped')
+#
+# Cache TTL 60s par defaut. Thread-safe simple via lock module.
+#
+# Usage import:
+#   from nextones_broker_resolver import resolve, is_tradable, BrokerMatch
+#
+# Module name avec tirets non importable => on cree un alias en symlink ou
+# on importe via importlib (cf. integration cote scheduler).
+# Pour tests CLI:
+#   py -3.13 nextones-broker-resolver.py AAPL
+#   py -3.13 nextones-broker-resolver.py BTC --asset crypto
+
+import os
+import sys
+import time
+import sqlite3
+import threading
+from dataclasses import dataclass
+from typing import Optional, Dict, Tuple
+
+# [NEXTONES-BROKER-DB-HARDENED-V1]
+import sqlite3 as _sq_nx_h
+def _nx_open_db(_p, **_kw):
+    _kw.setdefault('timeout', 10.0)
+    _c = _sq_nx_h.connect(_p, **_kw)
+    try:
+        _c.execute('PRAGMA busy_timeout=10000')
+    except Exception:
+        pass
+    return _c
+
+
+DB_PATH = os.environ.get(
+    "THESIUM_DB",
+    r"C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db",
+)
+
+DEFAULT_TTL_SEC = 60
+
+_LOCK = threading.Lock()
+_CACHE: Dict[Tuple[str, str], "BrokerMatch"] = {}
+_CACHE_TS: Dict[Tuple[str, str], float] = {}
+
+
+@dataclass
+class BrokerMatch:
+    thesium_ticker: str
+    broker_symbol: Optional[str]
+    asset_class: Optional[str]
+    tradable: bool
+    source: str          # 'mapping_table' | 'heuristic' | 'unmapped'
+    reason: Optional[str] = None
+    quote_ccy: Optional[str] = None
+    lot_step: Optional[float] = None
+    min_lots: Optional[float] = None
+    tick_size: Optional[float] = None
+    tick_value: Optional[float] = None
+    contract_size: Optional[float] = None
+
+
+# ----------------------------------------------------------------------
+# Heuristiques de format broker
+# ----------------------------------------------------------------------
+
+# Symboles "specials" sans regle simple (metaux, energies, indices)
+SPECIAL_MAP = {
+    "XAUUSD": "GOLD",
+    "XAGUSD": "SILVER",
+    "XPTUSD": "Platinum",
+    "XPDUSD": "Palladium",
+    "USOIL": "LCrude",
+    "UKOIL": "Brent",
+    "NATGAS": "NGas",
+    "GASOIL": "Diesel",
+    "US100": "UsaTec",
+    "US500": "Usa500",
+    "US30": "UsaInd",
+    "US2000": "UsaRus",
+    "DE40": "Ger40",
+    "DE50": "GerMid50",
+    "FR40": "Fra40",
+    "UK100": "UK100",
+    "EU50": "Euro50",
+    "ES35": "Esp35",
+    "IT40": "Ita40",
+    "CH20": "Swi20",
+    "NL25": "Neth25",
+    "JP225": "Jp225",
+    "HK50": "HKInd",
+    "BR50": "Bra50",
+    "CN50": "ChinaA50",
+}
+
+CRYPTO_SET = {
+    "BTC", "ETH", "SOL", "LTC", "ADA", "XRP", "AVAX", "BCH", "EOS",
+    "XLM", "DOT", "LINK", "NEO", "DOGE", "UNI",
+}
+
+
+def _heuristic_candidate(thesium_ticker: str,
+                         asset_class: Optional[str]) -> Optional[str]:
+    t = (thesium_ticker or "").strip()
+    if not t:
+        return None
+
+    if t in SPECIAL_MAP:
+        return SPECIAL_MAP[t]
+
+    # Crypto: BTC -> BTCUSD
+    if asset_class == "crypto" or t.upper() in CRYPTO_SET:
+        if t.upper().endswith("USD"):
+            return t.upper()
+        return t.upper() + "USD"
+
+    # FX 6 lettres "EURUSD" : passe tel quel
+    if asset_class == "fx" or (len(t) == 6 and t.isalpha() and t.isupper()):
+        return t.upper()
+
+    # Equity / ETF US: AAPL -> AAPL.US
+    if asset_class in ("equity_us", "etf_us") or (
+        t.isalpha() and 1 <= len(t) <= 5 and t.isupper()
+    ):
+        return t + ".US"
+
+    return None
+
+
+# ----------------------------------------------------------------------
+# DB lookups
+# ----------------------------------------------------------------------
+
+def _row_to_match(thesium_ticker: str, row, source: str) -> BrokerMatch:
+    (broker_symbol, asset_class, tradable, quote_ccy,
+     lot_step, min_lots, tick_size, tick_value, contract_size) = row
+    return BrokerMatch(
+        thesium_ticker=thesium_ticker,
+        broker_symbol=broker_symbol,
+        asset_class=asset_class,
+        tradable=bool(tradable),
+        source=source,
+        reason=None if tradable else "tradable_false_in_mapping",
+        quote_ccy=quote_ccy,
+        lot_step=lot_step,
+        min_lots=min_lots,
+        tick_size=tick_size,
+        tick_value=tick_value,
+        contract_size=contract_size,
+    )
+
+
+def _lookup_mapping_table(con, thesium_ticker: str) -> Optional[BrokerMatch]:
+    cur = con.cursor()
+    cur.execute(
+        "SELECT m.broker_symbol, COALESCE(u.asset_class, m.instrument_type), "
+        "m.tradable, m.quote_ccy, m.lot_step, m.min_lots, "
+        "m.tick_size, m.tick_value, m.contract_size "
+        "FROM instrument_broker_mapping m "
+        "LEFT JOIN broker_universe_activtrades u "
+        "  ON u.broker_symbol = m.broker_symbol "
+        "WHERE m.thesium_ticker = ?",
+        (thesium_ticker,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    return _row_to_match(thesium_ticker, row, "mapping_table")
+
+
+def _lookup_universe(con, broker_symbol: str):
+    cur = con.cursor()
+    cur.execute(
+        "SELECT broker_symbol, asset_class, quote_ccy "
+        "FROM broker_universe_activtrades WHERE broker_symbol = ?",
+        (broker_symbol,),
+    )
+    return cur.fetchone()
+
+
+# ----------------------------------------------------------------------
+# API principale
+# ----------------------------------------------------------------------
+
+def resolve(thesium_ticker: str,
+            asset_class: Optional[str] = None,
+            db_path: Optional[str] = None,
+            ttl_sec: int = DEFAULT_TTL_SEC) -> BrokerMatch:
+    """
+    Renvoie une BrokerMatch.
+    - Si trouve dans instrument_broker_mapping : source='mapping_table'
+    - Sinon heuristique + verification broker_universe_activtrades :
+      source='heuristic'
+    - Sinon : source='unmapped', tradable=False
+    """
+    key = (thesium_ticker or "", asset_class or "")
+    now = time.time()
+
+    with _LOCK:
+        if key in _CACHE and now - _CACHE_TS.get(key, 0) < ttl_sec:
+            return _CACHE[key]
+
+    path = db_path or DB_PATH
+    con = _nx_open_db(path)
+    try:
+        m = _lookup_mapping_table(con, thesium_ticker)
+        if m is not None:
+            _put_cache(key, m)
+            return m
+
+        candidate = _heuristic_candidate(thesium_ticker, asset_class)
+        if candidate:
+            row = _lookup_universe(con, candidate)
+            if row:
+                broker_symbol, ac, ccy = row
+                match = BrokerMatch(
+                    thesium_ticker=thesium_ticker,
+                    broker_symbol=broker_symbol,
+                    asset_class=ac,
+                    tradable=True,
+                    source="heuristic",
+                    reason=None,
+                    quote_ccy=ccy,
+                )
+                _put_cache(key, match)
+                return match
+
+        unmapped = BrokerMatch(
+            thesium_ticker=thesium_ticker,
+            broker_symbol=None,
+            asset_class=asset_class,
+            tradable=False,
+            source="unmapped",
+            reason="not_in_universe_and_no_heuristic_match",
+        )
+        _put_cache(key, unmapped)
+        return unmapped
+    finally:
+        con.close()
+
+
+def is_tradable(thesium_ticker: str,
+                asset_class: Optional[str] = None) -> bool:
+    return resolve(thesium_ticker, asset_class).tradable
+
+
+def _put_cache(key, val):
+    with _LOCK:
+        _CACHE[key] = val
+        _CACHE_TS[key] = time.time()
+
+
+def clear_cache():
+    with _LOCK:
+        _CACHE.clear()
+        _CACHE_TS.clear()
+
+
+# ----------------------------------------------------------------------
+# CLI smoke
+# ----------------------------------------------------------------------
+
+def _main_cli():
+    if len(sys.argv) < 2:
+        print("Usage: resolver <thesium_ticker> [--asset crypto|equity_us|etf_us|fx|metal|energy|index]")
+        sys.exit(1)
+    tkr = sys.argv[1]
+    ac = None
+    if "--asset" in sys.argv:
+        i = sys.argv.index("--asset")
+        if i + 1 < len(sys.argv):
+            ac = sys.argv[i + 1]
+    m = resolve(tkr, asset_class=ac)
+    print("thesium_ticker  : " + str(m.thesium_ticker))
+    print("broker_symbol   : " + str(m.broker_symbol))
+    print("asset_class     : " + str(m.asset_class))
+    print("tradable        : " + str(m.tradable))
+    print("source          : " + str(m.source))
+    print("reason          : " + str(m.reason))
+    print("quote_ccy       : " + str(m.quote_ccy))
+    print("lot_step        : " + str(m.lot_step))
+    print("min_lots        : " + str(m.min_lots))
+    print("tick_size       : " + str(m.tick_size))
+    print("tick_value      : " + str(m.tick_value))
+
+
+if __name__ == "__main__":
+    _main_cli()

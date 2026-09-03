@@ -1,0 +1,15 @@
+[19:14:15] [INFO] ==== DEPLOIEMENT JALON 2 + v6.5 + FIX UI ====
+[19:14:15] [INFO] Project: C:\Users\RichardGUELIN\Prod\ThesiumDesk
+[19:14:15] [INFO] Backup:  C:\Users\RichardGUELIN\Prod\ThesiumDesk\_backups_jalon2_20260524_191415
+[19:14:15] [INFO] Log:     C:\Users\RichardGUELIN\Prod\ThesiumDesk\deploy_jalon2_20260524_191415.log
+[19:14:15] [INFO] Tous les fichiers source sont presents (5/5)
+[19:14:15] [WARN] Aucun HTML standard trouve, recherche elargie...
+[19:14:15] [INFO] HTML detecte automatiquement: .\index.html
+[19:14:16] [INFO] Backup: api_server_with_static.py
+[19:14:16] [INFO] Backup: thesium.db
+[19:14:16] [INFO] Backup: execution_engine.py
+[19:14:16] [INFO] Backup: portfolio_construction_agent.py
+[19:14:16] [INFO] Backup: .\index.html
+[19:14:16] [INFO] Arret du serveur uvicorn sur le port 8000...
+[19:14:19] [INFO]   aucun serveur en cours sur 8000
+[19:14:19] [INFO] Verify Jalon 2 (dry-run)...

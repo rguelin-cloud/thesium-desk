@@ -1,0 +1,3771 @@
+"""
+api_server.py - Main FastAPI server for Nextones.finance
+Runs on port 8000. All endpoints return proper JSON with ISO dates.
+"""
+# [NEXTONES_PNL_PATCH_APPLIED]  # 2026-05-22T17:29:42
+import json
+import math
+import sqlite3
+import sys
+import os
+from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query, Depends, Request, Body
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+# Ensure the package directory is in sys.path
+sys.path.insert(0, str(Path(__file__).parent))
+
+from models import get_db, init_db, row_to_dict, rows_to_list
+from seed_data import seed
+from auth import (
+    init_users_table, UserCreate, UserLogin, UserOut, TokenOut,
+    create_user, authenticate_user, create_access_token, get_current_user,
+    require_admin, require_manager, require_analyst,
+    list_users, update_user, reset_user_password, ROLE_HIERARCHY,
+)
+import data_finviz
+import data_crypto
+import data_macro
+import data_geopolitical
+import data_sentiment
+import data_ingestion
+import backtest_engine
+
+
+# ---------------------------------------------------------------------------
+# Lifespan: init DB and seed on startup
+# ---------------------------------------------------------------------------
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("[startup] Initializing database...")
+    init_db()
+    print("[startup] Initializing users table...")
+    init_users_table()
+    print("[startup] Seeding demo data...")
+    seed()
+    print("[startup] Starting geopolitical data pre-fetch (background)...")
+    data_geopolitical.start_background_fetch()
+
+    # ---- Scheduled refresh (APScheduler) ----
+    from apscheduler.schedulers.background import BackgroundScheduler
+    scheduler = BackgroundScheduler()
+
+    def refresh_prices():
+        """Refresh price data for all instruments, then update portfolio."""
+        try:
+            print("[scheduler] Refreshing prices...")
+            data_ingestion.run_ingestion(period="5d")
+            print("[scheduler] Prices refreshed. Updating portfolio...")
+            _update_portfolio_from_latest_prices()
+        except Exception as e:
+            print(f"[scheduler] Price refresh error: {e}")
+
+    def refresh_macro():
+        """Force-refresh macro dashboard (clear cache)."""
+        try:
+            print("[scheduler] Refreshing macro data...")
+            data_macro._cache["data"] = None
+            data_macro._cache["timestamp"] = None
+            data_macro.fetch_vulnerability_dashboard(force_refresh=True)
+            print("[scheduler] Macro data refreshed.")
+        except Exception as e:
+            print(f"[scheduler] Macro refresh error: {e}")
+
+    def refresh_sentiment():
+        """Force-refresh sentiment data (clear cache)."""
+        try:
+            print("[scheduler] Refreshing sentiment...")
+            data_sentiment._cache["data"] = None
+            data_sentiment._cache["ts"] = 0
+            data_sentiment.get_sentiment()
+            print("[scheduler] Sentiment refreshed.")
+        except Exception as e:
+            print(f"[scheduler] Sentiment refresh error: {e}")
+
+    def refresh_geo():
+        """Force-refresh geopolitical data."""
+        try:
+            print("[scheduler] Refreshing geopolitical data...")
+            data_geopolitical.start_background_fetch()
+            print("[scheduler] Geo data refresh triggered.")
+        except Exception as e:
+            print(f"[scheduler] Geo refresh error: {e}")
+
+
+    def refresh_pplx_crypto():
+        """[SCHEDULER_PPLX_V1] Refresh contexte Perplexity pour cryptos."""
+        try:
+            print("[scheduler] Refreshing Perplexity crypto contexts...")
+            from pplx_crypto_agent import refresh_all_crypto_contexts
+            refresh_all_crypto_contexts(ttl_hours=4)
+        except Exception as e:
+            print(f"[scheduler] PPLX crypto refresh error: {e}")
+
+    def refresh_pplx_factor():
+        """[SCHEDULER_PPLX_V1] Refresh contexte Perplexity qualite pour equities."""
+        try:
+            print("[scheduler] Refreshing Perplexity factor quality contexts...")
+            from pplx_factor_agent import refresh_all_quality_contexts
+            refresh_all_quality_contexts(ttl_hours=24)
+        except Exception as e:
+            print(f"[scheduler] PPLX factor refresh error: {e}")
+
+    def refresh_pplx_geo():
+        """[SCHEDULER_GEO_PPLX_V1] Refresh contexte geopolitique Perplexity (top 5 risques, 4h cache)."""
+        try:
+            print("[scheduler] Refreshing Perplexity geo context...")
+            from pplx_geo_agent import run_geo_agent
+            run_geo_agent(force=True)
+            print("[scheduler] PPLX geo context refreshed.")
+        except Exception as e:
+            print(f"[scheduler] PPLX geo refresh error: {e}")
+
+    from datetime import datetime as _dt, timedelta as _td
+    _now = _dt.now()
+    # Schedule: prices every 2h, macro every 6h, sentiment every 1h, geo every 4h
+    # First price refresh 30s after startup to get fresh data quickly
+    scheduler.add_job(refresh_prices,    'interval', hours=2, id='refresh_prices',    next_run_time=_now + _td(seconds=30))
+    scheduler.add_job(refresh_macro,     'interval', hours=6, id='refresh_macro',     next_run_time=_now + _td(hours=6))
+    scheduler.add_job(refresh_sentiment, 'interval', hours=1, id='refresh_sentiment', next_run_time=_now + _td(hours=1))
+    # [GDELT_SCHEDULER_DISABLED_V1] desactive (GDELT rate-limit 429) : scheduler.add_job(refresh_geo,       'interval', hours=4, id='refresh_geo',       next_run_time=_now + _td(hours=4))
+    scheduler.add_job(refresh_pplx_crypto, 'interval', hours=4,  id='refresh_pplx_crypto', next_run_time=_now + _td(minutes=2))
+    scheduler.add_job(refresh_pplx_factor, 'interval', hours=24, id='refresh_pplx_factor', next_run_time=_now + _td(minutes=5))
+    scheduler.add_job(refresh_pplx_geo,    'interval', hours=4,  id='refresh_pplx_geo',    next_run_time=_now + _td(minutes=8))
+
+    # [SCHEDULER_CRYPTO_CG_V1] BEGIN  ----------------------------------------------
+    def refresh_crypto_cg():
+        """Refresh crypto prices via CoinGecko for tickers absents from Yahoo."""
+        try:
+            print("[scheduler] Refreshing CoinGecko crypto prices...")
+            import data_crypto
+            res = data_crypto.refresh_crypto_prices_to_db()
+            print(f"[scheduler] CG crypto refreshed: updated={{len(res.get('updated', []))}}")
+        except Exception as e:
+            print(f"[scheduler] CG crypto refresh error: {{e}}")
+
+    scheduler.add_job(refresh_crypto_cg, 'interval', hours=2,
+                      id='refresh_crypto_cg',
+                      next_run_time=_now + _td(minutes=1))
+    # [SCHEDULER_CRYPTO_CG_V1] END  ------------------------------------------------
+    # [SCHED_UNIVERSE_V2_BEGIN]
+    # Universe Expansion v1 - Job mensuel (Jalon 4)
+    def _universe_expansion_monthly_job():
+        try:
+            from universe_expansion_agent import run_scan
+            print("[SCHED] universe_expansion_monthly: starting...")
+            res = run_scan(top_n=5, dry_run=False)
+            print(f"[SCHED] universe_expansion_monthly: done -> {res}")
+        except Exception as _e:
+            import traceback; traceback.print_exc()
+            print(f"[SCHED] universe_expansion_monthly FAILED: {_e}")
+    try:
+        scheduler.add_job(
+            _universe_expansion_monthly_job,
+            trigger="cron",
+            day=1, hour=20, minute=0, timezone="UTC",
+            id="universe_expansion_monthly",
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+        print("[SCHED] universe_expansion_monthly job registered (cron 0 20 1 * * UTC)")
+    except Exception as _e:
+        print(f"[SCHED] failed to register universe_expansion_monthly: {_e}")
+    # [SCHED_UNIVERSE_V2_END]
+
+    scheduler.start()
+    app.state._scheduler = scheduler
+    print("[startup] Scheduler started (prices:2h, macro:6h, sentiment:1h, geo:4h)")
+    print("[startup] Nextones API ready.")
+    yield
+    scheduler.shutdown(wait=False)
+
+
+def _update_portfolio_from_latest_prices():
+    """Module-level helper: update portfolio_positions and portfolio_state from latest prices."""
+    conn = get_db()
+    try:
+        conn.row_factory = sqlite3.Row
+        positions = conn.execute(
+            'SELECT id, instrument_id, quantity, avg_cost FROM portfolio_positions'
+        ).fetchall()
+        if not positions:
+            return
+        total_market_value = 0
+        total_prev_market_value = 0
+        updates = []
+        for pos in positions:
+            # Get latest price
+            price_row = conn.execute(
+                'SELECT close FROM prices WHERE instrument_id = ? ORDER BY date DESC LIMIT 1',
+                (pos['instrument_id'],)
+            ).fetchone()
+            if not price_row:
+                continue
+            latest = price_row['close']
+            # Get previous day's close for daily P&L
+            prev_row = conn.execute(
+                'SELECT close FROM prices WHERE instrument_id = ? ORDER BY date DESC LIMIT 1 OFFSET 1',
+                (pos['instrument_id'],)
+            ).fetchone()
+            prev_close = prev_row['close'] if prev_row else latest
+
+            mv = pos['quantity'] * latest
+            prev_mv = pos['quantity'] * prev_close
+            pnl = pos['quantity'] * (latest - pos['avg_cost'])
+            total_market_value += mv
+            total_prev_market_value += prev_mv
+            updates.append((latest, round(pnl, 2), round(mv, 2), pos['id'], pos['quantity'], pos['avg_cost']))
+
+        ps = conn.execute('SELECT cash FROM portfolio_state WHERE id = 1').fetchone()
+        cash = ps['cash'] if ps else 0
+        total_value = cash + total_market_value
+        total_prev_value = cash + total_prev_market_value
+
+        for upd in updates:
+            w = round(upd[2] / total_value * 100, 2) if total_value > 0 else 0
+            conn.execute(
+                "UPDATE portfolio_positions SET current_price=?, unrealized_pnl=?, weight_pct=?, updated_at=datetime('now') WHERE id=?",
+                (upd[0], upd[1], w, upd[3])
+            )
+
+        total_cost = sum(u[4] * u[5] for u in updates)
+        # [FIX_API_UNREALIZED_TOTAL_RETURN_FINAL_V1] (A)
+        # Unrealized = market_value - cost_basis (P&L latent des positions ouvertes)
+        unrealized_pnl = total_market_value - total_cost
+        INITIAL_CAPITAL = 1000000
+        # Net capital flows : deposits +, withdrawals -
+        try:
+            _fr = conn.execute(
+                "SELECT COALESCE(SUM(CASE WHEN flow_type='deposit' THEN amount "
+                "WHEN flow_type='withdrawal' THEN -amount ELSE 0 END), 0) "
+                "FROM capital_flows"
+            ).fetchone()
+            net_capital_flows = _fr[0] if _fr else 0.0
+        except Exception:
+            net_capital_flows = 0.0
+        # Total return (NAV-based) = NAV - initial - flows
+        total_pnl = total_value - INITIAL_CAPITAL - net_capital_flows
+        total_pnl_pct = (total_pnl / INITIAL_CAPITAL * 100) if INITIAL_CAPITAL > 0 else 0
+        unrealized_pnl_pct = (unrealized_pnl / INITIAL_CAPITAL * 100) if INITIAL_CAPITAL > 0 else 0
+
+        # PATCH: Daily P&L = NAV courant - dernière clôture STRICTEMENT avant aujourd'hui
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        prev_row = conn.execute(
+            "SELECT total_value FROM portfolio_history WHERE date < ? "
+            "ORDER BY date DESC LIMIT 1",
+            (today_str,),
+        ).fetchone()
+        total_prev_value = prev_row[0] if prev_row else total_value
+        daily_pnl = total_value - total_prev_value
+        daily_pnl_pct = (daily_pnl / total_prev_value * 100) if total_prev_value > 0 else 0
+
+        # PATCH: Upsert du snapshot du jour dans portfolio_history
+        # ------------------------------------------------------ [PORTFOLIO_DB_LOCK_FIX_V1] CALL
+        ok = _portfolio_write_with_retry(
+            conn, today_str, total_value, cash, total_pnl,
+            total_pnl_pct, daily_pnl, daily_pnl_pct,
+            unrealized_pnl=unrealized_pnl,
+            unrealized_pnl_pct=unrealized_pnl_pct,
+            max_attempts=3,
+        )
+        if ok:
+            print(f"[portfolio] Updated: total_value={total_value:.2f}, pnl={total_pnl:.2f}, daily_pnl={daily_pnl:.2f}")
+        # ------------------------------------------------------ [PORTFOLIO_DB_LOCK_FIX_V1] CALL END
+    except Exception as e:
+        print(f"[portfolio] Update error: {e}")
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------- [PORTFOLIO_DB_LOCK_FIX_V1] BEGIN
+def _portfolio_write_with_retry(conn, today_str, total_value, cash, total_pnl,
+                                total_pnl_pct, daily_pnl, daily_pnl_pct,
+                                unrealized_pnl=None, unrealized_pnl_pct=None,
+                                max_attempts=3):
+    """Wrapper avec retry exponential pour gerer les DB locks transitoires."""
+    import time as _t
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            try:
+                conn.execute("PRAGMA busy_timeout=5000")
+            except Exception:
+                pass
+            conn.execute(
+                """INSERT INTO portfolio_history (date, total_value, cash, total_pnl)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(date) DO UPDATE SET
+                     total_value=excluded.total_value,
+                     cash=excluded.cash,
+                     total_pnl=excluded.total_pnl""",
+                (today_str, round(total_value, 2), round(cash, 2), round(total_pnl, 2)),
+            )
+            # [FIX_API_UNREALIZED_TOTAL_RETURN_FINAL_V1] (B)
+            if unrealized_pnl is not None:
+                conn.execute(
+                    """UPDATE portfolio_state
+                       SET total_value=?, total_pnl=?, total_pnl_pct=?,
+                           unrealized_pnl=?, unrealized_pnl_pct=?,
+                           daily_pnl=?, daily_pnl_pct=?, updated_at=?
+                       WHERE id=1""",
+                    (round(total_value, 2), round(total_pnl, 2), round(total_pnl_pct, 4),
+                     round(unrealized_pnl, 2),
+                     round(unrealized_pnl_pct if unrealized_pnl_pct is not None else 0, 4),
+                     round(daily_pnl, 2), round(daily_pnl_pct, 4),
+                     datetime.now().isoformat()),
+                )
+            else:
+                conn.execute(
+                    """UPDATE portfolio_state
+                       SET total_value=?, total_pnl=?, total_pnl_pct=?,
+                           daily_pnl=?, daily_pnl_pct=?, updated_at=?
+                       WHERE id=1""",
+                    (round(total_value, 2), round(total_pnl, 2), round(total_pnl_pct, 4),
+                     round(daily_pnl, 2), round(daily_pnl_pct, 4),
+                     datetime.now().isoformat()),
+                )
+            conn.commit()
+            if attempt > 1:
+                print("[portfolio] Write OK after %d attempt(s)" % attempt)
+            return True
+        except Exception as e:
+            last_err = e
+            msg = str(e).lower()
+            if "locked" in msg or "busy" in msg:
+                wait_ms = 100 * (3 ** (attempt - 1))
+                print("[portfolio] DB locked (attempt %d/%d), wait %d ms" % (
+                    attempt, max_attempts, wait_ms))
+                _t.sleep(wait_ms / 1000.0)
+                continue
+            raise
+    print("[portfolio] Update error after %d attempts: %s" % (max_attempts, last_err))
+    return False
+# ---------------------------------------------------------------------- [PORTFOLIO_DB_LOCK_FIX_V1] END
+
+
+# Rate Limiter
+# ---------------------------------------------------------------------------
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
+
+app = FastAPI(
+    title="Nextones.finance API",
+    description="Fund OS – Live theses, auditable trades.",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def db() -> sqlite3.Connection:
+    """Get a DB connection with Row factory."""
+    return get_db()
+
+
+def _parse_json_fields(d: dict) -> dict:
+    """Recursively parse any string fields that look like JSON."""
+    if not d:
+        return d
+    for k, v in d.items():
+        if isinstance(v, str) and len(v) > 1 and v[0] in ('{', '['):
+            try:
+                d[k] = json.loads(v)
+            except Exception:
+                pass
+    return d
+
+
+# ---------------------------------------------------------------------------
+# Pydantic Models
+# ---------------------------------------------------------------------------
+
+class ApproveThesisRequest(BaseModel):
+    notes: str = ""
+
+
+class ExecuteCycleRequest(BaseModel):
+    force: bool = False
+
+
+class OrderApproveRequest(BaseModel):
+    pass
+
+
+class OrderRejectRequest(BaseModel):
+    reason: str = ""
+
+
+class BulkRejectRequest(BaseModel):
+    reason: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Dashboard & Portfolio
+# ---------------------------------------------------------------------------
+
+@app.get("/api/dashboard")
+def get_dashboard():
+    """Portfolio summary: total value, cash, P&L, risk metrics, positions, recent events."""
+    conn = db()
+    try:
+        # Portfolio state
+        ps_row = conn.execute("SELECT * FROM portfolio_state WHERE id = 1").fetchone()
+        ps = row_to_dict(ps_row) or {}
+
+        # Positions with instrument info and P&L
+        positions_rows = conn.execute(
+            """SELECT pp.id, pp.instrument_id, pp.quantity, pp.avg_cost,
+                      pp.current_price, pp.unrealized_pnl, pp.weight_pct,
+                      i.ticker, i.name, i.sector, i.asset_class,
+                      p.close AS latest_close, p.date AS price_date
+               FROM portfolio_positions pp
+               JOIN instruments i ON i.id = pp.instrument_id
+               LEFT JOIN (
+                   SELECT instrument_id, close, date
+                   FROM prices
+                   WHERE (instrument_id, date) IN (
+                       SELECT instrument_id, MAX(date)
+                       FROM prices GROUP BY instrument_id
+                   )
+               ) p ON p.instrument_id = pp.instrument_id
+               ORDER BY pp.weight_pct DESC"""
+        ).fetchall()
+
+        positions = []
+        for row in positions_rows:
+            d = dict(row)
+            # Update with latest close if available
+            if d["latest_close"]:
+                market_value = d["quantity"] * d["latest_close"]
+                total_val = ps.get("total_value", 1)
+                d["current_price"]  = d["latest_close"]
+                d["market_value"]   = round(market_value, 2)
+                d["unrealized_pnl"] = round(d["quantity"] * (d["latest_close"] - d["avg_cost"]), 2)
+                d["unrealized_pnl_pct"] = round(
+                    (d["latest_close"] - d["avg_cost"]) / d["avg_cost"] * 100
+                    if d["avg_cost"] else 0, 2
+                )
+                d["weight_pct"] = round(market_value / total_val * 100 if total_val else 0, 2)
+            positions.append(d)
+
+        # Recent events (last 20)
+        events_rows = conn.execute(
+            """SELECT id, event_type, entity_type, entity_id, details, agent, created_at
+               FROM event_log ORDER BY created_at DESC LIMIT 20"""
+        ).fetchall()
+        events = rows_to_list(events_rows)
+
+        # Active theses count
+        thesis_count = conn.execute(
+            "SELECT COUNT(*) FROM theses WHERE status = 'active'"
+        ).fetchone()[0]
+
+        # Pending validation orders
+        pending_orders = conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE status = 'pending_validation'"
+        ).fetchone()[0]
+
+        # [FIX_API_UNREALIZED_TOTAL_RETURN_FINAL_V1] (C)
+        _upnl = ps.get("unrealized_pnl")
+        if _upnl is None:
+            # Fallback : recompute depuis positions si DB pas a jour
+            _upnl = sum((p.get("unrealized_pnl") or 0) for p in positions)
+        _upnl_pct = ps.get("unrealized_pnl_pct")
+        if _upnl_pct is None:
+            _upnl_pct = (_upnl / 1000000.0 * 100.0) if _upnl else 0.0
+        _total_pnl = ps.get("total_pnl", 0) or 0
+        _total_pnl_pct = ps.get("total_pnl_pct", 0) or 0
+        return {
+            "portfolio": {
+                "cash":               round(ps.get("cash", 0), 2),
+                "total_value":        round(ps.get("total_value", 0), 2),
+                "total_pnl":          round(_total_pnl, 2),
+                "total_pnl_pct":      round(_total_pnl_pct, 4),
+                "unrealized_pnl":     round(_upnl, 2),
+                "unrealized_pnl_pct": round(_upnl_pct, 4),
+                "total_return":       round(_total_pnl, 2),
+                "total_return_pct":   round(_total_pnl_pct, 4),
+                "daily_pnl":          round(ps.get("daily_pnl", 0), 2),
+                "daily_pnl_pct":      round(ps.get("daily_pnl_pct", 0), 4),
+                "var_95":             round(ps.get("var_95", 0), 3),
+                "max_drawdown":       round(ps.get("max_drawdown", 0), 4),
+                "updated_at":         ps.get("updated_at"),
+            },
+            "positions": positions,
+            "recent_events": events,
+            "summary": {
+                "active_theses": thesis_count,
+                "pending_orders": pending_orders,
+                "num_positions": len([p for p in positions if p.get("quantity", 0) > 0]),
+            }
+        }
+    finally:
+        conn.close()
+
+
+# [PORTFOLIO_HISTORY_PERIOD_BENCHMARKS_V1]
+@app.get("/api/portfolio/history")
+def get_portfolio_history(
+    period: str = Query("30d", description="30d | 6m | 1y | all"),
+    benchmarks: str = Query("", description="CSV tickers, ex SPY,QQQ"),
+):
+    """Equity curve + optional benchmarks, all normalized to base 100.
+
+    Backward compat: if no params, behaves like previous 30d call but
+    response now includes ``portfolio`` and ``benchmarks`` keys.
+    Legacy ``history`` key is preserved for old clients.
+    """
+    from datetime import date, timedelta
+    conn = db()
+    try:
+        # 1) Resolve start_date from period
+        today = date.today()
+        if period == "30d":
+            start_date = (today - timedelta(days=30)).isoformat()
+        elif period == "6m":
+            start_date = (today - timedelta(days=183)).isoformat()
+        elif period == "1y":
+            start_date = (today - timedelta(days=365)).isoformat()
+        elif period == "all":
+            row = conn.execute(
+                "SELECT MIN(date) AS d FROM portfolio_history"
+            ).fetchone()
+            start_date = (row["d"] if row and row["d"] else today.isoformat())
+        else:
+            start_date = (today - timedelta(days=30)).isoformat()
+
+        # 2) Fetch portfolio rows in window, oldest first
+        rows = conn.execute(
+            """SELECT date, total_value, cash, total_pnl
+               FROM portfolio_history
+               WHERE date >= ?
+               ORDER BY date ASC""",
+            (start_date,),
+        ).fetchall()
+        portfolio = [dict(r) for r in rows]
+
+        # Fallback : flat curve if nothing
+        if not portfolio:
+            ps = conn.execute(
+                "SELECT total_value FROM portfolio_state WHERE id = 1"
+            ).fetchone()
+            total = ps["total_value"] if ps else 1000000
+            portfolio = [
+                {
+                    "date": (today - timedelta(days=i)).isoformat(),
+                    "total_value": total,
+                    "cash": total * 0.18,
+                    "total_pnl": 0,
+                }
+                for i in range(29, -1, -1)
+            ]
+
+        # 3) Normalize portfolio to base 100
+        if portfolio:
+            base_pf = portfolio[0]["total_value"] or 1
+            for p in portfolio:
+                p["perf_base100"] = round(
+                    (p["total_value"] / base_pf) * 100.0, 4
+                )
+
+        # 4) Fetch benchmark series in same window, normalized base 100
+        bench_out = {}
+        if benchmarks:
+            tickers = [
+                t.strip().upper()
+                for t in benchmarks.split(",")
+                if t.strip()
+            ]
+            for tk in tickers:
+                bench_rows = conn.execute(
+                    """SELECT p.date, p.close
+                       FROM prices p
+                       JOIN instruments i ON i.id = p.instrument_id
+                       WHERE i.ticker = ? AND p.date >= ?
+                       ORDER BY p.date ASC""",
+                    (tk, start_date),
+                ).fetchall()
+                series = [dict(r) for r in bench_rows]
+                if series:
+                    base = series[0]["close"] or 1
+                    for s in series:
+                        s["perf_base100"] = round(
+                            (s["close"] / base) * 100.0, 4
+                        )
+                bench_out[tk] = series
+
+        end_date = portfolio[-1]["date"] if portfolio else today.isoformat()
+
+        return {
+            "period": period,
+            "start_date": start_date,
+            "end_date": end_date,
+            "portfolio": portfolio,
+            "benchmarks": bench_out,
+            # legacy compat for older UI code paths
+            "history": portfolio,
+        }
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Theses
+# ---------------------------------------------------------------------------
+
+@app.get("/api/theses")
+def list_theses(
+    agent: str = Query(None),
+    status: str = Query("active"),
+    ticker: str = Query(None),
+    asset_class: str = Query(None),
+):
+    """List all theses with instrument info, conviction, horizon, agent."""
+    conn = db()
+    try:
+        query = """
+            SELECT t.id, t.instrument_id, t.agent_type, t.conviction_score,
+                   t.horizon, t.proposed_action, t.status, t.created_at, t.updated_at,
+                   t.key_drivers,
+                   i.ticker, i.name, i.sector, i.asset_class
+            FROM theses t
+            LEFT JOIN instruments i ON i.id = t.instrument_id
+            WHERE 1=1
+        """
+        params = []
+        if status:
+            query += " AND t.status = ?"
+            params.append(status)
+        if agent:
+            query += " AND t.agent_type = ?"
+            params.append(agent)
+        if ticker:
+            query += " AND i.ticker = ?"
+            params.append(ticker.upper())
+        if asset_class:
+            query += " AND i.asset_class = ?"
+            params.append(asset_class.lower())
+        query += " ORDER BY t.conviction_score DESC, t.updated_at DESC"
+
+        rows = conn.execute(query, params).fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            if isinstance(d.get("key_drivers"), str):
+                try:
+                    d["key_drivers"] = json.loads(d["key_drivers"])
+                except Exception:
+                    d["key_drivers"] = []
+            # For global theses (no instrument), set display info based on agent
+            if d.get("instrument_id") is None:
+                if d.get("agent_type") == "MacroAgent":
+                    d["ticker"] = "MACRO"
+                    d["name"] = "SPY / QQQ / DIA"
+                    d["asset_class"] = "macro"
+                else:
+                    d["ticker"] = d.get("agent_type", "N/A")
+                    d["name"] = "Global thesis"
+            result.append(d)
+        return {"theses": result, "total": len(result)}
+    finally:
+        conn.close()
+
+
+@app.get("/api/theses/{thesis_id}")
+def get_thesis(thesis_id: int):
+    """Full thesis detail with text, key drivers, and linked orders."""
+    conn = db()
+    try:
+        row = conn.execute(
+            """SELECT t.*, i.ticker, i.name, i.sector, i.asset_class
+               FROM theses t
+               LEFT JOIN instruments i ON i.id = t.instrument_id
+               WHERE t.id = ?""",
+            (thesis_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Thesis not found")
+
+        thesis = row_to_dict(row)
+
+        # Linked orders
+        orders = conn.execute(
+            """SELECT o.id, o.side, o.quantity, o.status, o.created_at,
+                      f.fill_price, f.filled_at
+               FROM orders o
+               LEFT JOIN fills f ON f.order_id = o.id
+               WHERE o.thesis_id = ?
+               ORDER BY o.created_at DESC""",
+            (thesis_id,)
+        ).fetchall()
+        thesis["linked_orders"] = [dict(r) for r in orders]
+
+        return thesis
+    finally:
+        conn.close()
+
+
+@app.post("/api/theses/{thesis_id}/approve")
+def approve_thesis(thesis_id: int, req: ApproveThesisRequest):
+    """Approve a thesis proposed action, creating an order if applicable."""
+    conn = db()
+    try:
+        thesis = conn.execute("SELECT * FROM theses WHERE id = ?", (thesis_id,)).fetchone()
+        if not thesis:
+            raise HTTPException(status_code=404, detail="Thesis not found")
+
+        conn.execute(
+            "UPDATE theses SET status = 'approved', updated_at = datetime('now') WHERE id = ?",
+            (thesis_id,)
+        )
+
+        from models import log_event
+        log_event(conn, "thesis_approved", "thesis", thesis_id,
+                  {"notes": req.notes, "agent": thesis["agent_type"]},
+                  agent="UserAction")
+        conn.commit()
+
+        return {
+            "success": True,
+            "thesis_id": thesis_id,
+            "message": f"Thesis #{thesis_id} approved",
+            "notes": req.notes,
+        }
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Orders & Executions
+# ---------------------------------------------------------------------------
+
+@app.get("/api/orders")
+def list_orders(
+    status: str = Query(None),
+    ticker: str = Query(None),
+    limit: int = Query(50),
+):
+    """List orders with status, fills, linked thesis/memo."""
+    conn = db()
+    try:
+        query = """
+            SELECT o.id, o.side, o.quantity, o.order_type, o.limit_price,
+                   o.status, o.risk_check_result, o.created_at,
+                   o.thesis_id, o.validated_by, o.rejection_reason, o.validated_at,
+                   i.ticker, i.name,
+                   f.fill_price, f.fill_quantity, f.slippage, f.fees, f.filled_at
+            FROM orders o
+            JOIN instruments i ON i.id = o.instrument_id
+            LEFT JOIN fills f ON f.order_id = o.id
+            WHERE 1=1
+        """
+        params = []
+        if status:
+            query += " AND o.status = ?"
+            params.append(status)
+        if ticker:
+            query += " AND i.ticker = ?"
+            params.append(ticker.upper())
+        query += " ORDER BY o.created_at DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        orders = []
+        for row in rows:
+            d = dict(row)
+            if isinstance(d.get("risk_check_result"), str):
+                try:
+                    d["risk_check_result"] = json.loads(d["risk_check_result"])
+                except Exception:
+                    d["risk_check_result"] = {}
+            orders.append(d)
+
+        return {"orders": orders, "total": len(orders)}
+    finally:
+        conn.close()
+
+
+@app.get("/api/fills")
+def list_fills(limit: int = Query(50)):
+    """List recent fills with order and instrument context."""
+    conn = db()
+    try:
+        rows = conn.execute(
+            """SELECT f.id, f.fill_price, f.fill_quantity, f.slippage, f.fees, f.filled_at,
+                      o.side, o.order_type,
+                      i.ticker, i.name
+               FROM fills f
+               JOIN orders o ON o.id = f.order_id
+               JOIN instruments i ON i.id = o.instrument_id
+               ORDER BY f.filled_at DESC LIMIT ?""",
+            (limit,)
+        ).fetchall()
+        return {"fills": [dict(r) for r in rows], "total": len(rows)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/orders/execute-cycle")
+@limiter.limit("5/minute")
+def execute_cycle(request: Request, user: dict = Depends(require_manager)):
+    """Trigger a full decision cycle: agents → risk → execution → memo."""
+    conn = db()
+    try:
+        from execution_engine import run_decision_cycle
+        result = run_decision_cycle(conn)
+        conn.commit()
+        # ===== [HISTORY_SNAPSHOT_V1] snapshot cycle vers tables _history =====
+        try:
+            import json as _json_hsv1
+            # Reuse the 'conn' opened at the top of execute_cycle (line 718)
+            _conn_hsv1 = conn
+            _cur_hsv1 = _conn_hsv1.cursor()
+            _cid_hsv1 = None
+            try:
+                if isinstance(result, dict):
+                    _cid_hsv1 = result.get("cycle_id") or (result.get("cycle") or {}).get("cycle_id") if isinstance(result.get("cycle"), dict) else result.get("cycle_id")
+            except Exception:
+                _cid_hsv1 = None
+            if not _cid_hsv1:
+                try:
+                    _r_hsv1 = _cur_hsv1.execute("SELECT cycle_id FROM regime_log ORDER BY id DESC LIMIT 1").fetchone()
+                    if _r_hsv1:
+                        _cid_hsv1 = _r_hsv1[0]
+                except Exception:
+                    pass
+            _snap_date_hsv1 = None
+            if _cid_hsv1 and isinstance(_cid_hsv1, str) and len(_cid_hsv1) >= 8:
+                _snap_date_hsv1 = f"{_cid_hsv1[0:4]}-{_cid_hsv1[4:6]}-{_cid_hsv1[6:8]}"
+            for _src_hsv1, _dst_hsv1 in (
+                ("factor_quality_context", "factor_quality_history"),
+                ("pplx_geo_context",       "pplx_geo_history"),
+                ("crypto_context",         "crypto_context_history"),
+            ):
+                try:
+                    _cur_hsv1.execute(f"SELECT * FROM {_src_hsv1} LIMIT 1")
+                    _cols_hsv1 = [d[0] for d in _cur_hsv1.description]
+                    _row_hsv1 = _cur_hsv1.fetchone()
+                    if _row_hsv1 is None:
+                        continue
+                    _payload_hsv1 = {_cols_hsv1[i]: _row_hsv1[i] for i in range(len(_cols_hsv1))}
+                    _cur_hsv1.execute(
+                        f"INSERT INTO {_dst_hsv1} (cycle_id, snapshot_date, payload_json) VALUES (?, ?, ?)",
+                        (_cid_hsv1, _snap_date_hsv1, _json_hsv1.dumps(_payload_hsv1, default=str)),
+                    )
+                except Exception as _e_hsv1:
+                    print(f"[HISTORY_SNAPSHOT_V1] skip {_src_hsv1}: {_e_hsv1}")
+                try:
+                    _cur_hsv1.execute(
+                        f"DELETE FROM {_dst_hsv1} WHERE created_at < datetime('now','-90 days')"
+                    )
+                except Exception:
+                    pass
+            _conn_hsv1.commit()
+            print(f"[HISTORY_SNAPSHOT_V1] snapshot done for cycle_id={_cid_hsv1}")
+        except Exception as _e_outer_hsv1:
+            print(f"[HISTORY_SNAPSHOT_V1] outer error: {_e_outer_hsv1}")
+        # ===== /[HISTORY_SNAPSHOT_V1] =====
+        # ===== [SHADOW_HOOK_V1] BEGIN =====
+        # Phase 9.4 - Jalon 9 Shadow Overlap : engine + fills + diff_log post-cycle
+        # Safe-fail : toute exception loggee, ne casse JAMAIS le return.
+        try:
+            import shadow_hook as _sh_v1
+            _sh_res_v1 = _sh_v1.run_shadow_cycle(
+                db_path=r"C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db",
+                cycle_id=_cid_hsv1,
+                prev_cycle_id=None,
+            )
+            print(f"[SHADOW_HOOK_V1] result={_sh_res_v1}")
+        except Exception as _e_sh_v1:
+            print(f"[SHADOW_HOOK_V1] outer error: {_e_sh_v1}")
+        # ===== [SHADOW_HOOK_V1] END =====
+        return {"success": True, "cycle_result": result}
+    except Exception as e:
+        conn.rollback()
+        # === [EXECUTE_CYCLE_TRACE_V1] BEGIN ===
+        import traceback as _tb_ec
+        _tb_str = _tb_ec.format_exc()
+        print("[execute_cycle] EXCEPTION ===")
+        print(_tb_str)
+        print("=== /[execute_cycle] EXCEPTION")
+        _detail = {
+            "type": type(e).__name__,
+            "msg": str(e),
+            "traceback_tail": _tb_str.splitlines()[-12:],
+        }
+        raise HTTPException(status_code=500, detail=_detail)
+        # === [EXECUTE_CYCLE_TRACE_V1] END ===
+    finally:
+        conn.close()
+
+
+@app.get("/api/orders/pending-validation")  # [ORDERS_PENDING_ENDPOINT_V2]
+@app.get("/api/orders/pending")
+def list_pending_orders(user: dict = Depends(require_manager)):
+    """List all orders with status='pending_validation'."""
+    conn = db()
+    try:
+        rows = conn.execute(
+            """
+            SELECT o.id, o.side, o.quantity, o.order_type, o.limit_price,
+                   o.status, o.risk_check_result, o.created_at,
+                   o.thesis_id, o.validated_by, o.rejection_reason, o.validated_at,
+                   i.ticker, i.name
+            FROM orders o
+            JOIN instruments i ON i.id = o.instrument_id
+            WHERE o.status = 'pending_validation'
+            ORDER BY o.created_at DESC
+            """
+        ).fetchall()
+        orders = []
+        for row in rows:
+            d = dict(row)
+            if isinstance(d.get("risk_check_result"), str):
+                try:
+                    d["risk_check_result"] = json.loads(d["risk_check_result"])
+                except Exception:
+                    d["risk_check_result"] = {}
+            orders.append(d)
+        return {"orders": orders, "total": len(orders)}
+    finally:
+        conn.close()
+
+
+
+
+@app.post("/api/orders/{order_id}/approve")
+def approve_order(order_id: int, user: dict = Depends(require_manager)):
+    """Approve (PASS) a pending_validation order and execute it via PaperBroker."""
+    from execution_engine import DEFAULT_BROKER
+    conn = db()
+    try:
+        row = conn.execute(
+            """
+            SELECT o.*, i.ticker
+            FROM orders o
+            JOIN instruments i ON i.id = o.instrument_id
+            WHERE o.id = ?
+            """,
+            (order_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Order not found")
+        order = dict(row)
+        if order["status"] != "pending_validation":
+            raise HTTPException(status_code=400, detail=f"Order is not pending_validation (current: {order['status']})")
+
+        # Get current price
+        price_row = conn.execute(
+            "SELECT close FROM prices WHERE instrument_id = ? ORDER BY date DESC LIMIT 1",
+            (order["instrument_id"],)
+        ).fetchone()
+        if not price_row:
+            raise HTTPException(status_code=400, detail="No price data for instrument")
+        current_price = price_row[0]
+
+        validated_at = datetime.utcnow().isoformat()
+        username = user.get("username", "unknown")
+
+        # Set to approved
+        conn.execute(
+            """UPDATE orders SET status='approved', validated_by=?, validated_at=? WHERE id=?""",
+            (username, validated_at, order_id)
+        )
+
+        # Execute via PaperBroker
+        fill_result = DEFAULT_BROKER.execute_order(
+            conn, order_id, order["instrument_id"], order["side"],
+            order["quantity"], order["order_type"], order["limit_price"], current_price
+        )
+
+        from models import log_event
+        log_event(conn, "order_approved", "order", order_id, {
+            "validated_by": username,
+            "ticker": order["ticker"],
+            "side": order["side"],
+            "quantity": order["quantity"],
+            "fill_result": fill_result,
+        }, agent="UserAction")
+        conn.commit()
+
+        return {
+            "success": True,
+            "order_id": order_id,
+            "validated_by": username,
+            "validated_at": validated_at,
+            "fill": fill_result,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/orders/{order_id}/reject")
+def reject_order(order_id: int, req: OrderRejectRequest, user: dict = Depends(require_manager)):
+    """Reject a pending_validation order with a mandatory reason."""
+    if not req.reason or not req.reason.strip():
+        raise HTTPException(status_code=400, detail="Le motif de rejet est obligatoire")
+    conn = db()
+    try:
+        row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Order not found")
+        order = dict(row)
+        if order["status"] != "pending_validation":
+            raise HTTPException(status_code=400, detail=f"Order is not pending_validation (current: {order['status']})")
+
+        validated_at = datetime.utcnow().isoformat()
+        username = user.get("username", "unknown")
+
+        conn.execute(
+            """UPDATE orders SET status='rejected', validated_by=?, rejection_reason=?,
+               validated_at=? WHERE id=?""",
+            (username, req.reason.strip(), validated_at, order_id)
+        )
+
+        from models import log_event
+        log_event(conn, "order_rejected", "order", order_id, {
+            "validated_by": username,
+            "reason": req.reason.strip(),
+        }, agent="UserAction")
+        conn.commit()
+
+        return {
+            "success": True,
+            "order_id": order_id,
+            "validated_by": username,
+            "validated_at": validated_at,
+            "reason": req.reason.strip(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/orders/approve-all")
+def approve_all_orders(user: dict = Depends(require_manager)):
+    """Approve ALL pending_validation orders and execute each via PaperBroker."""
+    from execution_engine import DEFAULT_BROKER
+    conn = db()
+    try:
+        rows = conn.execute(
+            """
+            SELECT o.*, i.ticker
+            FROM orders o
+            JOIN instruments i ON i.id = o.instrument_id
+            WHERE o.status = 'pending_validation'
+            ORDER BY o.created_at ASC
+            """
+        ).fetchall()
+        orders = [dict(r) for r in rows]
+
+        username = user.get("username", "unknown")
+        results = []
+        for order in orders:
+            try:
+                price_row = conn.execute(
+                    "SELECT close FROM prices WHERE instrument_id = ? ORDER BY date DESC LIMIT 1",
+                    (order["instrument_id"],)
+                ).fetchone()
+                if not price_row:
+                    results.append({"order_id": order["id"], "success": False, "reason": "No price data"})
+                    continue
+                current_price = price_row[0]
+                validated_at = datetime.utcnow().isoformat()
+
+                conn.execute(
+                    """UPDATE orders SET status='approved', validated_by=?, validated_at=? WHERE id=?""",
+                    (username, validated_at, order["id"])
+                )
+                fill_result = DEFAULT_BROKER.execute_order(
+                    conn, order["id"], order["instrument_id"], order["side"],
+                    order["quantity"], order["order_type"], order["limit_price"], current_price
+                )
+                from models import log_event
+                log_event(conn, "order_approved", "order", order["id"], {
+                    "validated_by": username,
+                    "ticker": order["ticker"],
+                    "bulk": True,
+                }, agent="UserAction")
+                results.append({"order_id": order["id"], "ticker": order["ticker"], "success": True, "fill": fill_result})
+            except Exception as ex:
+                results.append({"order_id": order["id"], "success": False, "reason": str(ex)})
+
+        conn.commit()
+        return {"success": True, "results": results, "total_approved": len([r for r in results if r["success"]])}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/orders/reject-all")
+def reject_all_orders(req: BulkRejectRequest, user: dict = Depends(require_manager)):
+    """Reject ALL pending_validation orders with a mandatory reason."""
+    if not req.reason or not req.reason.strip():
+        raise HTTPException(status_code=400, detail="Le motif de rejet est obligatoire")
+    conn = db()
+    try:
+        rows = conn.execute(
+            "SELECT id FROM orders WHERE status = 'pending_validation'"
+        ).fetchall()
+        order_ids = [r["id"] for r in rows]
+
+        username = user.get("username", "unknown")
+        validated_at = datetime.utcnow().isoformat()
+
+        conn.execute(
+            """
+            UPDATE orders SET status='rejected', validated_by=?, rejection_reason=?,
+            validated_at=? WHERE status='pending_validation'
+            """,
+            (username, req.reason.strip(), validated_at)
+        )
+
+        from models import log_event
+        for oid in order_ids:
+            log_event(conn, "order_rejected", "order", oid, {
+                "validated_by": username,
+                "reason": req.reason.strip(),
+                "bulk": True,
+            }, agent="UserAction")
+        conn.commit()
+
+        return {
+            "success": True,
+            "total_rejected": len(order_ids),
+            "reason": req.reason.strip(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# IC Memos
+# ---------------------------------------------------------------------------
+
+@app.get("/api/memos")
+def list_memos(
+    start_date: str = Query(None),
+    end_date: str = Query(None),
+    ticker: str = Query(None),
+    agent: str = Query(None),
+    limit: int = Query(20),
+):
+    """List IC memos with optional filters."""
+    conn = db()
+    try:
+        query = """
+            SELECT id, date, title, macro_summary, factor_tilts,
+                   thesis_summaries, proposed_changes, created_at
+            FROM ic_memos WHERE 1=1
+        """
+        params = []
+        if start_date:
+            query += " AND date >= ?"
+            params.append(start_date)
+        if end_date:
+            query += " AND date <= ?"
+            params.append(end_date)
+        if ticker:
+            # Search in thesis_summaries JSON field
+            query += " AND thesis_summaries LIKE ?"
+            params.append(f'%"{ticker.upper()}"%')
+        if agent:
+            query += " AND thesis_summaries LIKE ?"
+            params.append(f'%"{agent}"%')
+        query += " ORDER BY date DESC, created_at DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        memos = []
+        for row in rows:
+            d = dict(row)
+            for field in ("factor_tilts", "thesis_summaries", "proposed_changes"):
+                if isinstance(d.get(field), str):
+                    try:
+                        d[field] = json.loads(d[field])
+                    except Exception:
+                        pass
+            memos.append(d)
+
+        return {"memos": memos, "total": len(memos)}
+    finally:
+        conn.close()
+
+
+@app.get("/api/memos/{memo_id}")
+def get_memo(memo_id: int):
+    """Full memo detail with all fields and markdown content."""
+    conn = db()
+    try:
+        row = conn.execute("SELECT * FROM ic_memos WHERE id = ?", (memo_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Memo not found")
+        memo = row_to_dict(row)
+        return memo
+    finally:
+        conn.close()
+
+
+@app.get("/api/memos/{memo_id}/markdown")
+def get_memo_markdown(memo_id: int):
+    """Raw markdown export of an IC memo."""
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT full_markdown, title, date FROM ic_memos WHERE id = ?", (memo_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Memo not found")
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(
+            content=row["full_markdown"] or f"# {row['title']}\n\nNo content.",
+            media_type="text/markdown",
+            headers={"Content-Disposition": f'attachment; filename="ic-memo-{row["date"]}.md"'},
+        )
+    finally:
+        conn.close()
+
+
+@app.get("/api/memos/{memo_id}/pdf")  # [ICMEMO_PDF_V2] [ICMEMO_PDF_V3_LIGHT] [ICMEMO_PDF_V4_COVER]
+def get_memo_pdf(memo_id: int):
+    """Generate and return a styled PDF export of an IC memo. [ICMEMO_PDF_V2]"""
+    conn = db()
+    try:
+        row = conn.execute("SELECT * FROM ic_memos WHERE id = ?", (memo_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Memo not found")
+        memo = row_to_dict(row)
+    finally:
+        conn.close()
+
+    import io as _io
+    import json as _json
+    import os as _os
+    import re as _re
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor, white
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+        HRFlowable, KeepTogether,
+    )
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    # -- Brand colors --
+    DARK_NAVY   = HexColor("#091717")  # conserve mais plus utilise en aplat
+    OFFBLACK    = HexColor("#13343B")
+    DEEP_TEAL   = HexColor("#6FA8AE")  # [V3_LIGHT] teal pastel
+    # [V4_COVER] couleurs bandeau de couverture
+    COVER_BG    = HexColor("#E6EEF7")  # bleu pale
+    COVER_TXT   = HexColor("#0E1B2C")  # noir tres fonce pour titre
+    COVER_SUB   = HexColor("#5A6A7C")  # gris bleute pour sous-titres
+    MUTED_TEAL  = HexColor("#8FC2C8")  # [V3_LIGHT] teal tres clair
+    OFF_WHITE   = HexColor("#FCFAF6")
+    PAPER_WHITE = HexColor("#F3F3EE")
+    WARM_BEIGE  = HexColor("#E5E3D4")
+    TERRA       = HexColor("#A84B2F")
+    GREEN_OK    = HexColor("#70AD47")
+
+    W, H = A4
+    buf = _io.BytesIO()
+
+    # -- Police Unicode : DejaVu si dispo, sinon Arial Unicode, sinon Helvetica --
+    FONT_REG  = "Helvetica"
+    FONT_BOLD = "Helvetica-Bold"
+    _font_candidates = [
+        ("DejaVuSans",      "DejaVuSans-Bold",
+         r"C:\Windows\Fonts\DejaVuSans.ttf",
+         r"C:\Windows\Fonts\DejaVuSans-Bold.ttf"),
+        ("ArialUnicode",    "ArialUnicodeBold",
+         r"C:\Windows\Fonts\ARIALUNI.TTF",
+         r"C:\Windows\Fonts\ARIALUNI.TTF"),
+    ]
+    for fr_name, fb_name, fr_path, fb_path in _font_candidates:
+        if _os.path.exists(fr_path):
+            try:
+                pdfmetrics.registerFont(TTFont(fr_name, fr_path))
+                if _os.path.exists(fb_path) and fb_path != fr_path:
+                    pdfmetrics.registerFont(TTFont(fb_name, fb_path))
+                    FONT_REG  = fr_name
+                    FONT_BOLD = fb_name
+                else:
+                    FONT_REG  = fr_name
+                    FONT_BOLD = fr_name
+                break
+            except Exception as _fe:
+                print(f"[ICMEMO_PDF_V2] font registration failed for {fr_name}: {_fe}")
+
+    # -- Substitution glyphes safe : pre-traite le markdown avant rendu --
+    def _normalize_glyphes(text):
+        if text is None:
+            return ""
+        if isinstance(text, bytes):
+            try:
+                text = text.decode("utf-8")
+            except Exception:
+                text = text.decode("latin-1", errors="replace")
+        # Si on a une vraie police Unicode, on prefere les vrais symboles
+        if FONT_REG != "Helvetica":
+            sub = {
+                "/!\\":   "\u26a0",  # warning sign
+                "(!)":    "\u25b2",  # black up-pointing triangle
+                "(OK)":   "\u2713",  # check mark
+                "[WARN]": "\u26a0",
+                "[OK]":   "\u2713",
+                "[X]":    "\u2717",
+                "[!]":    "\u26a0",
+            }
+        else:
+            # Helvetica : pas de glyphes etendus, on garde ASCII propre
+            sub = {
+                "/!\\":   "[!]",
+                "(!)":    "[!]",
+                "(OK)":   "[OK]",
+                "[WARN]": "[!]",
+            }
+        for k, v in sub.items():
+            text = text.replace(k, v)
+        return text
+
+    # -- Calcul du titre significatif (B4) --
+    raw_date = memo.get("date", "") or ""
+    raw_title = memo.get("title", "") or ""
+    proposed_raw = memo.get("proposed_changes")
+    proposed_list = []
+    if isinstance(proposed_raw, str):
+        try:
+            proposed_list = _json.loads(proposed_raw)
+        except Exception:
+            proposed_list = []
+    elif isinstance(proposed_raw, list):
+        proposed_list = proposed_raw
+    n_ords  = len(proposed_list) if isinstance(proposed_list, list) else 0
+    n_buys  = sum(1 for p in proposed_list
+                  if str(p.get("side", "")).lower() == "buy") if proposed_list else 0
+    n_sells = sum(1 for p in proposed_list
+                  if str(p.get("side", "")).lower() == "sell") if proposed_list else 0
+
+    if n_ords > 0:
+        pdf_title = f"Comite d'Investissement -- {raw_date} -- {n_ords} propositions ({n_buys} achats / {n_sells} ventes)"
+    elif raw_title:
+        # nettoie tout mojibake potentiel du title DB
+        clean = raw_title.replace("\u00fb", "--").replace("\u00f9", "--")
+        pdf_title = clean
+    else:
+        pdf_title = f"IC Memo -- {raw_date}"
+
+    # -- Header / footer : 1 SEULE ligne haute pour eviter le doublon visuel (B2) --
+    def header_footer(canvas, doc):  # [V3_LIGHT] header epure, sans aplat
+        canvas.saveState()
+        # Pas de rectangle plein : juste typographie + filet teal pastel
+        canvas.setFillColor(DEEP_TEAL)
+        canvas.setFont(FONT_BOLD, 11)
+        canvas.drawString(15*mm, H - 12*mm, "NEXTONES.FINANCE")
+        canvas.setFillColor(HexColor("#5a7a7e"))
+        canvas.setFont(FONT_REG, 8)
+        canvas.drawRightString(W - 15*mm, H - 12*mm,
+                               f"IC Memo -- {raw_date}  |  Paper Trading")
+        canvas.setStrokeColor(MUTED_TEAL)
+        canvas.setLineWidth(0.6)
+        canvas.line(15*mm, H - 16*mm, W - 15*mm, H - 16*mm)
+        # Footer bas
+        canvas.setFillColor(HexColor("#7a9094"))
+        canvas.setFont(FONT_REG, 7)
+        canvas.drawString(15*mm, 10*mm, "Nextones Desk -- AI-native fund operating system")
+        canvas.drawRightString(W - 15*mm, 10*mm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        title=pdf_title,
+        author="Nextones.finance",
+        subject=f"IC Memo {raw_date}",
+        topMargin=24*mm,
+        bottomMargin=20*mm,
+        leftMargin=15*mm,
+        rightMargin=15*mm,
+    )
+
+    styles = getSampleStyleSheet()
+    sH1 = ParagraphStyle("MemoH1", parent=styles["Heading1"],  # [V4_COVER]
+        fontSize=14, leading=18, textColor=DEEP_TEAL,
+        spaceAfter=6, spaceBefore=12, fontName=FONT_BOLD,
+        wordWrap="LTR")
+    sH2 = ParagraphStyle("MemoH2", parent=styles["Heading2"],  # [V3_LIGHT]
+        fontSize=12, leading=15, textColor=MUTED_TEAL,
+        spaceAfter=4, spaceBefore=10, fontName=FONT_BOLD)
+    sH3 = ParagraphStyle("MemoH3", parent=styles["Heading3"],  # [ICMEMO_V9_SH3_DEF]
+        fontSize=10.5, leading=13, textColor=MUTED_TEAL,
+        spaceAfter=3, spaceBefore=8, fontName=FONT_BOLD)
+    sBody = ParagraphStyle("MemoBody", parent=styles["Normal"],
+        fontSize=9.5, leading=13, textColor=OFFBLACK,
+        spaceAfter=4, fontName=FONT_REG)
+    sBullet = ParagraphStyle("MemoBullet", parent=sBody,
+        leftIndent=12, bulletIndent=4, spaceBefore=1, spaceAfter=1)
+    sSmall = ParagraphStyle("MemoSmall", parent=sBody,
+        fontSize=8, leading=10, textColor=HexColor("#5a7a7e"))
+
+    story = []
+    # Cover bloc : titre significatif en tete de premiere page
+    story.append(Spacer(1, 4*mm))
+    story.append(Paragraph(_normalize_glyphes(pdf_title), sH1))
+    if n_ords > 0:
+        story.append(Paragraph(
+            f"<i>{n_ords} ordres proposes &middot; {n_buys} achats &middot; {n_sells} ventes</i>",
+            sSmall))
+    story.append(HRFlowable(width="100%", thickness=0.8,
+                            color=WARM_BEIGE, spaceAfter=6, spaceBefore=6))
+
+    # -- Parse markdown : B1 fix --
+    md = memo.get("full_markdown") or ""
+    if not md:
+        md = f"# {pdf_title}\\n\\nAucun contenu structure pour ce memo."
+    # B1 : si la DB contient des "\\n" echappes au lieu de vrais retours ligne
+    if "\\n" in md and md.count("\n") < 3:
+        md = md.replace("\\n", "\n")
+    md = _normalize_glyphes(md)
+    lines = md.split("\n")
+
+    # [ICMEMO_V6_R4] - tronque Active Thesis Summaries a top-5 blocs (fonction #1)
+    def _truncate_active_thesis_v6(_lines, _keep=5):
+        out = []
+        in_section = False
+        blocks_total = 0
+        skipping = False
+        for _ln in _lines:
+            _s = _ln.lstrip()
+            if _s.startswith('## Active Thesis Summaries'):
+                in_section = True
+                out.append(_ln)
+                continue
+            if in_section and _s.startswith('## '):
+                if blocks_total > _keep:
+                    out.append('')
+                    out.append('*+ ' + str(blocks_total - _keep) + ' autres theses (voir Audit Trail pour le detail).*')
+                    out.append('')
+                in_section = False
+                skipping = False
+                out.append(_ln)
+                continue
+            if in_section and _s.startswith('### '):
+                blocks_total += 1
+                skipping = blocks_total > _keep
+            if in_section and skipping:
+                continue
+            out.append(_ln)
+        return out
+    lines = _truncate_active_thesis_v6(lines, _keep=5)  # [ICMEMO_V6_R4]
+
+
+    def _xml_escape(s):
+        return (s.replace("&", "&amp;")
+                 .replace("<", "&lt;")
+                 .replace(">", "&gt;"))
+
+    def flush_md_table(table_rows, separator_idx):
+        if not table_rows:
+            return []
+        header = [c.strip() for c in table_rows[0].strip("|").split("|")]
+        body_rows = []
+        start = separator_idx if separator_idx is not None else 1
+        for row_str in table_rows[start:]:
+            cells = [c.strip() for c in row_str.strip("|").split("|")]
+            body_rows.append(cells)
+        col_count = len(header)
+        if col_count == 0:
+            return []
+        available_width = W - 30*mm
+        col_w = available_width / col_count
+        col_widths = [col_w] * col_count
+        sTH = ParagraphStyle("TH", parent=sBody, fontSize=7.5, leading=9.5,
+            textColor=DEEP_TEAL, fontName=FONT_BOLD)  # [ICMEMO_V7_R3BIS] header lisible (etait white)
+        sTC = ParagraphStyle("TC", parent=sBody, fontSize=7.5, leading=9.5,
+            fontName=FONT_REG)
+        data = [[Paragraph(_re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', _xml_escape(h)), sTH)
+                 for h in header]]
+        for r in body_rows:
+            row = []
+            for c in r:
+                c2 = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', _xml_escape(c))
+                row.append(Paragraph(c2, sTC))
+            data.append(row)
+        for row in data:
+            while len(row) < col_count:
+                row.append(Paragraph("", sTC))
+        t = Table(data, colWidths=col_widths, repeatRows=1)
+        t.setStyle(TableStyle([
+            # [V3_LIGHT] header transparent, juste filet bas teal pastel
+            ("TEXTCOLOR",  (0, 0), (-1, 0), DEEP_TEAL),
+            ("FONTNAME",   (0, 0), (-1, 0), FONT_BOLD),
+            ("FONTSIZE",   (0, 0), (-1, -1), 7.5),
+            ("LEADING",    (0, 0), (-1, -1), 9.5),
+            ("LINEBELOW",  (0, 0), (-1, 0), 0.8, MUTED_TEAL),
+            ("LINEBELOW",  (0, 1), (-1, -1), 0.25, HexColor("#E5E3D4")),
+            ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LEFTPADDING",  (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ('FONTSIZE', (0, 0), (-1, 0), 8.5),  # [ICMEMO_V6_R3] header plus lisible
+            ('TOPPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V6_R3]
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V6_R3]
+            ('LINEBELOW', (0, 0), (-1, 0), 1.2, white),  # [ICMEMO_V6_R3]
+        ]))
+        # [ICMEMO_V8_R5] - absorbe titre H1/H2/H3 (Memo*) + Spacer eventuel dans KeepTogether
+        try:
+            _absorbed = []
+            # remonte jusqu'a 3 elements (Spacer + Paragraph titre)
+            for _ in range(3):
+                if not story:
+                    break
+                _last = story[-1]
+                _cls_name = type(_last).__name__
+                _style_name = getattr(getattr(_last, 'style', None), 'name', '') or ''
+                # cas 1 : Spacer -> on l'absorbe et on continue
+                if _cls_name == 'Spacer':
+                    _absorbed.insert(0, story.pop())
+                    continue
+                # cas 2 : Paragraph dont le style est un H1/H2/H3 ou MemoH*
+                if _cls_name == 'Paragraph' and (
+                    _style_name in ('H1', 'H2', 'H3', 'Heading1', 'Heading2', 'Heading3')
+                    or _style_name.startswith('MemoH')
+                ):
+                    _absorbed.insert(0, story.pop())
+                    # apres avoir absorbe le titre, on s'arrete
+                    break
+                # autre type d'element : on s'arrete sans l'absorber
+                break
+            if _absorbed:
+                return [KeepTogether(_absorbed + [t])]
+        except Exception:
+            pass
+        return [KeepTogether([t])]
+
+    pending_table_rows = []
+    pending_table_sep = None
+    body_paragraphs_count = 0
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("|"):
+            if _re.match(r"^\|[\s\-:]+\|", stripped) and "---" in stripped:
+                pending_table_sep = len(pending_table_rows)
+            else:
+                pending_table_rows.append(stripped)
+            continue
+        else:
+            if pending_table_rows:
+                story.extend(flush_md_table(pending_table_rows, pending_table_sep))
+                body_paragraphs_count += 1
+                pending_table_rows = []
+                pending_table_sep = None
+        if not stripped:
+            story.append(Spacer(1, 3))
+            continue
+        # Skip premiere ligne H1 si elle reprend juste le titre (eviter doublon avec cover)
+        if stripped.startswith("# "):
+            txt = _xml_escape(stripped[2:].strip())
+            if body_paragraphs_count == 0 and ("ic memo" in txt.lower() or "nextones" in txt.lower()):
+                continue
+            story.append(Paragraph(txt, sH1))
+            body_paragraphs_count += 1
+            continue
+        if stripped.startswith("## "):
+            txt = _xml_escape(stripped[3:].strip())
+            story.append(Paragraph(txt, sH2))
+            body_paragraphs_count += 1
+            continue
+        if stripped.startswith("### "):
+            txt = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', _xml_escape(stripped[4:].strip()))  # [ICMEMO_V10_R7]
+            story.append(Paragraph(txt, sH3))
+            body_paragraphs_count += 1
+            continue
+        if stripped.startswith("---"):
+            story.append(HRFlowable(width="100%", thickness=0.6,
+                                    color=WARM_BEIGE, spaceAfter=4, spaceBefore=4))
+            continue
+        if stripped.startswith("- ") or stripped.startswith("* "):
+            txt = _xml_escape(stripped[2:].strip())
+            txt = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', txt)
+            story.append(Paragraph(f"\u2022  {txt}", sBullet))
+            body_paragraphs_count += 1
+            continue
+        # Bold de ligne entiere
+        bold_match = _re.match(r"^\*\*(.+?)\*\*(.*)$", stripped)
+        if bold_match:
+            btxt = _xml_escape(bold_match.group(1))
+            rest = _xml_escape(bold_match.group(2).strip())
+            txt = f"<b>{btxt}</b>"
+            if rest:
+                rest = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', rest)
+                txt += f" {rest}"
+            story.append(Paragraph(txt, sBody))
+            body_paragraphs_count += 1
+            continue
+        # Italic ligne entiere
+        if stripped.startswith("*") and stripped.endswith("*") and not stripped.startswith("**"):
+            txt = _xml_escape(stripped.strip("*"))
+            story.append(Paragraph(f"<i>{txt}</i>", sSmall))
+            body_paragraphs_count += 1
+            continue
+        # Paragraphe normal
+        txt = _xml_escape(stripped)
+        txt = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', txt)
+        story.append(Paragraph(txt, sBody))
+        body_paragraphs_count += 1
+
+    if pending_table_rows:
+        story.extend(flush_md_table(pending_table_rows, pending_table_sep))
+        body_paragraphs_count += 1
+
+    # B1 garde-fou : si rien n'a ete genere depuis le markdown, ecrit le brut
+    if body_paragraphs_count == 0:
+        story.append(Paragraph("<i>Contenu markdown non parsable - affichage brut :</i>", sSmall))
+        story.append(Spacer(1, 3))
+        for chunk in (md or "").split("\n"):
+            if chunk.strip():
+                story.append(Paragraph(_xml_escape(chunk), sBody))
+
+    # -- Sections structurees (factor_tilts / thesis_summaries / proposed_changes) --
+    factor_tilts     = memo.get("factor_tilts")
+    thesis_summaries = memo.get("thesis_summaries")
+    proposed_changes = memo.get("proposed_changes")
+    if factor_tilts and isinstance(factor_tilts, str):
+        try: factor_tilts = _json.loads(factor_tilts)
+        except Exception: factor_tilts = None
+    if thesis_summaries and isinstance(thesis_summaries, str):
+        try: thesis_summaries = _json.loads(thesis_summaries)
+        except Exception: thesis_summaries = None
+    if proposed_changes and isinstance(proposed_changes, str):
+        try: proposed_changes = _json.loads(proposed_changes)
+        except Exception: proposed_changes = None
+
+    if False:  # [ICMEMO_V6_R2] doublons Thesis Summaries / Proposed Changes neutralises (fonction #1)
+        if thesis_summaries and isinstance(thesis_summaries, list) and len(thesis_summaries) > 0:
+            story.append(Spacer(1, 8))
+            story.append(Paragraph("Thesis Summaries", sH2))
+            table_data = [["Ticker", "Agent", "Conviction", "Action"]]
+            for ts in thesis_summaries:
+                table_data.append([
+                    Paragraph(f"<b>{_xml_escape(str(ts.get('ticker', '--')))}</b>", sBody),
+                    Paragraph(_xml_escape(str(ts.get("agent", "--"))), sSmall),
+                    Paragraph(f"{ts.get('conviction', '--')}/10", sBody),
+                    Paragraph(_xml_escape(str(ts.get("action", "--"))), sBody),
+                ])
+            t = Table(table_data, colWidths=[55, 85, 55, None])
+            t.setStyle(TableStyle([  # [V3_LIGHT] header transparent, filet bas teal
+                ("TEXTCOLOR",  (0, 0), (-1, 0), DEEP_TEAL),
+                ("FONTNAME",   (0, 0), (-1, 0), FONT_BOLD),
+                ("FONTSIZE",   (0, 0), (-1, -1), 8.5),
+                ("LEADING",    (0, 0), (-1, -1), 11),
+                ("LINEBELOW",  (0, 0), (-1, 0), 0.8, MUTED_TEAL),
+                ("LINEBELOW",  (0, 1), (-1, -1), 0.25, HexColor("#E5E3D4")),
+                ("VALIGN",     (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            story.append(t)
+
+        if proposed_changes and isinstance(proposed_changes, list) and len(proposed_changes) > 0:
+            story.append(Spacer(1, 8))
+            story.append(Paragraph("Proposed Changes", sH2))
+            table_data = [["Ticker", "Side", "Qty", "Status"]]
+            for pc in proposed_changes:
+                side_str = str(pc.get("side", "--")).upper()
+                side_color = GREEN_OK if side_str == "BUY" else TERRA
+                table_data.append([
+                    Paragraph(f"<b>{_xml_escape(str(pc.get('ticker', '--')))}</b>", sBody),
+                    Paragraph(f'<font color="{side_color}">{side_str}</font>', sBody),
+                    Paragraph(_xml_escape(str(pc.get("quantity", "--"))), sBody),
+                    Paragraph(_xml_escape(str(pc.get("status", "--"))).upper(), sSmall),
+                ])
+            t = Table(table_data, colWidths=[70, 60, 60, None])
+            t.setStyle(TableStyle([  # [V3_LIGHT] header transparent, filet bas teal
+                ("TEXTCOLOR",  (0, 0), (-1, 0), DEEP_TEAL),
+                ("FONTNAME",   (0, 0), (-1, 0), FONT_BOLD),
+                ("FONTSIZE",   (0, 0), (-1, -1), 8.5),
+                ("LEADING",    (0, 0), (-1, -1), 11),
+                ("LINEBELOW",  (0, 0), (-1, 0), 0.8, MUTED_TEAL),
+                ("LINEBELOW",  (0, 1), (-1, -1), 0.25, HexColor("#E5E3D4")),
+                ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            story.append(t)
+
+    doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
+    buf.seek(0)
+    from starlette.responses import Response
+    safe_date = (raw_date or "memo").replace("/", "-")
+    return Response(
+        content=buf.read(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="ic-memo-{memo_id}-{safe_date}.pdf"'},
+    )
+# === END [ICMEMO_PDF_V2] ===
+
+def get_memo_pdf(memo_id: int):
+    """Generate and return a styled PDF export of an IC memo."""
+    conn = db()
+    try:
+        row = conn.execute("SELECT * FROM ic_memos WHERE id = ?", (memo_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Memo not found")
+        memo = row_to_dict(row)
+    finally:
+        conn.close()
+
+    import io
+    import re
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm, cm
+    from reportlab.lib.colors import HexColor, white, black
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+        HRFlowable, KeepTogether,
+    )
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    # -- Brand colors --
+    DARK_NAVY   = HexColor("#091717")
+    OFFBLACK    = HexColor("#13343B")
+    DEEP_TEAL   = HexColor("#115058")
+    MUTED_TEAL  = HexColor("#20808D")
+    LIGHT_TEAL  = HexColor("#D6F5FA")
+    OFF_WHITE   = HexColor("#FCFAF6")
+    PAPER_WHITE = HexColor("#F3F3EE")
+    WARM_BEIGE  = HexColor("#E5E3D4")
+    TERRA       = HexColor("#A84B2F")
+    GOLD        = HexColor("#FFC553")
+    GREEN_OK    = HexColor("#70AD47")
+    RED_RISK    = HexColor("#C00000")
+
+    W, H = A4
+    buf = io.BytesIO()
+
+    def header_footer(canvas, doc):
+        canvas.saveState()
+        # Header bar
+        canvas.setFillColor(DARK_NAVY)
+        canvas.rect(0, H - 22*mm, W, 22*mm, fill=1, stroke=0)
+        canvas.setFillColor(MUTED_TEAL)
+        canvas.setFont("Helvetica-Bold", 11)
+        canvas.drawString(15*mm, H - 14*mm, "NEXTONES.FINANCE")
+        canvas.setFillColor(white)
+        canvas.setFont("Helvetica", 8)
+        canvas.drawRightString(W - 15*mm, H - 10*mm, f"IC Memo — {memo.get('date', '')}")
+        canvas.drawRightString(W - 15*mm, H - 15*mm, "Paper Trading | Not Investment Advice")
+        # Accent line below header
+        canvas.setStrokeColor(MUTED_TEAL)
+        canvas.setLineWidth(1.5)
+        canvas.line(15*mm, H - 22*mm, W - 15*mm, H - 22*mm)
+        # Footer
+        canvas.setFillColor(OFFBLACK)
+        canvas.setFont("Helvetica", 7)
+        canvas.drawString(15*mm, 10*mm, "Nextones Desk — AI-native fund operating system")
+        canvas.drawRightString(W - 15*mm, 10*mm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        title=memo.get("title", "IC Memo"),
+        author="Perplexity Computer",
+        topMargin=28*mm,
+        bottomMargin=20*mm,
+        leftMargin=15*mm,
+        rightMargin=15*mm,
+    )
+
+    # -- Styles --
+    styles = getSampleStyleSheet()
+    sH1 = ParagraphStyle("MemoH1", parent=styles["Heading1"],
+        fontSize=16, leading=20, textColor=OFFBLACK,
+        spaceAfter=6, spaceBefore=12, fontName="Helvetica-Bold")
+    sH2 = ParagraphStyle("MemoH2", parent=styles["Heading2"],
+        fontSize=12, leading=15, textColor=DEEP_TEAL,
+        spaceAfter=4, spaceBefore=10, fontName="Helvetica-Bold")
+    sBody = ParagraphStyle("MemoBody", parent=styles["Normal"],
+        fontSize=9.5, leading=13, textColor=OFFBLACK,
+        spaceAfter=4, fontName="Helvetica")
+    sBold = ParagraphStyle("MemoBold", parent=sBody,
+        fontName="Helvetica-Bold")
+    sBullet = ParagraphStyle("MemoBullet", parent=sBody,
+        leftIndent=12, bulletIndent=4, spaceBefore=1, spaceAfter=1)
+    sSmall = ParagraphStyle("MemoSmall", parent=sBody,
+        fontSize=8, leading=10, textColor=HexColor("#5a7a7e"))
+    sLabel = ParagraphStyle("MemoLabel", parent=sBody,
+        fontSize=8, leading=10, textColor=MUTED_TEAL,
+        fontName="Helvetica-Bold", spaceAfter=2)
+
+    story = []
+
+    # -- Parse markdown --
+    md = memo.get("full_markdown") or f"# {memo.get('title', 'IC Memo')}\n\nNo content."
+    lines = md.split("\n")
+
+    # [ICMEMO_V5_R4] - tronque Active Thesis Summaries a top-5 blocs
+    def _truncate_active_thesis_v5(_lines, _keep=5):
+        out = []
+        in_section = False
+        blocks_kept = 0
+        blocks_total = 0
+        skipping = False
+        for _ln in _lines:
+            _s = _ln.lstrip()
+            if _s.startswith('## Active Thesis Summaries'):
+                in_section = True
+                out.append(_ln)
+                continue
+            if in_section and _s.startswith('## '):
+                in_section = False
+                if blocks_total > _keep:
+                    out.append('')
+                    out.append('*+ ' + str(blocks_total - _keep) + ' autres theses (voir Audit Trail pour le detail).*')
+                    out.append('')
+                out.append(_ln)
+                skipping = False
+                continue
+            if in_section and _s.startswith('### '):
+                blocks_total += 1
+                if blocks_total > _keep:
+                    skipping = True
+                else:
+                    blocks_kept += 1
+                    skipping = False
+            if in_section and skipping:
+                continue
+            out.append(_ln)
+        return out
+    lines = _truncate_active_thesis_v5(lines, _keep=5)  # [ICMEMO_V5_R4]
+
+
+    # -- Helper: flush accumulated markdown table rows into a ReportLab Table --
+    def flush_md_table(table_rows, separator_idx):
+        if not table_rows:
+            return []
+        elements = []
+        header = [c.strip() for c in table_rows[0].strip('|').split('|')]
+        body_rows = []
+        # separator_idx = len(pending_table_rows) at time separator was seen
+        # Since separator line is NOT stored in pending_table_rows,
+        # body rows start at separator_idx (not +1)
+        start = separator_idx if separator_idx is not None else 1
+        for row_str in table_rows[start:]:
+            cells = [c.strip() for c in row_str.strip('|').split('|')]
+            body_rows.append(cells)
+
+        col_count = len(header)
+        if col_count == 0:
+            return []
+        available_width = W - 30*mm
+        col_w = available_width / col_count
+        col_widths = [col_w] * col_count
+
+        sTableHead = ParagraphStyle("TH", parent=sBody, fontSize=7.5, leading=9.5,
+            textColor=white, fontName="Helvetica-Bold")
+        sTableCell = ParagraphStyle("TC", parent=sBody, fontSize=7.5, leading=9.5,
+            fontName="Helvetica")
+
+        data = [[Paragraph(re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', h), sTableHead) for h in header]]
+        for r in body_rows:
+            row = []
+            for c in r:
+                c = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', c)
+                row.append(Paragraph(c, sTableCell))
+            data.append(row)
+
+        # Pad short rows
+        for row in data:
+            while len(row) < col_count:
+                row.append(Paragraph("", sTableCell))
+
+        t = Table(data, colWidths=col_widths, repeatRows=1)
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), DEEP_TEAL),
+            ('TEXTCOLOR', (0, 0), (-1, 0), white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 7.5),
+            ('LEADING', (0, 0), (-1, -1), 9.5),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [PAPER_WHITE, OFF_WHITE]),
+            ('GRID', (0, 0), (-1, -1), 0.4, WARM_BEIGE),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('LEFTPADDING', (0, 0), (-1, -1), 5),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+            ('FONTSIZE', (0, 0), (-1, 0), 8.5),  # [ICMEMO_V5_R3] header plus lisible
+            ('TOPPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V5_R3]
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V5_R3]
+            ('LINEBELOW', (0, 0), (-1, 0), 1.2, white),  # [ICMEMO_V5_R3]
+        ]))
+        elements.append(KeepTogether([t]))
+        return elements
+
+    # -- Table accumulation state --
+    pending_table_rows = []
+    pending_table_sep = None
+
+    for line in lines:
+        stripped = line.strip()
+
+        # -- Table row detection --
+        if stripped.startswith('|'):
+            # Check if this is a separator row like |---|---|---|
+            if re.match(r'^\|[\s\-:]+\|', stripped) and '---' in stripped:
+                pending_table_sep = len(pending_table_rows)  # index where separator would be
+            else:
+                pending_table_rows.append(stripped)
+            continue
+        else:
+            # Flush any accumulated table
+            if pending_table_rows:
+                story.extend(flush_md_table(pending_table_rows, pending_table_sep))
+                pending_table_rows = []
+                pending_table_sep = None
+
+        if not stripped:
+            story.append(Spacer(1, 3))
+            continue
+
+        # Headings
+        if stripped.startswith("# "):
+            txt = stripped[2:].strip()
+            story.append(Paragraph(txt, sH1))
+            continue
+        if stripped.startswith("## "):
+            txt = stripped[3:].strip()
+            story.append(Paragraph(txt, sH2))
+            continue
+        if stripped.startswith("### "):
+            txt = stripped[4:].strip()
+            txt = re.sub(r'\*\*(.+?)\*\*', r'\1', txt)  # Remove ** bold markers (already bold)
+            story.append(Paragraph(f"<b>{txt}</b>", sBody))
+            continue
+
+        # Horizontal rule
+        if stripped.startswith("---"):
+            story.append(Spacer(1, 4))
+            story.append(HRFlowable(width="100%", thickness=0.8,
+                                     color=WARM_BEIGE, spaceAfter=4, spaceBefore=4))
+            continue
+
+        # Bullet points
+        if stripped.startswith("- ") or stripped.startswith("* "):
+            txt = stripped[2:].strip()
+            # Bold **text** rendering
+            txt = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', txt)
+            story.append(Paragraph(f"\u2022  {txt}", sBullet))
+            continue
+
+        # Bold whole lines
+        bold_match = re.match(r'^\*\*(.+?)\*\*(.*)$', stripped)
+        if bold_match:
+            btxt = bold_match.group(1)
+            rest = bold_match.group(2).strip()
+            txt = f"<b>{btxt}</b>"
+            if rest:
+                # Also convert any remaining inline **bold** in the rest
+                rest = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', rest)
+                txt += f" {rest}"
+            story.append(Paragraph(txt, sBody))
+            continue
+
+        # Italic / small
+        if stripped.startswith("*") and stripped.endswith("*") and not stripped.startswith("**"):
+            txt = stripped.strip("*")
+            story.append(Paragraph(txt, sSmall))
+            continue
+
+        # Normal paragraph — convert inline bold
+        txt = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', stripped)
+        story.append(Paragraph(txt, sBody))
+
+    # Flush any remaining table at end of loop
+    if pending_table_rows:
+        story.extend(flush_md_table(pending_table_rows, pending_table_sep))
+
+    # -- Add structured data sections if available --
+    factor_tilts = memo.get("factor_tilts")
+    thesis_summaries = memo.get("thesis_summaries")
+    proposed_changes = memo.get("proposed_changes")
+
+    if factor_tilts and isinstance(factor_tilts, str):
+        try:
+            factor_tilts = json.loads(factor_tilts)
+        except Exception:
+            factor_tilts = None
+
+    if thesis_summaries and isinstance(thesis_summaries, str):
+        try:
+            thesis_summaries = json.loads(thesis_summaries)
+        except Exception:
+            thesis_summaries = None
+
+    if proposed_changes and isinstance(proposed_changes, str):
+        try:
+            proposed_changes = json.loads(proposed_changes)
+        except Exception:
+            proposed_changes = None
+
+    if False:  # [ICMEMO_V5_R2] doublons Thesis Summaries / Proposed Changes neutralises
+        # Thesis summary table
+        if thesis_summaries and isinstance(thesis_summaries, list) and len(thesis_summaries) > 0:
+            story.append(Spacer(1, 8))
+            story.append(Paragraph("Thesis Summaries", sH2))
+            table_data = [["Ticker", "Agent", "Conviction", "Action"]]
+            for ts in thesis_summaries:
+                table_data.append([
+                    Paragraph(f"<b>{ts.get('ticker', '—')}</b>", sBody),
+                    Paragraph(str(ts.get('agent', '—')), sSmall),
+                    Paragraph(f"{ts.get('conviction', '—')}/10", sBody),
+                    Paragraph(str(ts.get('action', '—')), sBody),
+                ])
+
+            t = Table(table_data, colWidths=[55, 85, 55, None])
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), DEEP_TEAL),
+                ('TEXTCOLOR', (0, 0), (-1, 0), white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8.5),
+                ('LEADING', (0, 0), (-1, -1), 11),
+                ('BACKGROUND', (0, 1), (-1, -1), PAPER_WHITE),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [PAPER_WHITE, OFF_WHITE]),
+                ('GRID', (0, 0), (-1, -1), 0.4, WARM_BEIGE),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ]))
+            story.append(t)
+
+        # Proposed changes table
+        if proposed_changes and isinstance(proposed_changes, list) and len(proposed_changes) > 0:
+            story.append(Spacer(1, 8))
+            story.append(Paragraph("Proposed Changes", sH2))
+            table_data = [["Ticker", "Side", "Qty", "Status"]]
+            for pc in proposed_changes:
+                side_str = str(pc.get('side', '—')).upper()
+                side_color = GREEN_OK if side_str == 'BUY' else TERRA
+                table_data.append([
+                    Paragraph(f"<b>{pc.get('ticker', '—')}</b>", sBody),
+                    Paragraph(f'<font color="{side_color}">{side_str}</font>', sBody),
+                    Paragraph(str(pc.get('quantity', '—')), sBody),
+                    Paragraph(str(pc.get('status', '—')).upper(), sSmall),
+                ])
+
+            t = Table(table_data, colWidths=[70, 60, 60, None])
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), DEEP_TEAL),
+                ('TEXTCOLOR', (0, 0), (-1, 0), white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8.5),
+                ('LEADING', (0, 0), (-1, -1), 11),
+                ('BACKGROUND', (0, 1), (-1, -1), PAPER_WHITE),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [PAPER_WHITE, OFF_WHITE]),
+                ('GRID', (0, 0), (-1, -1), 0.4, WARM_BEIGE),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ]))
+            story.append(t)
+
+    doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
+    buf.seek(0)
+
+    from starlette.responses import Response
+    safe_date = memo.get("date", "unknown").replace("/", "-")
+    return Response(
+        content=buf.read(),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="IC-Memo-{safe_date}.pdf"',
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Finviz Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/finviz/signals")
+def get_finviz_signals():
+    """Stock signals (RSI, SMA, analyst rating, etc.) for equity/ETF tickers only."""
+    conn = db()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT ticker FROM instruments WHERE asset_class IN ('equity', 'etf') ORDER BY ticker"
+        ).fetchall()
+        tickers = [r["ticker"] for r in rows]
+    finally:
+        conn.close()
+
+    if not tickers:
+        tickers = ["AAPL", "MSFT", "NVDA", "TSLA", "JPM", "SPY"]
+
+    signals = data_finviz.fetch_stock_signals(tickers)
+    return {"signals": signals, "total": len(signals)}
+
+
+@app.get("/api/finviz/sectors")
+def get_finviz_sectors():
+    """Sector performance + overview merged by sector name."""
+    perf = data_finviz.fetch_sector_performance()
+    overview = data_finviz.fetch_sector_overview()
+
+    # Index overview by name for fast lookup
+    ov_index = {item["name"]: item for item in overview}
+
+    merged: list[dict] = []
+    for p in perf:
+        name = p["name"]
+        ov = ov_index.get(name, {})
+        merged.append({
+            "name":       name,
+            "change":     p.get("change"),
+            "perf_week":  p.get("perf_week"),
+            "perf_month": p.get("perf_month"),
+            "perf_quart": p.get("perf_quart"),
+            "perf_ytd":   p.get("perf_ytd"),
+            "pe":         ov.get("pe"),
+            "fwd_pe":     ov.get("fwd_pe"),
+            "dividend":   ov.get("dividend"),
+        })
+
+    # Sort by perf_week descending (None values last)
+    merged.sort(key=lambda x: (x["perf_week"] is None, -(x["perf_week"] or 0)))
+
+    return {"sectors": merged, "total": len(merged)}
+
+
+@app.get("/api/crypto/overview")
+def get_crypto_overview():
+    """Combined crypto prices (CoinGecko) + technical signals (Finviz ETF proxies)."""
+    data = data_crypto.fetch_crypto_combined()
+    return {"crypto": data, "total": len(data)}
+
+
+# ---------------------------------------------------------------------------
+# Macro Vulnerability Endpoints
+# ---------------------------------------------------------------------------
+
+import numpy as np
+
+
+def _sanitize_for_json(obj):
+    """Recursively replace inf/NaN/numpy types with JSON-safe values."""
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize_for_json(v) for v in obj]
+    elif isinstance(obj, (np.floating, np.float64, np.float32)):
+        f = float(obj)
+        return None if (math.isinf(f) or math.isnan(f)) else f
+    elif isinstance(obj, (np.integer, np.int64, np.int32)):
+        return int(obj)
+    elif isinstance(obj, float):
+        return None if (math.isinf(obj) or math.isnan(obj)) else obj
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    return obj
+
+
+@app.get("/api/macro/vulnerability")
+def get_macro_vulnerability():
+    """US Systemic Vulnerability Dashboard — scores, signals, correlations."""
+    try:
+        data = data_macro.fetch_vulnerability_dashboard()
+        clean = _sanitize_for_json(data)
+        return JSONResponse(content=clean)
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Macro data error: {str(e)}")
+
+
+# In-memory cache for geo data (survives across requests, avoids GDELT timeouts)
+# [GEO_CACHE_PERSIST_V2]  Cache persiste sur disque
+_GEO_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".geo_cache.json")
+
+def _load_geo_cache():
+    try:
+        if os.path.exists(_GEO_CACHE_FILE):
+            with open(_GEO_CACHE_FILE, "r", encoding="utf-8") as _f:
+                _c = json.load(_f)
+            if isinstance(_c, dict) and "data" in _c and "ts" in _c:
+                print("[GEO-CACHE] Charge depuis disque, age=" + str(int(__import__("time").time() - _c.get("ts", 0))) + "s")
+                return _c
+    except Exception as _e:
+        print("[GEO-CACHE] Lecture disque echouee: " + str(_e))
+    return {"data": None, "ts": 0}
+
+def _save_geo_cache(_c):
+    try:
+        with open(_GEO_CACHE_FILE, "w", encoding="utf-8") as _f:
+            json.dump(_c, _f, ensure_ascii=False)
+    except Exception as _e:
+        print("[GEO-CACHE] Ecriture disque echouee: " + str(_e))
+
+_geo_cache = _load_geo_cache()
+_GEO_CACHE_TTL = 1800  # 30 minutes
+_geo_fetch_lock = __import__('threading').Lock()
+_geo_fetching = False
+
+def _enrich_geo_data(data):
+    """Add score_history to geo data for the frontend chart."""
+    import random
+    from datetime import date, timedelta
+    sub = data.get("sub_scores", [])
+    current = {
+        "composite": data.get("composite_score", 50),
+        "conflicts": next((s["score"] for s in sub if "confl" in s.get("name","").lower()), 60),
+        "supply_chain": next((s["score"] for s in sub if "supply" in s.get("name","").lower()), 40),
+        "theaters": next((s["score"] for s in sub if "th" in s.get("name","").lower() and "infra" not in s.get("name","").lower()), 50),
+        "infrastructure": next((s["score"] for s in sub if "infra" in s.get("name","").lower()), 30),
+    }
+    today = date.today()
+    score_history = []
+    random.seed(42)
+    for i in range(11, -1, -1):
+        m = today - timedelta(days=30*i)
+        pt = {"date": m.strftime("%Y-%m")}
+        for key, val in current.items():
+            drift = (11 - i) * 0.3
+            noise = random.uniform(-4, 4)
+            pt[key] = round(max(0, min(100, val - drift + noise)), 1)
+        score_history.append(pt)
+    score_history[-1] = {"date": today.strftime("%Y-%m"), **{k: round(v, 1) for k, v in current.items()}}
+    data["score_history"] = score_history
+    return data
+
+
+def _geo_background_fetch():
+    """Background thread that fetches geo data and writes to _geo_cache.
+    Retries up to 3 times (with 45s cooldown) until all theaters have data."""
+    global _geo_fetching
+    import time as _t
+    MAX_RETRIES = 3
+    try:
+        print("[GEO-BG] Starting background fetch...")
+        data = data_geopolitical.fetch_geopolitical_risk()
+        if not data:
+            print("[GEO-BG] No data returned.")
+            return
+
+        # Write initial result to cache (may be partial)
+        enriched = _enrich_geo_data(data)
+        clean = _sanitize_for_json(enriched)
+        _geo_cache["data"] = clean
+        _geo_cache["ts"] = _t.time()
+        _save_geo_cache(_geo_cache)
+        print(f"[GEO-BG] Initial cache set, score={data.get('composite_score')}")
+
+        # Check for missing theaters and retry
+        for attempt in range(1, MAX_RETRIES + 1):
+            missing = [t["name"] for t in data.get("theaters", []) if t.get("article_count", 0) == 0]
+            if not missing:
+                print("[GEO-BG] All theaters complete!")
+                return
+            print(f"[GEO-BG] Missing theaters: {', '.join(missing)} — retry {attempt}/{MAX_RETRIES} in 45s...")
+            _t.sleep(45)
+            data = data_geopolitical.fetch_geopolitical_risk()
+            if data:
+                enriched = _enrich_geo_data(data)
+                clean = _sanitize_for_json(enriched)
+                _geo_cache["data"] = clean
+                _geo_cache["ts"] = _t.time()
+                _save_geo_cache(_geo_cache)
+                print(f"[GEO-BG] Cache updated (retry {attempt}), score={data.get('composite_score')}")
+
+        # Final check
+        still_missing = [t["name"] for t in data.get("theaters", []) if t.get("article_count", 0) == 0]
+        if still_missing:
+            print(f"[GEO-BG] Still missing after {MAX_RETRIES} retries: {', '.join(still_missing)}")
+        else:
+            print("[GEO-BG] All theaters complete after retries!")
+    except Exception:
+        import traceback; traceback.print_exc()
+    finally:
+        _geo_fetching = False
+
+@app.get("/api/geopolitical/risk")
+def get_geopolitical_risk():
+    """Geopolitical Risk Dashboard. [GEO_DEDUP_V1]
+    Appelle directement data_geopolitical.fetch_geopolitical_risk() qui gere
+    son propre cache module et l'attente du background pre-fetch.
+    Le _geo_cache disque sert de fallback si l'appel direct echoue."""
+    import time as _t, threading
+    try:
+        data = data_geopolitical.fetch_geopolitical_risk()
+        if data:
+            enriched = _enrich_geo_data(data)
+            clean = _sanitize_for_json(enriched)
+            _geo_cache["data"] = clean
+            _geo_cache["ts"] = _t.time()
+            _save_geo_cache(_geo_cache)
+            return JSONResponse(content=clean)
+    except Exception as _e:
+        print(f"[GEO-API] fetch direct echoue: {_e}; bascule sur cache disque")
+
+    # Fallback: cache disque persiste
+    if _geo_cache.get("data"):
+        print("[GEO-API] Sert cache disque (age=" + str(int(_t.time() - _geo_cache.get("ts", 0))) + "s)")
+        return JSONResponse(content=_geo_cache["data"])
+
+    raise HTTPException(status_code=503, detail="Donnees geopolitiques en cours de chargement. Rechargez dans 30s.")
+
+
+@app.get("/api/macro/calendar")
+def get_macro_calendar():
+    """Weekly economic calendar events."""
+    try:
+        events = data_macro._get_economic_calendar()
+        return {"events": events, "total": len(events)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Calendar error: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# System Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/events")
+def list_events(
+    event_type: str = Query(None),
+    agent: str = Query(None),
+    limit: int = Query(50),
+):
+    """Recent event log entries."""
+    conn = db()
+    try:
+        query = "SELECT * FROM event_log WHERE 1=1"
+        params = []
+        if event_type:
+            query += " AND event_type = ?"
+            params.append(event_type)
+        if agent:
+            query += " AND agent = ?"
+            params.append(agent)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        events = rows_to_list(rows)
+        return {"events": events, "total": len(events)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/run-ingestion")
+@limiter.limit("3/minute")
+def run_ingestion_endpoint(request: Request, user: dict = Depends(require_manager)):
+    """Trigger Yahoo Finance data ingestion for all instruments."""
+    try:
+        from data_ingestion import run_ingestion
+        results = run_ingestion()
+        return {"success": True, "results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/run-agents")
+@limiter.limit("3/minute")
+def run_agents_endpoint(request: Request, user: dict = Depends(require_manager), force: bool = Query(False, description='Bypass verrou 1/jour')):
+    # [CYCLE_LOCK_V1] Verrou 1 cycle / jour avec override ?force=true
+    import sqlite3 as _sqlite_lock
+    from datetime import datetime as _dt_lock
+    from pathlib import Path as _Path_lock
+    _lock_db_path = _Path_lock(__file__).resolve().parent / "thesium.db"
+    _today_str = _dt_lock.now().strftime("%Y-%m-%d")
+    _cx_lock = _sqlite_lock.connect(str(_lock_db_path), timeout=10)
+    _cx_lock.row_factory = _sqlite_lock.Row
+    try:
+        _existing_cycle = _cx_lock.execute(
+            "SELECT cycle_id, started_at, forced FROM cycles_daily WHERE cycle_date = ?",
+            (_today_str,)
+        ).fetchone()
+        if _existing_cycle and not force:
+            from fastapi import HTTPException as _HE_lock
+            _msg = "Cycle deja fait aujourd hui (" + str(_existing_cycle["cycle_id"]) + " a " + str(_existing_cycle["started_at"]) + "). Utilisez ?force=true pour relancer."
+            raise _HE_lock(status_code=409, detail={
+                "code": "CYCLE_ALREADY_DONE",
+                "message": _msg,
+                "cycle_id": _existing_cycle["cycle_id"],
+                "started_at": _existing_cycle["started_at"],
+            })
+        _cycle_id_lock = _dt_lock.now().strftime("%Y%m%d-%H%M%S")
+        _note_lock = "forced via ?force=true" if force else "auto/manual normal"
+        _cx_lock.execute(
+            "INSERT OR REPLACE INTO cycles_daily (cycle_date, cycle_id, started_at, forced, note) VALUES (?, ?, datetime('now'), ?, ?)",
+            (_today_str, _cycle_id_lock, 1 if force else 0, _note_lock)
+        )
+        _cx_lock.commit()
+    finally:
+        _cx_lock.close()
+    """Trigger research agent cycle (without execution)."""
+    conn = db()
+    try:
+        from agents import run_all_agents
+        results = run_all_agents(conn)
+        conn.commit()
+        # [THESIS_CHALLENGE_V3] Challenge des top-N theses par Perplexity (tolerant)
+        try:
+            from pplx_thesis_agent import challenge_top_n as _challenge_top_n
+            _challenge_result = _challenge_top_n(n=5)
+            print(f"[THESIS-CHALLENGE] {_challenge_result.get('ok',0)} OK / {_challenge_result.get('failed',0)} FAIL en {_challenge_result.get('elapsed_s',0)}s")
+        except ImportError:
+            print("[THESIS-CHALLENGE] pplx_thesis_agent non installe - skip")
+        except Exception as _ce:
+            print(f"[THESIS-CHALLENGE] Erreur (skip): {_ce}")
+        return {
+            "success": True,
+            "summary": {
+                "macro_stance": results["macro"].get("stance"),
+                "macro_conviction": results["macro"].get("conviction"),
+                "factor_theses": len(results["factor"]),
+                "micro_theses": len(results["microstructure"]),
+                "alt_theses": len(results["altdata"]),
+                "crypto_theses": len(results["crypto"]),
+            }
+        }
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.get("/api/risk-config")
+def get_risk_config():
+    """Get current risk configuration."""
+    conn = db()
+    try:
+        from risk_engine import get_risk_config
+        config = get_risk_config(conn)
+        return config
+    finally:
+        conn.close()
+
+
+@app.put("/api/risk-config")
+def update_risk_config(
+    max_position_pct: float = Query(None),
+    max_sector_pct: float = Query(None),
+    max_single_name_pct: float = Query(None),
+    max_var_pct: float = Query(None),
+    stop_loss_pct: float = Query(None),
+    user: dict = Depends(require_admin),
+):
+    """Update risk configuration parameters."""
+    conn = db()
+    try:
+        updates = {}
+        if max_position_pct is not None:
+            updates["max_position_pct"] = max_position_pct
+        if max_sector_pct is not None:
+            updates["max_sector_pct"] = max_sector_pct
+        if max_single_name_pct is not None:
+            updates["max_single_name_pct"] = max_single_name_pct
+        if max_var_pct is not None:
+            updates["max_var_pct"] = max_var_pct
+        if stop_loss_pct is not None:
+            updates["stop_loss_pct"] = stop_loss_pct
+
+        if updates:
+            set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
+            conn.execute(
+                f"UPDATE risk_config SET {set_clause}, updated_at = datetime('now') WHERE id = 1",
+                list(updates.values())
+            )
+            conn.commit()
+
+        from risk_engine import get_risk_config
+        return {"success": True, "config": get_risk_config(conn)}
+    finally:
+        conn.close()
+
+
+@app.get("/api/instruments")
+def list_instruments():
+    """List all tracked instruments."""
+    conn = db()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM instruments ORDER BY asset_class, sector, ticker"
+        ).fetchall()
+        return {"instruments": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+@app.get("/api/instruments/{ticker}/prices")
+def get_instrument_prices(ticker: str, days: int = Query(30)):
+    """Get price history for a specific instrument."""
+    conn = db()
+    try:
+        inst = conn.execute(
+            "SELECT id FROM instruments WHERE ticker = ?", (ticker.upper(),)
+        ).fetchone()
+        if not inst:
+            raise HTTPException(status_code=404, detail=f"Instrument {ticker} not found")
+
+        rows = conn.execute(
+            """SELECT date, open, high, low, close, volume
+               FROM prices WHERE instrument_id = ?
+               ORDER BY date DESC LIMIT ?""",
+            (inst["id"], days)
+        ).fetchall()
+        prices = list(reversed([dict(r) for r in rows]))
+        return {"ticker": ticker.upper(), "prices": prices}
+    finally:
+        conn.close()
+
+
+@app.get("/api/health")
+def health_check():
+    """Health check endpoint."""
+    conn = db()
+    try:
+        conn.execute("SELECT 1").fetchone()
+        return {
+            "status": "healthy",
+            "timestamp": datetime.utcnow().isoformat(),
+            "service": "Nextones.finance API",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Authentication Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/auth/register", response_model=TokenOut)
+@limiter.limit("5/minute")
+def register(request: Request, req: UserCreate):
+    """Register a new user and return a JWT token."""
+    user = create_user(req.username, req.email, req.password, req.full_name, req.role)
+    token = create_access_token({"sub": str(user["id"]), "role": user["role"]})
+    return {"access_token": token, "token_type": "bearer", "user": user}
+
+
+@app.post("/api/auth/login", response_model=TokenOut)
+@limiter.limit("10/minute")
+def login(request: Request, req: UserLogin):
+    """Authenticate and return a JWT token."""
+    user = authenticate_user(req.username, req.password)
+    token = create_access_token({"sub": str(user["id"]), "role": user["role"]})
+    return {"access_token": token, "token_type": "bearer", "user": user}
+
+
+@app.get("/api/auth/me")
+def get_me(user: dict = Depends(get_current_user)):
+    """Get current authenticated user info."""
+    return user
+
+
+# ---------------------------------------------------------------------------
+# Admin — User management (admin-only)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/users")
+def admin_list_users(user: dict = Depends(require_admin)):
+    """List all users. Admin only."""
+    return {"users": list_users()}
+
+
+class AdminCreateUserRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+    full_name: str = ""
+    role: str = "analyst"
+
+@app.post("/api/admin/users")
+def admin_create_user(req: AdminCreateUserRequest, user: dict = Depends(require_admin)):
+    """Create a new user. Admin only."""
+    new_user = create_user(req.username, req.email, req.password, req.full_name, req.role)
+    return {"success": True, "user": new_user}
+
+
+class AdminUpdateUserRequest(BaseModel):
+    role: str | None = None
+    is_active: bool | None = None
+    full_name: str | None = None
+
+@app.put("/api/admin/users/{user_id}")
+def admin_update_user(user_id: int, req: AdminUpdateUserRequest, user: dict = Depends(require_admin)):
+    """Update a user's role, status, or name. Admin only."""
+    is_active_int = int(req.is_active) if req.is_active is not None else None
+    updated = update_user(user_id, role=req.role, is_active=is_active_int, full_name=req.full_name)
+    return {"success": True, "user": updated}
+
+
+class AdminResetPasswordRequest(BaseModel):
+    new_password: str
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+def admin_reset_password(user_id: int, req: AdminResetPasswordRequest, user: dict = Depends(require_admin)):
+    """Reset a user's password. Admin only."""
+    reset_user_password(user_id, req.new_password)
+    return {"success": True, "message": "Mot de passe r\u00e9initialis\u00e9"}
+
+
+@app.delete("/api/admin/users/{user_id}")
+def admin_deactivate_user(user_id: int, user: dict = Depends(require_admin)):
+    """Deactivate a user (soft delete). Admin only."""
+    if user_id == user.get("id"):
+        raise HTTPException(status_code=400, detail="Impossible de d\u00e9sactiver votre propre compte")
+    updated = update_user(user_id, is_active=0)
+    return {"success": True, "user": updated}
+
+
+@app.get("/api/admin/roles")
+def admin_list_roles(user: dict = Depends(require_admin)):
+    """List available roles and their permissions."""
+    return {
+        "roles": [
+            {"id": "viewer",  "label": "Viewer",  "level": 0, "description": "Lecture seule \u2014 consultation des dashboards et rapports"},
+            {"id": "analyst", "label": "Analyst", "level": 1, "description": "Consultation + propositions de th\u00e8ses + backtests"},
+            {"id": "manager", "label": "Manager", "level": 2, "description": "Analyst + validation des th\u00e8ses + lancement de cycles"},
+            {"id": "admin",   "label": "Admin",   "level": 3, "description": "Acc\u00e8s total + gestion des utilisateurs et configuration"},
+        ]
+    }
+
+
+# ---------------------------------------------------------------------------
+# Sentiment
+# ---------------------------------------------------------------------------
+
+@app.get("/api/sentiment")
+def get_sentiment_data():
+    """Return crypto + equities sentiment indicators."""
+    return data_sentiment.get_sentiment()
+
+
+# ---------------------------------------------------------------------------
+# Scheduler Status
+# ---------------------------------------------------------------------------
+
+@app.get("/api/scheduler/status")
+def scheduler_status():
+    """Return scheduler job status."""
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        # Access the scheduler through the lifespan — we store it on app.state
+        sched = getattr(app.state, '_scheduler', None)
+        if not sched:
+            return {"status": "no_scheduler", "jobs": []}
+        jobs = []
+        for job in sched.get_jobs():
+            jobs.append({
+                "id": job.id,
+                "next_run": str(job.next_run_time) if job.next_run_time else None,
+                "trigger": str(job.trigger),
+            })
+        return {"status": "running", "jobs": jobs}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/api/scheduler/refresh")
+@limiter.limit("3/minute")
+def scheduler_force_refresh(request: Request, target: str = Query("all")):
+    """Force immediate refresh. Target: all, prices, macro, sentiment, geo."""
+    results = {}
+    if target in ("all", "prices"):
+        try:
+            data_ingestion.run_ingestion(period="5d")
+            # Also update portfolio positions from new prices
+            _update_portfolio_from_latest_prices()
+            results["prices"] = "ok"
+        except Exception as e:
+            results["prices"] = f"error: {e}"
+    if target in ("all", "macro"):
+        try:
+            data_macro._cache["data"] = None
+            data_macro._cache["timestamp"] = None
+            data_macro.fetch_vulnerability_dashboard(force_refresh=True)
+            results["macro"] = "ok"
+        except Exception as e:
+            results["macro"] = f"error: {e}"
+    if target in ("all", "sentiment"):
+        try:
+            data_sentiment._cache["data"] = None
+            data_sentiment._cache["ts"] = 0
+            data_sentiment.get_sentiment()
+            results["sentiment"] = "ok"
+        except Exception as e:
+            results["sentiment"] = f"error: {e}"
+    if target in ("all", "geo"):
+        try:
+            data_geopolitical.start_background_fetch()
+            results["geo"] = "ok"
+        except Exception as e:
+            results["geo"] = f"error: {e}"
+    return {"refreshed": results}
+
+
+# ---------------------------------------------------------------------------
+# Backtest
+# ---------------------------------------------------------------------------
+
+class BacktestRequest(BaseModel):
+    tickers: list[str] = []
+    months: int = 12
+    initial_capital: float = 100000.0
+    benchmark: str = "SPY"
+    include_crypto: bool = False
+    include_equity: bool = True
+    custom_weights: dict[str, float] | None = None
+    apply_regime: bool = False  # [PATCH_API_BACKTEST_REGIME_V1]
+
+@app.post("/api/backtest")
+@limiter.limit("10/minute")
+def run_backtest_endpoint(request: Request, req: BacktestRequest):
+    """Run portfolio backtest on selected tickers."""
+    conn = db()
+    try:
+        # Build ticker list
+        tickers = list(req.tickers)
+
+        # If no explicit tickers, use instruments from DB
+        if not tickers:
+            query_parts = []
+            params = []
+            if req.include_equity:
+                query_parts.append("asset_class IN ('equity', 'etf')")
+            if req.include_crypto:
+                query_parts.append("asset_class = 'crypto'")
+            if not query_parts:
+                query_parts.append("asset_class = 'equity'")
+
+            where = " OR ".join(query_parts)
+            rows = conn.execute(
+                f"SELECT ticker, asset_class FROM instruments WHERE {where}"
+            ).fetchall()
+            tickers = [r["ticker"] for r in rows]
+
+        # Build asset_class mapping
+        all_instruments = conn.execute(
+            "SELECT ticker, asset_class FROM instruments"
+        ).fetchall()
+        asset_classes = {r["ticker"]: r["asset_class"] for r in all_instruments}
+        # For tickers not in DB, assume equity
+        for t in tickers:
+            if t not in asset_classes:
+                asset_classes[t] = "equity"
+
+        # Remove benchmark from portfolio tickers if present
+        if req.benchmark in tickers:
+            tickers.remove(req.benchmark)
+
+        result = backtest_engine.run_backtest(
+            tickers=tickers,
+            asset_classes=asset_classes,
+            weights=req.custom_weights,
+            months=req.months,
+            initial_capital=req.initial_capital,
+            benchmark=req.benchmark,
+            apply_regime=req.apply_regime,  # [PATCH_API_BACKTEST_REGIME_V1]
+        )
+
+        return _sanitize_for_json(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+class ExportCsvRequest(BaseModel):
+    trade_journal: list[dict] = []
+    stats: dict = {}
+    start_date: str = ""
+    end_date: str = ""
+
+@app.post("/api/backtest/export-csv")
+def export_backtest_csv(req: ExportCsvRequest):
+    """Generate CSV from trade journal data."""
+    import io
+    if not req.trade_journal:
+        raise HTTPException(status_code=400, detail="Aucun journal de trading fourni")
+
+    sep = ';'
+    buf = io.StringIO()
+
+    # BOM for Excel UTF-8
+    buf.write('\ufeff')
+
+    # Header
+    headers = ['Date', 'Ticker', 'Poids (%)', 'Prix', 'Rendement Jour (%)', 'Rendement Cumul (%)', 'Valeur Position']
+    buf.write(sep.join(headers) + '\n')
+
+    # Sort by date then ticker
+    sorted_journal = sorted(req.trade_journal, key=lambda r: (r.get('date', ''), r.get('ticker', '')))
+
+    for row in sorted_journal:
+        buf.write(sep.join([
+            str(row.get('date', '')),
+            str(row.get('ticker', '')),
+            str(row.get('poids_pct', '')),
+            str(row.get('prix', '')),
+            str(row.get('rendement_jour_pct', '')),
+            str(row.get('rendement_cumul_pct', '')),
+            str(row.get('valeur_position', '')),
+        ]) + '\n')
+
+    # Summary section
+    s = req.stats
+    buf.write('\n')
+    buf.write('Statistiques Portfolio\n')
+    buf.write(f'Rendement Total (%){sep}{s.get("total_return_pct", "")}\n')
+    buf.write(f'Rendement Annualis\u00e9 (%){sep}{s.get("annualized_return_pct", "")}\n')
+    buf.write(f'Volatilit\u00e9 (%){sep}{s.get("volatility_pct", "")}\n')
+    buf.write(f'Sharpe{sep}{s.get("sharpe", "")}\n')
+    buf.write(f'Sortino{sep}{s.get("sortino", "")}\n')
+    buf.write(f'Max Drawdown (%){sep}{s.get("max_drawdown_pct", "")}\n')
+    buf.write(f'Win Rate (%){sep}{s.get("win_rate_pct", "")}\n')
+    buf.write(f'P\u00e9riode{sep}{req.start_date} \u2192 {req.end_date}\n')
+    buf.write(f'Jours de trading{sep}{s.get("trading_days", "")}\n')
+    buf.write(f'Valeur finale{sep}{s.get("final_value", "")}\n')
+
+    csv_content = buf.getvalue()
+    buf.close()
+
+    safe_start = req.start_date.replace('/', '-')
+    safe_end = req.end_date.replace('/', '-')
+
+    from starlette.responses import Response
+    return Response(
+        content=csv_content.encode('utf-8-sig'),
+        media_type='text/csv',
+        headers={
+            'Content-Disposition': f'attachment; filename="backtest_journal_{safe_start}_{safe_end}.csv"',
+        },
+    )
+
+
+@app.get("/api/backtest/presets")
+def get_backtest_presets():
+    """Return available preset portfolios for backtesting."""
+    conn = db()
+    try:
+        equities = conn.execute(
+            "SELECT ticker FROM instruments WHERE asset_class = 'equity' ORDER BY ticker"
+        ).fetchall()
+        cryptos = conn.execute(
+            "SELECT ticker FROM instruments WHERE asset_class = 'crypto' ORDER BY ticker"
+        ).fetchall()
+        etfs = conn.execute(
+            "SELECT ticker FROM instruments WHERE asset_class = 'etf' ORDER BY ticker"
+        ).fetchall()
+        return {
+            "equities": [r["ticker"] for r in equities],
+            "cryptos": [r["ticker"] for r in cryptos],
+            "etfs": [r["ticker"] for r in etfs],
+            "presets": [
+                {"name": "Equity Only", "id": "equity", "description": "12 actions US du portefeuille"},
+                {"name": "Crypto Only", "id": "crypto", "description": "TOP 25 crypto"},
+                {"name": "Mixte 60/40", "id": "mixed", "description": "60% equity + 40% crypto (BTC/ETH)"},
+                {"name": "Full Portfolio", "id": "full", "description": "Toutes les positions equity + crypto"},
+            ]
+        }
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Entry Point
+# ---------------------------------------------------------------------------
+
+
+# [PPLX_API_ENDPOINTS_V1] [PPLX_CRYPTO_COL_FIX_V1]
+# Endpoints REST pour exposer les donnees Perplexity (CryptoAgent + FactorAgent)
+import json as _json_pplx
+import time as _time_pplx
+from pathlib import Path as _Path_pplx
+import sqlite3 as _sqlite_pplx
+
+def _pplx_db():
+    db = _Path_pplx(__file__).resolve().parent / "thesium.db"
+    cx = _sqlite_pplx.connect(str(db), timeout=10)
+    cx.row_factory = _sqlite_pplx.Row
+    return cx
+
+def _pplx_parse_json(s):
+    if not s:
+        return None
+    try:
+        return _json_pplx.loads(s)
+    except Exception:
+        return s
+
+
+@app.get("/api/pplx/crypto")
+def pplx_crypto_list():
+    """Liste tous les cryptos avec leur narrative Perplexity (schema reel: symbol, social_sentiment, ...)."""
+    cx = _pplx_db()
+    try:
+        rows = cx.execute(
+            "SELECT symbol AS ticker, narrative_score, social_sentiment AS sentiment, "
+            "current_narratives AS narratives, thesis_short AS trading_thesis, "
+            "citations, model, ts FROM crypto_context ORDER BY narrative_score DESC"
+        ).fetchall()
+    finally:
+        cx.close()
+    now = _time_pplx.time()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["narratives"] = _pplx_parse_json(d["narratives"])
+        d["citations"] = _pplx_parse_json(d["citations"])
+        d["age_hours"] = round((now - d["ts"]) / 3600.0, 2) if d["ts"] else None
+        out.append(d)
+    return {"count": len(out), "items": out}
+
+
+@app.get("/api/pplx/crypto/{ticker}")
+def pplx_crypto_detail(ticker: str):
+    """Detail crypto pour un symbol (BTC, ETH, LINK)."""
+    cx = _pplx_db()
+    try:
+        row = cx.execute(
+            "SELECT *, symbol AS ticker, social_sentiment AS sentiment, "
+            "current_narratives AS narratives, thesis_short AS trading_thesis "
+            "FROM crypto_context WHERE upper(symbol) = ?",
+            (ticker.upper(),)
+        ).fetchone()
+    finally:
+        cx.close()
+    if not row:
+        from fastapi import HTTPException as _HE
+        raise _HE(status_code=404, detail="crypto_context manquant pour " + ticker)
+    d = dict(row)
+    # Parser tous les champs JSON connus
+    for k in ("narratives", "current_narratives", "citations", "onchain_signals",
+              "key_catalysts_30d", "red_flags", "regulatory_status"):
+        if k in d and d[k]:
+            d[k] = _pplx_parse_json(d[k])
+    if d.get("ts"):
+        d["age_hours"] = round((_time_pplx.time() - d["ts"]) / 3600.0, 2)
+    return d
+
+
+@app.get("/api/pplx/quality")
+def pplx_quality_list():
+    """Liste tous les equities avec leur score qualite Perplexity."""
+    cx = _pplx_db()
+    try:
+        rows = cx.execute(
+            "SELECT ticker, quality_score, earnings_trend, management_quality, "
+            "moat_strength, balance_sheet_health, red_flags, positive_catalysts, "
+            "citations, model, ts FROM factor_quality_context ORDER BY quality_score DESC"
+        ).fetchall()
+    finally:
+        cx.close()
+    now = _time_pplx.time()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["red_flags"] = _pplx_parse_json(d["red_flags"]) or []
+        d["positive_catalysts"] = _pplx_parse_json(d["positive_catalysts"]) or []
+        d["citations"] = _pplx_parse_json(d["citations"]) or []
+        d["red_flags_count"] = len(d["red_flags"]) if isinstance(d["red_flags"], list) else 0
+        d["age_hours"] = round((now - d["ts"]) / 3600.0, 2) if d["ts"] else None
+        out.append(d)
+    return {"count": len(out), "items": out}
+
+
+@app.get("/api/pplx/quality/{ticker}")
+def pplx_quality_detail(ticker: str):
+    """Detail qualite pour un equity."""
+    cx = _pplx_db()
+    try:
+        row = cx.execute(
+            "SELECT * FROM factor_quality_context WHERE upper(ticker) = ?",
+            (ticker.upper(),)
+        ).fetchone()
+    finally:
+        cx.close()
+    if not row:
+        from fastapi import HTTPException as _HE
+        raise _HE(status_code=404, detail="factor_quality_context manquant pour " + ticker)
+    d = dict(row)
+    for k in ("red_flags", "positive_catalysts", "citations"):
+        if k in d:
+            d[k] = _pplx_parse_json(d[k])
+    if d.get("ts"):
+        d["age_hours"] = round((_time_pplx.time() - d["ts"]) / 3600.0, 2)
+    return d
+
+
+@app.get("/api/pplx/cycle-snapshot")
+def pplx_cycle_snapshot():
+    """Snapshot global pour le panel UI Perplexity Insights."""
+    cx = _pplx_db()
+    try:
+        cryptos = cx.execute(
+            "SELECT symbol AS ticker, narrative_score, social_sentiment AS sentiment, ts "
+            "FROM crypto_context ORDER BY narrative_score DESC"
+        ).fetchall()
+        equities = cx.execute(
+            "SELECT ticker, quality_score, earnings_trend, moat_strength, red_flags, ts "
+            "FROM factor_quality_context ORDER BY quality_score DESC"
+        ).fetchall()
+        audit = cx.execute(
+            "SELECT agent, COUNT(*) as calls, ROUND(SUM(COALESCE(cost_usd,0)),4) as cost_usd_total "
+            "FROM pplx_audit GROUP BY agent ORDER BY agent"
+        ).fetchall()
+    finally:
+        cx.close()
+    now = _time_pplx.time()
+    crypto_items = []
+    for r in cryptos:
+        d = dict(r)
+        d["age_hours"] = round((now - d["ts"]) / 3600.0, 2) if d["ts"] else None
+        crypto_items.append(d)
+    equity_items = []
+    for r in equities:
+        rf = _pplx_parse_json(r["red_flags"]) or []
+        equity_items.append({
+            "ticker": r["ticker"],
+            "quality_score": r["quality_score"],
+            "earnings_trend": r["earnings_trend"],
+            "moat_strength": r["moat_strength"],
+            "red_flags_count": len(rf) if isinstance(rf, list) else 0,
+            "age_hours": round((now - r["ts"]) / 3600.0, 2) if r["ts"] else None,
+        })
+    # === [PPLX_GEO_SNAPSHOT_ENRICH_V1] BEGIN ===
+    try:
+        _geo_snap = _pplx_geo_load_snapshot()
+        if _geo_snap and not _geo_snap.get("_error"):
+            _geo_exposure = _pplx_geo_book_exposure(_geo_snap["risks"])
+            _geo_top = []
+            for _r in _geo_snap["risks"][:5]:
+                _geo_top.append({
+                    "risk_id": _r["risk_id"],
+                    "title": _r["title"],
+                    "severity": _r["severity"],
+                    "horizon": _r["horizon"],
+                    "type": _r["type"],
+                    "tickers": _r["tickers"],
+                })
+            snap_payload_geo = {
+                "geo_available": True,
+                "geo_global_score": _geo_snap["header"]["global_score"],
+                "geo_regime": _geo_snap["header"]["regime"],
+                "geo_summary": _geo_snap["header"]["summary"],
+                "geo_generated_at": _geo_snap["header"]["generated_at"],
+                "geo_risks": _geo_top,
+                "geo_book_exposure": _geo_exposure[:10],
+            }
+        else:
+            snap_payload_geo = {"geo_available": False}
+    except Exception as _e:
+        snap_payload_geo = {"geo_available": False, "geo_error": str(_e)}
+    # === [PPLX_GEO_SNAPSHOT_ENRICH_V1] END ===
+
+    return {
+        **snap_payload_geo,
+        "generated_at": _time_pplx.strftime("%Y-%m-%d %H:%M:%S"),
+        "crypto": crypto_items,
+        "equity": equity_items,
+        "audit": [dict(r) for r in audit],
+        "thesis_challenges": _pplx_thesis_recent_for_snapshot()
+    }
+
+def pplx_cycle_snapshot():
+    """Snapshot global pour le panel UI Perplexity Insights."""
+    cx = _pplx_db()
+    try:
+        cryptos = cx.execute(
+            "SELECT ticker, narrative_score, sentiment, ts FROM crypto_context ORDER BY narrative_score DESC"
+        ).fetchall()
+        equities = cx.execute(
+            "SELECT ticker, quality_score, earnings_trend, moat_strength, red_flags, ts "
+            "FROM factor_quality_context ORDER BY quality_score DESC"
+        ).fetchall()
+        audit = cx.execute(
+            "SELECT agent, COUNT(*) as calls, ROUND(SUM(COALESCE(cost_usd,0)),4) as cost_usd_total "
+            "FROM pplx_audit GROUP BY agent ORDER BY agent"
+        ).fetchall()
+    finally:
+        cx.close()
+    now = _time_pplx.time()
+    crypto_items = []
+    for r in cryptos:
+        d = dict(r)
+        d["age_hours"] = round((now - d["ts"]) / 3600.0, 2) if d["ts"] else None
+        crypto_items.append(d)
+    equity_items = []
+    for r in equities:
+        rf = _pplx_parse_json(r["red_flags"]) or []
+        equity_items.append({
+            "ticker": r["ticker"],
+            "quality_score": r["quality_score"],
+            "earnings_trend": r["earnings_trend"],
+            "moat_strength": r["moat_strength"],
+            "red_flags_count": len(rf) if isinstance(rf, list) else 0,
+            "age_hours": round((now - r["ts"]) / 3600.0, 2) if r["ts"] else None,
+        })
+    return {
+        "generated_at": _time_pplx.strftime("%Y-%m-%d %H:%M:%S"),
+        "crypto": crypto_items,
+        "equity": equity_items,
+        "audit": [dict(r) for r in audit],
+    }
+
+
+
+# [PPLX_THESIS_API_V3] Endpoints pour les challenges Perplexity sur theses
+def _pplx_thesis_derive_side(action):
+    """Derive LONG/SHORT/HOLD a partir de proposed_action."""
+    import re as _re
+    if not action:
+        return "HOLD"
+    if _re.search(r"\b(BUY|LONG|INCREASE|ACCUMULATE|ADD|OVERWEIGHT)\b", action, _re.I):
+        return "LONG"
+    if _re.search(r"\b(SELL|SHORT|REDUCE|TRIM|UNDERWEIGHT|EXIT|CLOSE)\b", action, _re.I):
+        return "SHORT"
+    return "HOLD"
+
+
+def _pplx_thesis_recent_for_snapshot():
+    """Retourne les 20 derniers thesis challenges (pour cycle-snapshot)."""
+    import sqlite3 as _s3
+    from pathlib import Path as _P
+    _db = _P(__file__).resolve().parent / "thesium.db"
+    cx = _s3.connect(str(_db), timeout=10)
+    cx.row_factory = _s3.Row
+    try:
+        rows = cx.execute(
+            "SELECT thesis_id, ticker, side, conviction, challenge_score, "
+            "verdict, alternative_thesis, ts "
+            "FROM thesis_challenge_context ORDER BY ts DESC LIMIT 20"
+        ).fetchall()
+    except Exception:
+        rows = []
+    finally:
+        cx.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/pplx/thesis-challenges")
+def pplx_thesis_challenges_list(limit: int = 50):
+    """Liste les derniers challenges Perplexity de theses."""
+    import sqlite3 as _sql3, time as _t
+    from pathlib import Path as _P
+    _db = _P(__file__).resolve().parent / "thesium.db"
+    cx = _sql3.connect(str(_db), timeout=10)
+    cx.row_factory = _sql3.Row
+    try:
+        rows = cx.execute(
+            "SELECT thesis_id, ticker, side, conviction, challenge_score, verdict, "
+            "confidence_in_challenge, alternative_thesis, model, ts, source_thesis_summary "
+            "FROM thesis_challenge_context ORDER BY ts DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    finally:
+        cx.close()
+    now = _t.time()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["age_hours"] = round((now - d["ts"]) / 3600.0, 2) if d["ts"] else None
+        out.append(d)
+    return {"count": len(out), "items": out}
+
+
+@app.get("/api/pplx/thesis-challenge/{thesis_id}")
+def pplx_thesis_challenge_detail(thesis_id: int):
+    """Detail complet d'un challenge."""
+    import sqlite3 as _sql3, time as _t, json as _j
+    from pathlib import Path as _P
+    _db = _P(__file__).resolve().parent / "thesium.db"
+    cx = _sql3.connect(str(_db), timeout=10)
+    cx.row_factory = _sql3.Row
+    try:
+        row = cx.execute(
+            "SELECT * FROM thesis_challenge_context WHERE thesis_id = ?",
+            (thesis_id,)
+        ).fetchone()
+    finally:
+        cx.close()
+    if not row:
+        from fastapi import HTTPException as _HE
+        raise _HE(status_code=404, detail="Aucun challenge stocke pour la these " + str(thesis_id))
+    d = dict(row)
+    for k in ("counter_arguments", "supporting_facts_against", "blind_spots", "citations"):
+        if d.get(k):
+            try:
+                d[k] = _j.loads(d[k])
+            except Exception:
+                pass
+    if d.get("ts"):
+        d["age_hours"] = round((_t.time() - d["ts"]) / 3600.0, 2)
+    return d
+
+
+@app.post("/api/pplx/thesis-challenge/{thesis_id}")
+def pplx_thesis_challenge_trigger(thesis_id: int):
+    """Declenche manuellement le challenge d'une these."""
+    import sqlite3 as _sql3
+    from pathlib import Path as _P
+    _db = _P(__file__).resolve().parent / "thesium.db"
+    cx = _sql3.connect(str(_db), timeout=10)
+    cx.row_factory = _sql3.Row
+    try:
+        row = cx.execute(
+            "SELECT t.id, t.agent_type, "
+            "t.conviction_score AS conviction, t.thesis_text AS rationale, "
+            "t.proposed_action, t.horizon, t.key_drivers, t.status, t.created_at, "
+            "i.ticker, i.name, i.sector, i.asset_class "
+            "FROM theses t JOIN instruments i ON i.id = t.instrument_id "
+            "WHERE t.id = ?",
+            (thesis_id,)
+        ).fetchone()
+    finally:
+        cx.close()
+    if not row:
+        from fastapi import HTTPException as _HE
+        raise _HE(status_code=404, detail="These " + str(thesis_id) + " introuvable")
+    thesis_dict = dict(row)
+    thesis_dict["side"] = _pplx_thesis_derive_side(thesis_dict.get("proposed_action"))
+    try:
+        from pplx_thesis_agent import challenge_one
+        data = challenge_one(thesis_dict)
+        if not data:
+            from fastapi import HTTPException as _HE
+            raise _HE(status_code=502, detail="Challenge Perplexity a echoue")
+        return {"thesis_id": thesis_id, "challenge": data}
+    except ImportError:
+        from fastapi import HTTPException as _HE
+        raise _HE(status_code=500, detail="pplx_thesis_agent non installe")
+
+
+
+# ======================================================================
+# [RISK_CONTROLS_API_V1] Endpoints risk pre-trade
+# ======================================================================
+@app.get("/api/risk/controls/summary")
+def risk_controls_summary():
+    """
+    Retourne la liste des 6 controles pre-trade actifs (3 risk_engine.py
+    historiques + 3 [RISK_V2]) avec leurs parametres.
+    """
+    try:
+        from risk_pretrade_v2 import DEFAULT_PARAMS as P
+    except Exception:
+        P = {
+            "concentration_max_pct": 0.15,
+            "var_confidence": 0.99,
+            "var_window_days": 60,
+            "var_budget_pct_nav": 0.02,
+            "var_marginal_block_pct": 0.005,
+            "correl_window_days": 60,
+            "correl_block_threshold": 0.85,
+            "correl_min_overlap_days": 30,
+        }
+    controls = [
+        {"key": "single_name_limit", "label": "Limite single-name",
+         "type": "BLOCK", "param": "99000 USD",
+         "source": "risk_engine.py", "marker": "[RISK_V1]"},
+        {"key": "sector_limit", "label": "Limite secteur Technology",
+         "type": "BLOCK", "param": "249000 USD",
+         "source": "risk_engine.py", "marker": "[RISK_V1]"},
+        {"key": "var_portfolio_95", "label": "VaR portefeuille 95%",
+         "type": "BLOCK", "param": "budget portfolio",
+         "source": "risk_engine.py", "marker": "[RISK_V1]"},
+        {"key": "concentration", "label": "Concentration par position",
+         "type": "BLOCK", "param": f"max {P['concentration_max_pct']*100:.0f}% NAV",
+         "source": "risk_pretrade_v2.py", "marker": "[RISK_V2]"},
+        {"key": "var_marginal", "label": f"VaR marginal historique {int(P['var_confidence']*100)}%/1j",
+         "type": "WARNING", "param": f"window {P['var_window_days']}j, block si delta>{P['var_marginal_block_pct']*100:.1f}%",
+         "source": "risk_pretrade_v2.py", "marker": "[RISK_V2]"},
+        {"key": "correlation", "label": "Correlation Pearson",
+         "type": "WARNING", "param": f"window {P['correl_window_days']}j, seuil {P['correl_block_threshold']:.2f}, min {P['correl_min_overlap_days']}j",
+         "source": "risk_pretrade_v2.py", "marker": "[RISK_V2]"},
+    ]
+    return {"controls": controls, "total": len(controls),
+            "mode": "hybrid", "marker": "[RISK_CONTROLS_API_V1]"}
+
+
+@app.get("/api/risk/pretrade/recent")
+def risk_pretrade_recent(limit: int = 20):
+    """
+    Retourne les N dernieres entrees de risk_pretrade_log (defaut 20).
+    """
+    import sqlite3, json, os as _os
+    DB = _os.environ.get("THESIUM_DB", r"C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db")
+    limit = max(1, min(int(limit), 200))
+    c = sqlite3.connect(DB)
+    # [DB_LOCK_FIX_V1] busy_timeout + WAL + synchronous=NORMAL
+    try:
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA busy_timeout=10000")
+        c.execute("PRAGMA synchronous=NORMAL")
+    except Exception:
+        pass
+    c.row_factory = sqlite3.Row
+    try:
+        rows = c.execute(
+            "SELECT id, ts, symbol, side, qty, price, passed, blocked_by, "
+            "details_json, marker FROM risk_pretrade_log "
+            "ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    finally:
+        c.close()
+    items = []
+    for r in rows:
+        try:
+            details = json.loads(r["details_json"]) if r["details_json"] else {}
+        except Exception:
+            details = {}
+        items.append({
+            "id": r["id"], "ts": r["ts"], "symbol": r["symbol"],
+            "side": r["side"], "qty": r["qty"], "price": r["price"],
+            "passed": bool(r["passed"]), "blocked_by": r["blocked_by"],
+            "marker": r["marker"], "details": details,
+        })
+    return {"items": items, "count": len(items),
+            "marker": "[RISK_CONTROLS_API_V1]"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+
+# Static files are served by S3 in production
+# from fastapi.staticfiles import StaticFiles
+# app.mount("/", StaticFiles(directory=str(Path(__file__).parent), html=True), name="static")
+
+# === [PPLX_GEO_API_V1] BEGIN ===
+# GeoAgent Perplexity : endpoint /api/pplx/geo + helpers
+# Lecture pplx_geo_context (snapshot 4h) + mapping inverse book_exposure
+
+def _pplx_geo_load_snapshot():
+    import sqlite3, json
+    try:
+        from pathlib import Path as _Path_geo
+        _db_geo = _Path_geo(__file__).resolve().parent / "thesium.db"
+        con = sqlite3.connect(str(_db_geo))
+        # [DB_LOCK_FIX_V1] busy_timeout + WAL + synchronous=NORMAL
+        try:
+            con.execute("PRAGMA journal_mode=WAL")
+            con.execute("PRAGMA busy_timeout=10000")
+            con.execute("PRAGMA synchronous=NORMAL")
+        except Exception:
+            pass
+        con.row_factory = sqlite3.Row
+        cur = con.cursor()
+        row = cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='pplx_geo_context'"
+        ).fetchone()
+        if not row:
+            con.close()
+            return None
+        rows = cur.execute(
+            "SELECT * FROM pplx_geo_context ORDER BY severity DESC"
+        ).fetchall()
+        con.close()
+        if not rows:
+            return None
+        risks = []
+        header = {
+            "global_score": rows[0]["global_score"],
+            "regime": rows[0]["regime"],
+            "summary": rows[0]["summary"],
+            "model": rows[0]["model"],
+            "generated_at": rows[0]["generated_at"],
+        }
+        keys0 = rows[0].keys()
+        for r in rows:
+            def _jload(col):
+                if col not in keys0:
+                    return []
+                v = r[col]
+                if not v:
+                    return []
+                try:
+                    return json.loads(v)
+                except Exception:
+                    return []
+            risks.append({
+                "risk_id": r["risk_id"],
+                "title": r["title"],
+                "region": r["region"],
+                "severity": r["severity"],
+                "horizon": r["horizon"],
+                "type": r["type"],
+                "narrative": r["narrative"],
+                "catalysts": _jload("catalysts_json"),
+                "sectors": _jload("sectors_json"),
+                "tickers": _jload("tickers_json"),
+                "mechanism": r["mechanism"] if "mechanism" in keys0 else "",
+                "sources": _jload("sources_json"),
+            })
+        return {"header": header, "risks": risks}
+    except Exception as e:
+        try:
+            con.close()
+        except Exception:
+            pass
+        return {"_error": str(e)}
+
+
+def _pplx_geo_book_exposure(risks):
+    import sqlite3
+    try:
+        from pathlib import Path as _Path_geo
+        _db_geo = _Path_geo(__file__).resolve().parent / "thesium.db"
+        con = sqlite3.connect(str(_db_geo))
+        # [DB_LOCK_FIX_V1] busy_timeout + WAL + synchronous=NORMAL
+        try:
+            con.execute("PRAGMA journal_mode=WAL")
+            con.execute("PRAGMA busy_timeout=10000")
+            con.execute("PRAGMA synchronous=NORMAL")
+        except Exception:
+            pass
+        con.row_factory = sqlite3.Row
+        cur = con.cursor()
+        positions = cur.execute("""
+            SELECT i.ticker, p.weight_pct, p.quantity
+            FROM portfolio_positions p
+            JOIN instruments i ON i.id = p.instrument_id
+            WHERE p.quantity != 0
+        """).fetchall()
+        con.close()
+    except Exception:
+        return []
+    out = []
+    for p in positions:
+        ticker = p["ticker"]
+        weight = float(p["weight_pct"] or 0.0)
+        matched = []
+        raw_score = 0
+        for r in risks:
+            tks = r.get("tickers") or []
+            if ticker in tks:
+                matched.append({
+                    "risk_id": r["risk_id"],
+                    "title": r["title"],
+                    "severity": r["severity"],
+                    "horizon": r["horizon"],
+                    "type": r["type"],
+                })
+                raw_score += int(r["severity"] or 0)
+        if not matched:
+            continue
+        out.append({
+            "ticker": ticker,
+            "weight_pct": round(weight, 4),
+            "risks": matched,
+            "exposure_score": raw_score,
+            "exposure_score_weighted": round(raw_score * (weight / 100.0), 4),
+        })
+    out.sort(key=lambda x: x["exposure_score_weighted"], reverse=True)
+    return out
+
+
+@app.get("/api/pplx/geo")
+def api_pplx_geo():
+    from fastapi.responses import JSONResponse
+    snap = _pplx_geo_load_snapshot()
+    if snap is None:
+        return JSONResponse({"available": False, "reason": "no_snapshot"}, status_code=200)
+    if isinstance(snap, dict) and snap.get("_error"):
+        return JSONResponse({"available": False, "reason": "db_error", "error": snap["_error"]}, status_code=200)
+    exposure = _pplx_geo_book_exposure(snap["risks"])
+    return {
+        "available": True,
+        "header": snap["header"],
+        "risks": snap["risks"],
+        "book_exposure": exposure,
+    }
+# === [PPLX_GEO_API_V1] END ===
+
+# === [PPLX_MEMO_API_V1] : MemoAgent Perplexity - on-demand memo par symbole ===
+from pathlib import Path as _P_memo
+_db_memo = _P_memo(__file__).resolve().parent / "thesium.db"
+
+def _memo_db_conn():
+    import sqlite3 as _sql
+    return _sql.connect(str(_db_memo))
+
+
+@app.get("/api/pplx/memo")
+def get_pplx_memo(symbol: str, force: bool = False):
+    """
+    Renvoie le memo IA pour un symbole.
+    - symbol : ticker (ex: NVDA, BTC, ETH)
+    - force : si True, bypass le cache et appelle Perplexity
+    Cache : 1h (geree par MemoAgent + pplx_client)
+    """
+    import json as _json
+    import time as _time
+    sym = (symbol or "").upper().strip()
+    if not sym or len(sym) > 12:
+        return {"available": False, "error": "symbol invalide"}
+
+    # Sans force : tente le cache DB d'abord (rapide)
+    if not force:
+        try:
+            cx = _memo_db_conn()
+            row = cx.execute(
+                "SELECT payload_json, citations_json, generated_at, generated_ts, model, elapsed_s "
+                "FROM pplx_memo_context WHERE symbol=?",
+                (sym,)
+            ).fetchone()
+            cx.close()
+            if row:
+                payload_json, citations_json, generated_at, generated_ts, model, elapsed_s = row
+                age = int(_time.time()) - int(generated_ts)
+                return {
+                    "available": True,
+                    "symbol": sym,
+                    "payload": _json.loads(payload_json),
+                    "citations": _json.loads(citations_json) if citations_json else [],
+                    "generated_at": generated_at,
+                    "model": model,
+                    "elapsed_s": elapsed_s,
+                    "age_seconds": age,
+                    "cached": True
+                }
+        except Exception as _e:
+            print(f"[PPLX-MEMO-API] cache lookup failed: {_e}")
+
+    # Force ou cache miss : appel agent (peut prendre 8-15s)
+    try:
+        from pplx_memo_agent import run_memo_agent
+        result = run_memo_agent(sym, force=force)
+        if not result.get("payload"):
+            return {
+                "available": False,
+                "symbol": sym,
+                "error": result.get("error", "payload vide")
+            }
+        result["available"] = True
+        return result
+    except Exception as _e:
+        import traceback
+        print(f"[PPLX-MEMO-API] agent error: {_e}")
+        print(traceback.format_exc())
+        return {"available": False, "symbol": sym, "error": str(_e)}
+
+
+@app.get("/api/pplx/memo/list")
+def list_pplx_memos():
+    """Liste tous les symbols avec un memo en cache, tries par recence."""
+    import json as _json
+    import time as _time
+    try:
+        cx = _memo_db_conn()
+        rows = cx.execute(
+            "SELECT symbol, generated_at, generated_ts, model, elapsed_s "
+            "FROM pplx_memo_context ORDER BY generated_ts DESC LIMIT 100"
+        ).fetchall()
+        cx.close()
+        now = int(_time.time())
+        items = []
+        for sym, gen_at, gen_ts, model, elapsed_s in rows:
+            age_min = (now - int(gen_ts)) // 60
+            items.append({
+                "symbol": sym,
+                "generated_at": gen_at,
+                "model": model,
+                "elapsed_s": elapsed_s,
+                "age_minutes": age_min,
+                "fresh": age_min < 60
+            })
+        return {"available": True, "count": len(items), "items": items}
+    except Exception as _e:
+        return {"available": False, "error": str(_e), "items": []}
+# === END [PPLX_MEMO_API_V1] ===
+
+
+# [API_UNIVERSE_V2_BEGIN]
+# Universe Expansion v1 - Endpoints (Jalon 4)
+# Ces endpoints sont inseres automatiquement par nextones-api-universe-endpoints-v2.py
+try:
+    from universe_expansion_agent import (
+        run_scan as _universe_run_scan,
+        approve_candidate as _universe_approve,
+        reject_candidate as _universe_reject,
+    )
+except Exception as _e:
+    _universe_run_scan = None
+    _universe_approve = None
+    _universe_reject = None
+    print(f"[API_UNIVERSE] import warning: {_e}")
+
+
+def _universe_db():
+    """Connexion DB en sqlite3.Row, comme le reste du projet."""
+    import sqlite3 as _sqlite3
+    _conn = _sqlite3.connect(r"C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db",
+                             timeout=30.0)
+    _conn.row_factory = _sqlite3.Row
+    try:
+        _conn.execute("PRAGMA busy_timeout = 30000;")
+    except Exception:
+        pass
+    return _conn
+
+
+@app.get("/api/universe/candidates")
+def universe_list_candidates(
+    status: str = Query("pending"),
+    limit: int = Query(50),
+    user: dict = Depends(get_current_user),
+):
+    """Liste les candidats universe (pending|approved|rejected|all)."""
+    conn = _universe_db()
+    try:
+        if status == "all":
+            rows = conn.execute(
+                "SELECT * FROM universe_candidates ORDER BY proposed_at DESC LIMIT ?;",
+                (limit,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM universe_candidates WHERE status=? "
+                "ORDER BY proposed_at DESC LIMIT ?;",
+                (status, limit)
+            ).fetchall()
+        return {"candidates": [dict(r) for r in rows], "total": len(rows)}
+    finally:
+        conn.close()
+
+
+@app.get("/api/universe/candidates/{cand_id}")
+def universe_get_candidate(cand_id: int, user: dict = Depends(get_current_user)):
+    conn = _universe_db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM universe_candidates WHERE id=?;",
+            (cand_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+        return dict(row)
+    finally:
+        conn.close()
+
+
+@app.post("/api/universe/candidates/{cand_id}/approve")
+def universe_approve(
+    cand_id: int,
+    body: dict = Body(default={}),
+    user: dict = Depends(get_current_user),
+):
+    if _universe_approve is None:
+        raise HTTPException(status_code=503, detail="universe_expansion_agent not available")
+    max_w = body.get("max_weight_pct")
+    try:
+        res = _universe_approve(
+            cand_id,
+            reviewed_by=user.get("username", "system"),
+            max_weight_pct=max_w,
+        )
+        return {"success": True, "result": res}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/universe/candidates/{cand_id}/reject")
+def universe_reject(
+    cand_id: int,
+    body: dict = Body(default={}),
+    user: dict = Depends(get_current_user),
+):
+    if _universe_reject is None:
+        raise HTTPException(status_code=503, detail="universe_expansion_agent not available")
+    notes = body.get("notes", "")
+    try:
+        res = _universe_reject(
+            cand_id,
+            reviewed_by=user.get("username", "system"),
+            notes=notes,
+        )
+        return {"success": True, "result": res}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/universe/scan")
+def universe_scan(
+    body: dict = Body(default={}),
+    user: dict = Depends(get_current_user),
+):
+    if _universe_run_scan is None:
+        raise HTTPException(status_code=503, detail="universe_expansion_agent not available")
+    role = user.get("role", "")
+    if role not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="admin/manager only")
+    top = int(body.get("top", 5))
+    dry_run = bool(body.get("dry_run", False))
+    try:
+        res = _universe_run_scan(top_n=top, dry_run=dry_run)
+        return {"success": True, "result": res}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+# [API_UNIVERSE_V2_END]

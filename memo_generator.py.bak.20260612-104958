@@ -1,0 +1,641 @@
+"""
+memo_generator.py - IC Memo generation for Nextones.finance
+Generates Markdown Investment Committee memos from agent results and portfolio state.
+"""
+import json
+import sqlite3
+from datetime import datetime
+from models import get_db, log_event
+
+
+# ---------------------------------------------------------------------------
+# Memo Sections
+# ---------------------------------------------------------------------------
+
+def _build_header(date_str: str, portfolio_state: dict) -> str:
+    total_value = portfolio_state.get("total_value", 0)
+    total_pnl   = portfolio_state.get("total_pnl", 0)
+    total_pnl_pct = portfolio_state.get("total_pnl_pct", 0)
+    var_95      = portfolio_state.get("var_95", 0)
+    cash        = portfolio_state.get("cash", 0)
+
+    return f"""# Nextones IC Memo – {date_str}
+**Generated:** {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}
+**Mode:** Paper Trading | **Disclaimer:** Not investment advice. Research and execution automation under user control.
+
+---
+
+## Portfolio Snapshot
+
+| Metric | Value |
+|--------|-------|
+| Total AUM | ${total_value:,.2f} |
+| Cash | ${cash:,.2f} ({cash / total_value * 100:.1f}% of AUM) |
+| Total P&L | ${total_pnl:+,.2f} ({total_pnl_pct:+.2f}%) |
+| VAR (95%, 1-day) | {var_95:.2f}% of AUM |
+
+"""
+
+
+def _build_macro_section(macro_result: dict) -> str:
+    if not macro_result:
+        return "## Macro Outlook\n\n*No macro data available.*\n\n"
+
+    stance     = macro_result.get("stance", "neutral").upper()
+    conviction = macro_result.get("conviction", 0)
+    proposed   = macro_result.get("proposed_action", "")
+    signals    = macro_result.get("signals", {})
+
+    lines = [
+        "## Macro Outlook",
+        "",
+        f"**Stance:** {stance} | **Conviction:** {conviction}/10",
+        "",
+        "### Market Indicators",
+        "",
+        "| Index ETF | Price | SMA50 | SMA200 | Cross | RSI(14) | 20d Momentum |",
+        "|-----------|-------|-------|--------|-------|---------|--------------|",
+    ]
+
+    for ticker, sig in signals.items():
+        lines.append(
+            f"| {ticker} | ${sig.get('current_price', 0):.2f} | "
+            f"${sig.get('sma50', 0) or 0:.2f} | "
+            f"${sig.get('sma200', 0) or 0:.2f} | "
+            f"{sig.get('cross', 'N/A')} | "
+            f"{sig.get('rsi14', 0) or 0:.1f} | "
+            f"{sig.get('momentum_20d', 0):+.1f}% |"
+        )
+
+    lines += [
+        "",
+        f"**Recommended posture:** {proposed}",
+        "",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _build_factor_section(factor_results: list) -> str:
+    if not factor_results:
+        return "## Factor Tilts\n\n*No factor data available.*\n\n"
+
+    overweight  = [f for f in factor_results if f.get("tilt") == "overweight"]
+    underweight = [f for f in factor_results if f.get("tilt") == "underweight"]
+    neutral     = [f for f in factor_results if f.get("tilt") == "neutral"]
+
+    lines = [
+        "## Factor Tilts",
+        "",
+        f"**Overweight:** {', '.join(f['ticker'] for f in overweight) or 'None'}",
+        f"**Underweight:** {', '.join(f['ticker'] for f in underweight) or 'None'}",
+        f"**Neutral:** {', '.join(f['ticker'] for f in neutral) or 'None'}",
+        "",
+        "### Factor Scores",
+        "",
+        "| Ticker | Composite Score | Tilt | Conviction | Proposed Action |",
+        "|--------|----------------|------|------------|----------------|",
+    ]
+
+    for f in factor_results[:10]:  # Top 10
+        lines.append(
+            f"| {f['ticker']} | {f.get('combined_score', 0):.2f}/10 | "
+            f"**{f.get('tilt', 'neutral')}** | "
+            f"{f.get('conviction', 0):.1f} | "
+            f"{f.get('proposed_action', '')[:60]}... |"
+        )
+
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _build_thesis_section(conn: sqlite3.Connection, agent_results: dict) -> str:
+    lines = [
+        "## Active Thesis Summaries",
+        "",
+    ]
+
+    # Get most recent theses per agent type
+    theses = conn.execute(
+        """SELECT t.id, t.agent_type, t.thesis_text, t.conviction_score, t.horizon,
+                  t.proposed_action, i.ticker, i.name
+           FROM theses t
+           LEFT JOIN instruments i ON i.id = t.instrument_id
+           WHERE t.status = 'active'
+           ORDER BY t.conviction_score DESC, t.updated_at DESC
+           LIMIT 20"""
+    ).fetchall()
+
+    if not theses:
+        return "## Active Thesis Summaries\n\n*No active theses.*\n\n"
+
+    for t in theses:
+        ticker_str = f"**{t['ticker']}** – " if t['ticker'] else ""
+        lines += [
+            f"### {ticker_str}{t['agent_type']} | Conviction: {t['conviction_score']:.1f}/10 | Horizon: {t['horizon']}",
+            "",
+            f"*Thesis ID #{t['id']}*",
+            "",
+            f"{t['proposed_action']}",
+            "",
+            "---",
+            "",
+        ]
+
+    return "\n".join(lines)
+
+
+def _build_proposed_changes_section(conn: sqlite3.Connection) -> str:
+    """Show orders created in this cycle."""
+    orders = conn.execute(
+        """SELECT o.id, o.side, o.quantity, o.status, o.risk_check_result,
+                  i.ticker, i.name,
+                  f.fill_price, f.slippage, f.fees
+           FROM orders o
+           JOIN instruments i ON i.id = o.instrument_id
+           LEFT JOIN fills f ON f.order_id = o.id
+           ORDER BY o.created_at DESC
+           LIMIT 10"""
+    ).fetchall()
+
+    if not orders:
+        return "## Proposed Changes & Executions\n\n*No orders in this cycle.*\n\n"
+
+    lines = [
+        "## Proposed Changes & Executions",
+        "",
+        "| Order ID | Ticker | Side | Qty | Status | Fill Price | Slippage | Risk Notes |",
+        "|----------|--------|------|-----|--------|------------|----------|------------|",
+    ]
+
+    for o in orders:
+        risk_check = {}
+        try:
+            risk_check = json.loads(o["risk_check_result"]) if o["risk_check_result"] else {}
+        except Exception:
+            pass
+
+        risk_notes = risk_check.get("action", "N/A")
+        fill_str = f"${o['fill_price']:.2f}" if o["fill_price"] else "–"
+        slip_str = f"${o['slippage']:.2f}" if o["slippage"] else "–"
+
+        lines.append(
+            f"| #{o['id']} | {o['ticker']} | {o['side'].upper()} | "
+            f"{int(o['quantity'])} | {o['status']} | "
+            f"{fill_str} | {slip_str} | {risk_notes} |"
+        )
+
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _build_audit_trail_section(conn: sqlite3.Connection) -> str:
+    events = conn.execute(
+        """SELECT event_type, entity_type, entity_id, agent, created_at, details
+           FROM event_log
+           ORDER BY created_at DESC LIMIT 20"""
+    ).fetchall()
+
+    lines = [
+        "## Audit Trail",
+        "",
+        "| Timestamp (UTC) | Event | Agent | Entity | Details |",
+        "|----------------|-------|-------|--------|---------|",
+    ]
+
+    for e in events:
+        details_str = ""
+        try:
+            d = json.loads(e["details"]) if e["details"] else {}
+            # Show key=value for first 2 items
+            details_str = "; ".join(f"{k}={v}" for k, v in list(d.items())[:2])
+        except Exception:
+            pass
+
+        lines.append(
+            f"| {e['created_at'][:19]} | {e['event_type']} | "
+            f"{e['agent'] or '–'} | "
+            f"{e['entity_type'] or '–'}#{e['entity_id'] or '–'} | "
+            f"{details_str[:60]} |"
+        )
+
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Main Generator
+# ---------------------------------------------------------------------------
+
+
+
+# [RISK_V2_WIRED] Pre-trade controls section
+
+# [MEMO_VERDICT_REASON_FIX_V1]
+# Traduit un (blocked_by, details_json) en libelle humain court pour le memo IC.
+# blocked_by est le NOM DU CHECK (ex: "broker_mapping_ok"), pas un motif.
+# Le vrai motif se trouve dans details_json[blocked_by]["reason"].
+def _humanize_block_reason(blocked_by, details_json):
+    """Returns (short_reason_FR, long_reason_FR) for memo display."""
+    # [MEMO_VERDICT_REASON_FIX_V6]
+    # [MEMO_VERDICT_REASON_FIX_V5]
+    # [MEMO_VERDICT_REASON_FIX_V4]
+    import json as _json
+    try:
+        details = _json.loads(details_json) if isinstance(details_json, str) else (details_json or {})
+    except Exception:
+        details = {}
+    sub = (details or {}).get(blocked_by) or {}
+    raw_reason = sub.get("reason") or blocked_by or "unknown"
+    HUMAN = {
+        "not_tradable_strict_refusal":   ("Non tradable (regle A)",
+                                          "Symbole non mappe chez le broker - refus strict"),
+        "broker_mapping_ok":             ("Refus broker (motif non extrait)",
+                                                                            "Le broker a refuse - details indisponibles"),
+        "concentration_exceeded":        ("Concentration > 15%",
+                                          "Position depasserait le plafond de concentration"),
+        "var_budget_exceeded":           ("Budget VaR depasse",
+                                          "L'ordre depasse le budget VaR portefeuille"),
+        "correlation_excess":            ("Correlation trop forte",
+                                          "Correlation 60j > seuil avec autres positions"),
+        "qty_overshoot":                 ("Qty > position",
+                                          "Quantite SELL superieure a la position detenue"),
+        "no_position":                   ("Aucune position",
+                                          "Aucune position a vendre pour ce ticker"),
+        "market_closed":                 ("Marche ferme",
+                                          "Hors plage horaire ou jour ferie NYSE"),
+        "convergence_forced_exit":       ("Convergence forced exit",
+                                          "Le moteur convergence a force la sortie sur ce ticker"),
+        "block_forced_exit":             ("Convergence forced exit",
+                                          "Verdict V2 : forced_exit detecte par le moteur convergence"),
+        # [MEMO_VERDICT_REASON_FIX_V6] stop-loss mapping
+        "position_loss_exceeds_threshold": ("Stop-loss declenche",
+                                          "Position en perte >= 8% - blocage achat supplementaire"),
+        "stop_loss":                     ("Stop-loss declenche",
+                                          "Position en perte >= 8% - blocage achat supplementaire"),
+        "block_stop_loss":               ("Stop-loss declenche",
+                                          "Position en perte >= 8% - blocage achat supplementaire"),
+    }
+    short, long_ = HUMAN.get(raw_reason, (raw_reason, raw_reason))
+    return short, long_
+
+def _build_risk_v2_section(conn: sqlite3.Connection) -> str:
+    """Render the pre-trade [RISK_V2] controls table for the current cycle's orders."""
+    orders = conn.execute(
+        """SELECT o.id, o.side, o.quantity, o.status, o.risk_check_result, i.ticker
+           FROM orders o JOIN instruments i ON i.id = o.instrument_id
+           ORDER BY o.created_at DESC LIMIT 10"""
+    ).fetchall()
+    if not orders:
+        return ""
+
+    rows_seen = 0
+    body = []
+    for o in orders:
+        try:
+            rc = json.loads(o["risk_check_result"]) if o["risk_check_result"] else {}
+        except Exception:
+            rc = {}
+        v2 = rc.get("risk_v2")
+        if not v2:
+            continue
+        rows_seen += 1
+        d = v2.get("details", {})
+        c = d.get("concentration", {}) or {}
+        v = d.get("var", {}) or {}
+        cor = d.get("correlation", {}) or {}
+
+        blocked = v2.get("blocked_by")
+        passed = v2.get("passed", True)
+
+        # [MEMO_VERDICT_REASON_FIX_V1]
+
+        # [MEMO_VERDICT_REASON_FIX_V2] motif lisible depuis risk_v2.details_json
+        _details_for_humanize = (v2.get("details_json") if isinstance(v2, dict) else None) or (v2.get("details") if isinstance(v2, dict) else None) or {}  # [MEMO_VERDICT_REASON_FIX_V5]
+        _short_r, _long_r = _humanize_block_reason(blocked, _details_for_humanize)
+        verdict = "PASS" if passed else ("BLOCK - " + _short_r)
+
+        new_pct = c.get("new_pct")
+        new_pct_str = f"{(new_pct*100):.2f}%" if isinstance(new_pct, (int, float)) else "n/a"
+
+        var_dm = v.get("delta_marginal_pct")
+        var_dm_str = f"{(var_dm*100):.3f}%" if isinstance(var_dm, (int, float)) else (v.get("note", "n/a"))
+
+        cor_max = cor.get("max_correl_value")
+        cor_sym = cor.get("max_correl_symbol", "")
+        cor_str = (f"{cor_max:.2f} vs {cor_sym}" if isinstance(cor_max, (int, float))
+                   else (cor.get("note", "n/a")))
+
+        body.append(
+            f"| #{o['id']} | {o['ticker']} | {o['side'].upper()} | "
+            f"{int(o['quantity'])} | {verdict} | {new_pct_str} | {var_dm_str} | {cor_str} |"
+        )
+
+    if rows_seen == 0:
+        return ""
+
+    head = [
+        "## Pre-trade Controls [RISK_V2]",
+        "",
+        "Controls: Concentration 15% per name (BLOCK), VaR historical 99%/1d budget+marginal (WARN), Pearson correlation 60d (WARN).",
+        "",
+        "| Order | Ticker | Side | Qty | Verdict | Concentration | Delta VaR | Max Correlation |",
+        "|-------|--------|------|-----|---------|---------------|-----------|------------------|",
+    ]
+    return "\n".join(head + body) + "\n\n"
+
+
+# ============================================================
+# [ICMEMO_DIFF_V1] Section "Ce qui a change" (J-1 / J-7)
+# ============================================================
+def _build_diff_section(conn) -> str:
+    """Construit la section markdown 'Ce qui a change' pour le memo IC.
+    Lecture seule. Fail-safe : retourne un placeholder si diff_engine indispo
+    ou si pas assez de cycles historiques.
+    """
+    try:
+        from diff_engine import compute_cycle_diff, render_diff_markdown
+    except ImportError as _e_icmd:
+        return f"## Ce qui a change\n\n*Module diff_engine indisponible ({_e_icmd}).*\n\n"
+    try:
+        _row_icmd = conn.execute(
+            "SELECT cycle_id FROM regime_log ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if not _row_icmd:
+            return "## Ce qui a change\n\n*Aucun cycle disponible dans regime_log.*\n\n"
+        _cid_icmd = _row_icmd[0] if not hasattr(_row_icmd, "keys") else _row_icmd["cycle_id"]
+        _d1_icmd = compute_cycle_diff(conn, _cid_icmd, ref="J-1")
+        _d7_icmd = compute_cycle_diff(conn, _cid_icmd, ref="J-7")
+        return render_diff_markdown(_d1_icmd, _d7_icmd) + "\n"
+    except Exception as _e_icmd:
+        return f"## Ce qui a change\n\n*Erreur calcul diff : {_e_icmd}*\n\n"
+# ============================================================
+
+
+# [ICMEMO_CONVERGENCE_V1]
+
+
+# [MOJIBAKE_FIX_V1_HELPER]
+def _fix_mojibake(s):
+    """Tente de reparer un double-encoding UTF-8/cp1252.
+    Detecte la presence de patterns mojibake et applique le reverse roundtrip.
+    Si la chaine ne contient pas de mojibake, retourne telle quelle.
+    """
+    if not isinstance(s, str) or not s:
+        return s
+    # Detection rapide : patterns connus de double-encoding
+    moji_markers = ("\u00e2\u2030\u00a4", "\u00e2\u2020", "\u00c3\u00a9", "\u00c3\u00a8", "\u00c3\u00a0")
+    if not any(m in s for m in moji_markers):
+        return s
+    try:
+        fixed = s.encode("cp1252", errors="strict").decode("utf-8", errors="strict")
+        return fixed
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return s
+
+
+def _build_convergence_section(conn):
+    """
+    Section 'Convergence Engine' du memo IC.
+    Lit convergence_snapshots pour le cycle le plus recent et produit un
+    tableau markdown segmente : forced_exit / drift / strong / neutres.
+    Lecture seule. Fail-safe : placeholder si table manquante ou cycle absent.
+    """
+    try:
+        cur = conn.cursor()
+        # cycle le plus recent
+        cur.execute("SELECT cycle_id, created_at FROM convergence_snapshots ORDER BY rowid DESC LIMIT 1")
+        row = cur.fetchone()
+        if not row:
+            return "## Convergence Engine\n\n*Aucun snapshot convergence disponible.*\n\n"
+        cycle_id = row[0]
+        created_at = row[1] if len(row) > 1 else ""
+
+        cur.execute("""
+            SELECT ticker, direction_consensus, n_aligned, n_present, convergence_pct,
+                   sizing_multiplier, forced_exit, drift, is_crypto, buckets_json
+            FROM convergence_snapshots
+            WHERE cycle_id = ?
+            ORDER BY ticker
+        """, (cycle_id,))
+        rows = [dict(zip(
+            ["ticker","dir","n","ntotal","pct","sizing","fe","drift","crypto","buckets"], r
+        )) for r in cur.fetchall()]
+
+        if not rows:
+            return f"## Convergence Engine\n\n*Aucun ticker dans le cycle {cycle_id}.*\n\n"
+
+        # totaux
+        n_total = len(rows)
+        n_fe = sum(1 for r in rows if r["fe"])
+        n_drift = sum(1 for r in rows if r["drift"] and not r["fe"])
+        n_strong = sum(1 for r in rows
+                       if not r["fe"] and not r["drift"]
+                       and (r["sizing"] or 0) >= 1.0 and (r["n"] or 0) >= 3)
+        n_neutral = n_total - n_fe - n_drift - n_strong
+
+        def _bucket_driver(r, key):
+            try:
+                buckets = json.loads(r["buckets"] or "{}")
+            except Exception:
+                buckets = {}
+            b = buckets.get(key) or {}
+            return (b.get("direction"), _fix_mojibake(b.get("driver")), b.get("source"))
+
+        def _row_l5_driver(r):
+            _, driver, _ = _bucket_driver(r, "L5")
+            return driver or "-"
+
+        def _row_dominant_drivers(r):
+            try:
+                buckets = json.loads(r["buckets"] or "{}")
+            except Exception:
+                buckets = {}
+            parts = []
+            for k in ["L1","L2","L3","L4","L5"]:
+                b = buckets.get(k) or {}
+                if b.get("direction"):
+                    parts.append(f"{k}:{b.get('direction')}")
+            return " · ".join(parts) if parts else "-"
+
+        def _esc_md(s):
+            if s is None:
+                return "-"
+            return str(s).replace("|", "\\|").replace("\n", " ").strip()
+
+        out = []
+        out.append("## Convergence Engine")
+        out.append("")
+        out.append(f"**Cycle {cycle_id}** · {created_at} · {n_total} tickers · "
+                   f"{n_fe} forced_exit · {n_drift} drift · {n_strong} strong · {n_neutral} neutres")
+        out.append("")
+
+        # Forced exit
+        fe_rows = [r for r in rows if r["fe"]]
+        if fe_rows:
+            out.append("### Forced exit (sizing x0.0)")
+            out.append("")
+            out.append("| Ticker | Consensus | Aligné | Driver L5 (ExitAgent) |")
+            out.append("|---|---|---|---|")
+            for r in sorted(fe_rows, key=lambda x: (-(x["pct"] or 0), x["ticker"])):
+                badge = " (crypto)" if r["crypto"] else ""
+                out.append(f"| **{r['ticker']}**{badge} | {r['dir'] or '-'} | "
+                           f"{r['n']}/{r['ntotal']} | {_esc_md(_row_l5_driver(r))[:120]} |")
+            out.append("")
+
+        # Drift
+        dr_rows = [r for r in rows if r["drift"] and not r["fe"]]
+        if dr_rows:
+            out.append("### Drift (sizing x0.5)")
+            out.append("")
+            out.append("| Ticker | Consensus | Aligné | Driver L5 (ExitAgent) |")
+            out.append("|---|---|---|---|")
+            for r in sorted(dr_rows, key=lambda x: x["ticker"]):
+                badge = " (crypto)" if r["crypto"] else ""
+                out.append(f"| **{r['ticker']}**{badge} | {r['dir'] or '-'} | "
+                           f"{r['n']}/{r['ntotal']} | {_esc_md(_row_l5_driver(r))[:120]} |")
+            out.append("")
+
+        # Strong
+        st_rows = [r for r in rows
+                   if not r["fe"] and not r["drift"]
+                   and (r["sizing"] or 0) >= 1.0 and (r["n"] or 0) >= 3]
+        if st_rows:
+            out.append("### Strong consensus (sizing x1.0+, n_aligned ≥ 3)")
+            out.append("")
+            out.append("| Ticker | Consensus | Aligné | Buckets actifs |")
+            out.append("|---|---|---|---|")
+            for r in sorted(st_rows, key=lambda x: (-(x["pct"] or 0), x["ticker"])):
+                badge = " (crypto)" if r["crypto"] else ""
+                out.append(f"| **{r['ticker']}**{badge} | {r['dir'] or '-'} | "
+                           f"{r['n']}/{r['ntotal']} | {_esc_md(_row_dominant_drivers(r))[:120]} |")
+            out.append("")
+
+        # Neutres (resume seulement)
+        nu_rows = [r for r in rows
+                   if not r["fe"] and not r["drift"]
+                   and not ((r["sizing"] or 0) >= 1.0 and (r["n"] or 0) >= 3)]
+        if nu_rows:
+            tickers_str = ", ".join(sorted(r["ticker"] for r in nu_rows))
+            out.append(f"### Neutres ({len(nu_rows)} tickers)")
+            out.append("")
+            out.append(f"{tickers_str}")
+            out.append("")
+            out.append(f"*Conviction faible (n_aligned < 3 ou sizing par defaut). "
+                       f"Detail complet dans la carte Convergence Engine du dashboard Today.*")
+            out.append("")
+
+        return "\n".join(out) + "\n"
+
+    except Exception as _e_cvg:
+        return f"## Convergence Engine\n\n*Erreur lecture convergence_snapshots : {_e_cvg}*\n\n"
+
+
+def generate_ic_memo(conn: sqlite3.Connection, agent_results: dict | None = None) -> int:
+    """
+    Build a complete IC memo from current state and store in DB.
+    Returns the memo ID.
+    """
+    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+    title    = f"Nextones IC Memo – {date_str}"
+
+    portfolio_state = conn.execute("SELECT * FROM portfolio_state WHERE id = 1").fetchone()
+    ps = dict(portfolio_state) if portfolio_state else {}
+
+    macro_result   = agent_results.get("macro", {})   if agent_results else {}
+    factor_results = agent_results.get("factor", [])  if agent_results else []
+    micro_results  = agent_results.get("microstructure", []) if agent_results else []
+    alt_results    = agent_results.get("altdata", [])  if agent_results else []
+
+    # Build full markdown
+    sections = [
+        _build_header(date_str, ps),
+        _build_diff_section(conn),  # [ICMEMO_DIFF_V1]
+        _build_macro_section(macro_result),
+        _build_factor_section(factor_results),
+        _build_thesis_section(conn, agent_results or {}),
+        _build_proposed_changes_section(conn),
+        _build_risk_v2_section(conn),  # [RISK_V2_WIRED]
+        _build_audit_trail_section(conn),
+        "\n---\n*This memo was automatically generated by Nextones.finance. Not investment advice.*\n",
+    ]
+    sections.append(_build_convergence_section(conn))  # [ICMEMO_CONVERGENCE_V1]
+    full_markdown = "\n".join(sections)
+
+    # Prepare JSON summaries
+    macro_summary = macro_result.get("stance", "neutral") if macro_result else "not available"
+    factor_tilts  = {
+        "overweight":  [f["ticker"] for f in factor_results if f.get("tilt") == "overweight"],
+        "underweight": [f["ticker"] for f in factor_results if f.get("tilt") == "underweight"],
+    }
+
+    thesis_summaries = [
+        {
+            "ticker":    t.get("ticker"),
+            "agent":     t.get("agent_type") if hasattr(t, "get") else "",
+            "conviction": t.get("conviction", t.get("conviction_score", 0)) if hasattr(t, "get") else 0,
+            "action":    t.get("proposed_action"),
+        }
+        for t in (
+            list(factor_results[:5]) +
+            [{"ticker": m.get("ticker"), "agent_type": "MicrostructureAgent",
+              "conviction": m.get("conviction"), "proposed_action": m.get("proposed_action")}
+             for m in micro_results[:5]]
+        )
+        if t
+    ]
+
+    # [PATCH_MEMO_ORDERS_BY_CYCLE_V1] filtre proposed_changes par cycle courant
+    _cur_cycle_row = conn.execute(
+        "SELECT cycle_id FROM regime_log ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    _cur_cycle_id = _cur_cycle_row[0] if _cur_cycle_row else None
+    if _cur_cycle_id:
+        proposed_changes_rows = conn.execute(
+            """SELECT o.id, o.side, o.quantity, o.status, i.ticker
+               FROM orders o JOIN instruments i ON i.id = o.instrument_id
+               WHERE o.cycle_id = ?
+               ORDER BY o.created_at DESC LIMIT 50""",
+            (_cur_cycle_id,)
+        ).fetchall()
+    else:
+        proposed_changes_rows = conn.execute(
+            """SELECT o.id, o.side, o.quantity, o.status, i.ticker
+               FROM orders o JOIN instruments i ON i.id = o.instrument_id
+               ORDER BY o.created_at DESC LIMIT 10"""
+        ).fetchall()
+    proposed_changes = [
+        {"order_id": r["id"], "ticker": r["ticker"], "side": r["side"],
+         "quantity": r["quantity"], "status": r["status"]}
+        for r in proposed_changes_rows
+    ]
+
+    cur = conn.execute(
+        """INSERT INTO ic_memos
+               (date, title, macro_summary, factor_tilts, thesis_summaries,
+                proposed_changes, full_markdown)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            date_str, title, macro_summary,
+            json.dumps(factor_tilts),
+            json.dumps(thesis_summaries),
+            json.dumps(proposed_changes),
+            full_markdown,
+        )
+    )
+    memo_id = cur.lastrowid
+
+    log_event(conn, "ic_memo_generated", "ic_memo", memo_id,
+              {"date": date_str, "title": title, "sections": len(sections)},
+              agent="MemoGenerator")
+
+    return memo_id
+
+
+if __name__ == "__main__":
+    from models import init_db
+    init_db()
+    conn = get_db()
+    memo_id = generate_ic_memo(conn)
+    conn.commit()
+    print(f"Memo generated with ID {memo_id}")
+    conn.close()

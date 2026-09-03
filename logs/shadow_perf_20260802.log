@@ -1,0 +1,66 @@
+[2026-08-02 22:00:02] ==========================================
+[2026-08-02 22:00:02] SHADOW CRON START (perf-rolling + memo)
+[2026-08-02 22:00:02] ==========================================
+[2026-08-02 22:00:02] [1/2] Run shadow_perf_rolling_j30.py ...
+==============================================================================
+SHADOW PERF ROLLING J-30
+DB        : C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db
+Window    : 2026-07-03 -> 2026-08-02 (30 jours)
+==============================================================================
+
+Variants actifs : [(1, 'prod'), (2, 'tight_conv'), (3, 'loose_score'), (4, 'defensive_crypto')]
+
+[1/2] Compute baseline (variant_id=1 = prod)
+  prod : nav_final=786533.9876309196 return=-21.347% sharpe=0.6876149866265061 max_dd=-44.261% n_cyc=19 n_ord=103
+
+[2/2] Compute variants + insert
+
+  v1 (prod) : ret=-21.347% delta=0.000% sharpe=0.688 dd=-44.261% n_cyc=19 n_ord=103 reco=neutral
+  v2 (tight_conv) : ret=-23.692% delta=-2.345% sharpe=0.407 dd=-41.869% n_cyc=19 n_ord=103 reco=reject
+  v3 (loose_score) : ret=-21.846% delta=-0.499% sharpe=0.720 dd=-44.938% n_cyc=19 n_ord=103 reco=neutral
+  v4 (defensive_crypto) : ret=-19.407% delta=1.940% sharpe=0.827 dd=-43.683% n_cyc=19 n_ord=103 reco=champion
+
+==============================================================================
+PERF ROLLING DONE
+  rows inserted : 4
+  as_of_day     : 2026-08-02
+  window_days   : 30
+==============================================================================
+[2026-08-02 22:00:03] [1/2] exit=0
+[2026-08-02 22:00:03] [2/2] Run shadow_memo_generator.py --force ...
+======================================================================
+SHADOW MEMO GENERATOR - Jalon 9.5b
+DB : C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db
+Force : True | Variant filter : None
+======================================================================
+as_of_day : 2026-08-02 | rows a traiter : 4
+
+[VARIANT 1] prod
+[PPLX-shadow_memo_prod] OK en 3.3s, 20 sources
+    | VERDICT : Neutral: aucun Úcart mesurable vs prod
+    | 
+    | JUSTIFICATION
+
+[VARIANT 2] tight_conv
+[PPLX-shadow_memo_tight_conv] OK en 3.7s, 20 sources
+    | VERDICT : Rejet: sous-performance et Sharpe en baisse
+    | 
+    | JUSTIFICATION
+
+[VARIANT 3] loose_score
+[PPLX-shadow_memo_loose_score] OK en 4.9s, 20 sources
+    | VERDICT : Neutral: Sharpe mieux, retour et DD lÚgÞrement pires
+    | 
+    | JUSTIFICATION
+
+[VARIANT 4] defensive_crypto
+[PPLX-shadow_memo_defensive_crypto] OK en 4.4s, 20 sources
+    | VERDICT : Mieux que la prod, mais pas assez pour promouvoir
+    | 
+    | JUSTIFICATION
+
+======================================================================
+OK : 4 | SKIP : 0 | ERR : 0
+======================================================================
+[2026-08-02 22:00:21] [2/2] exit=0
+[2026-08-02 22:00:21] SHADOW CRON END (exit perf=0 memo=0)

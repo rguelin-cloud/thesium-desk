@@ -1,0 +1,262 @@
+# [PPLX_FACTOR_AGENT_V1] Score qualite narrative Perplexity pour les equities NEXTONES.
+# - Recupere les equities en DB (asset_class='equity')
+# - Pour chaque ticker, fetch Perplexity un score qualite + earnings/management/moat/red_flags
+# - Stocke dans table factor_quality_context
+# - Utilise par FactorAgent dans agents.py (patch separe)
+
+from __future__ import annotations
+import sqlite3
+import time
+import json
+from pathlib import Path
+from pplx_client import pplx_query, MODEL_DEEP
+
+_DB_PATH = Path(__file__).resolve().parent / "thesium.db"
+
+
+# ---------------------------------------------------------------------------
+# Schema JSON
+# ---------------------------------------------------------------------------
+SCHEMA_QUALITY = {
+    "type": "object",
+    "properties": {
+        "ticker": {
+            "type": "string",
+            "description": "Ticker action (AAPL, MSFT, etc.)"
+        },
+        "quality_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Score qualite global 0-100. 100 = excellence operationnelle, balance solide, moat large, management premium."
+        },
+        "earnings_trend": {
+            "type": "string",
+            "enum": ["improving", "stable", "deteriorating", "mixed", "unknown"],
+            "description": "Tendance earnings 4 derniers trimestres (beats/misses, guidances)"
+        },
+        "management_quality": {
+            "type": "string",
+            "enum": ["strong", "average", "weak", "unknown"],
+            "description": "Qualite du management (track record, allocation capital, scandales)"
+        },
+        "moat_strength": {
+            "type": "string",
+            "enum": ["wide", "narrow", "none", "unknown"],
+            "description": "Force de l'avantage concurrentiel"
+        },
+        "balance_sheet_health": {
+            "type": "string",
+            "enum": ["strong", "adequate", "stretched", "concerning", "unknown"]
+        },
+        "red_flags": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {"type": "string"},
+            "description": "Litiges materiels, enquetes regulatoires, fraudes comptables, downgrades majeurs, churn management des 90 derniers jours"
+        },
+        "positive_catalysts": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {"type": "string"},
+            "description": "Catalystes positifs identifiables sur 90 jours (lancement produit, contract win, beat earnings, upgrade analyste majeur)"
+        },
+        "rationale": {
+            "type": "string",
+            "description": "Synthese 2-3 phrases qui justifie le score"
+        }
+    },
+    "required": ["ticker", "quality_score", "rationale"]
+}
+
+
+# ---------------------------------------------------------------------------
+# DB helpers
+# ---------------------------------------------------------------------------
+def _db():
+    conn = sqlite3.connect(str(_DB_PATH), timeout=10)
+    conn.execute("PRAGMA busy_timeout = 10000")  # [DB_LOCK_FIX_V1]
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_factor_quality_table():
+    """Cree la table factor_quality_context si absente."""
+    conn = _db()
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS factor_quality_context (
+                ticker TEXT PRIMARY KEY,
+                quality_score REAL,
+                earnings_trend TEXT,
+                management_quality TEXT,
+                moat_strength TEXT,
+                balance_sheet_health TEXT,
+                red_flags TEXT,
+                positive_catalysts TEXT,
+                rationale TEXT,
+                citations TEXT,
+                model TEXT,
+                ts INTEGER NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_factor_quality_ts ON factor_quality_context(ts)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_equity_tickers() -> list[str]:
+    """Recupere les tickers equity depuis la table instruments."""
+    conn = _db()
+    try:
+        rows = conn.execute("""
+            SELECT DISTINCT ticker FROM instruments
+            WHERE LOWER(COALESCE(asset_class,'equity')) = 'equity'
+            ORDER BY ticker
+        """).fetchall()
+        return [r["ticker"] for r in rows]
+    finally:
+        conn.close()
+
+
+def _save_context(ticker: str, result: dict):
+    """Persiste le snapshot dans factor_quality_context (1 ligne par ticker, upsert)."""
+    data = result["data"]
+    conn = _db()
+    try:
+        conn.execute("""
+            INSERT OR REPLACE INTO factor_quality_context (
+                ticker, quality_score, earnings_trend, management_quality,
+                moat_strength, balance_sheet_health, red_flags,
+                positive_catalysts, rationale, citations, model, ts
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            ticker,
+            data.get("quality_score", 50),
+            data.get("earnings_trend", "unknown"),
+            data.get("management_quality", "unknown"),
+            data.get("moat_strength", "unknown"),
+            data.get("balance_sheet_health", "unknown"),
+            json.dumps(data.get("red_flags", []), ensure_ascii=False),
+            json.dumps(data.get("positive_catalysts", []), ensure_ascii=False),
+            data.get("rationale", ""),
+            json.dumps(result.get("citations", []), ensure_ascii=False),
+            result.get("model", ""),
+            int(time.time()),
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_quality_context(ticker: str) -> dict | None:
+    """Lit le snapshot le plus recent (utilise par FactorAgent et UI)."""
+    conn = _db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM factor_quality_context WHERE ticker=?", (ticker,)
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        for k in ("red_flags", "positive_catalysts", "citations"):
+            try:
+                d[k] = json.loads(d[k]) if d.get(k) else []
+            except Exception:
+                d[k] = []
+        d["age_s"] = int(time.time()) - int(d.get("ts", 0))
+        return d
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Fetch un ticker
+# ---------------------------------------------------------------------------
+def fetch_quality_context(ticker: str, ttl_hours: int = 24) -> dict | None:
+    """Interroge Perplexity pour un equity. Renvoie {data, citations, model, ts} ou None."""
+    prompt = f"""Analyse la QUALITE intrinseque de l'entreprise cotee {ticker} sur les 90 derniers jours pour un investisseur quantitatif.
+
+Evalue precisement :
+1. Score qualite global 0-100 (100 = excellence operationnelle complete)
+2. Tendance des earnings (4 derniers trimestres : beats/misses, qualite des guidances)
+3. Qualite du management (track record, allocation capital, scandales/turnover)
+4. Force du moat (avantage concurrentiel : reseaux, switching costs, marque, brevets, echelle)
+5. Sante du bilan (cash/dette, ratio FCF, dilution)
+6. Red flags des 90 derniers jours (litiges materiels, enquetes regulatoires, fraudes, downgrades majeurs, depart CEO/CFO)
+7. Catalystes positifs des 90 derniers jours (beats EPS majeurs, contrats remportes, lancements produit reussis, upgrades analystes majeurs)
+8. Synthese 2-3 phrases qui justifie le score
+
+Sources requises : 10-K/10-Q SEC, Bloomberg, Reuters, FT, WSJ, Seeking Alpha (analystes notes), notes de research broker sell-side.
+Reponds UNIQUEMENT en JSON conforme au schema."""
+
+    return pplx_query(
+        agent=f"factor_quality_{ticker.lower()}",
+        prompt=prompt,
+        schema=SCHEMA_QUALITY,
+        ttl=ttl_hours * 3600,
+        model=MODEL_DEEP,
+        timeout=60,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Refresh all equities
+# ---------------------------------------------------------------------------
+def refresh_all_quality_contexts(ttl_hours: int = 24) -> dict:
+    """
+    Rafraichit le score qualite de tous les equities en DB.
+    Tolere les echecs.
+    """
+    init_factor_quality_table()
+    tickers = list_equity_tickers()
+    if not tickers:
+        print("[FACTOR-AGENT] Aucun ticker equity trouve en DB")
+        return {"ok": 0, "failed": 0, "elapsed_s": 0, "tickers": {}}
+
+    print(f"[FACTOR-AGENT] Refresh qualite pour {len(tickers)} equity(s): {', '.join(tickers)}")
+    t0 = time.time()
+    stats = {"ok": [], "failed": []}
+
+    for tk in tickers:
+        try:
+            result = fetch_quality_context(tk, ttl_hours=ttl_hours)
+            if result is None:
+                stats["failed"].append(tk)
+                print(f"  [{tk}] FAIL — pas de mise a jour")
+            else:
+                _save_context(tk, result)
+                qs = result["data"].get("quality_score", "?")
+                rf = len(result["data"].get("red_flags", []))
+                src = len(result.get("citations", []))
+                stats["ok"].append(tk)
+                print(f"  [{tk}] OK quality={qs} red_flags={rf} sources={src}")
+            time.sleep(2)
+        except Exception as e:
+            stats["failed"].append(tk)
+            print(f"  [{tk}] EXCEPTION: {e}")
+
+    elapsed = round(time.time() - t0, 1)
+    print(f"[FACTOR-AGENT] Done en {elapsed}s | OK={len(stats['ok'])} FAIL={len(stats['failed'])}")
+    return {"ok": len(stats["ok"]), "failed": len(stats["failed"]),
+            "elapsed_s": elapsed, "tickers": stats}
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "init":
+        init_factor_quality_table()
+        print("Table factor_quality_context creee")
+    elif len(sys.argv) > 1 and sys.argv[1] == "list":
+        print(list_equity_tickers())
+    elif len(sys.argv) > 1 and sys.argv[1] == "one" and len(sys.argv) > 2:
+        tk = sys.argv[2].upper()
+        r = fetch_quality_context(tk)
+        print(json.dumps(r, indent=2, ensure_ascii=False))
+    else:
+        summary = refresh_all_quality_contexts(ttl_hours=24)
+        print(json.dumps(summary, indent=2, ensure_ascii=False))

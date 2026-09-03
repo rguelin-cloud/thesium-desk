@@ -1,0 +1,125 @@
+========================================================================
+[A] def run_pretrade_checks
+------------------------------------------------------------------------
+   L 480 | 
+>> L 481 | def run_pretrade_checks(
+   L 482 |     ticker: str,
+   L 483 |     qty: float,
+   L 484 |     price: float,
+   L 485 |     side: str,
+   L 486 |     db_path: Optional[str] = None,
+   L 487 |     params: Optional[Dict[str, Any]] = None,
+   L 488 | ) -> Dict[str, Any]:
+   L 489 |     # [NEXTONES-BROKER-CHECK-V1] - 5e controle broker_mapping_ok EN PREMIER
+   L 490 |     _nx_pre = _nx_broker_precheck(ticker, qty, price, side, db_path)
+   L 491 |     if _nx_pre is not None:
+   L 492 |         return _nx_pre
+   L 493 |     if db_path is None:
+   L 494 |         db_path = str(Path(__file__).resolve().parent / "thesium.db")
+   L 495 |     p = dict(DEFAULT_PARAMS)
+   L 496 |     if params:
+   L 497 |         p.update(params)
+   L 498 | 
+   L 499 |     c = _conn(db_path)
+   L 500 |     try:
+   L 501 |         _ensure_log_table(c)
+   L 502 | 
+   L 503 |         conc_ok, conc_d = check_concentration(c, ticker, qty, price, side, p)
+   L 504 |         var_ok, var_blocked, var_d = check_var_marginal(c, ticker, qty, price, side, p)
+   L 505 |         corr_ok, corr_d = check_correlation(c, ticker, side, p)
+   L 506 | 
+   L 507 |         blocked_by: Optional[str] = None
+   L 508 |         if not conc_ok:
+   L 509 |             blocked_by = "concentration"
+   L 510 |         elif not var_ok:
+   L 511 |             blocked_by = var_blocked or "var"
+---
+========================================================================
+[B] def _conn
+------------------------------------------------------------------------
+   L  49 | # --------------------------------------------------------------
+>> L  50 | def _conn(db_path: str) -> sqlite3.Connection:  # [RISK_V2_DBLOCK_FIX_V1]
+   L  51 |     c = sqlite3.connect(db_path, timeout=30.0)
+   L  52 |     c.row_factory = sqlite3.Row
+   L  53 |     try:
+   L  54 |         c.execute("PRAGMA busy_timeout=30000")
+   L  55 |     except Exception:
+   L  56 |         pass
+   L  57 |     return c
+   L  58 | 
+   L  59 | 
+   L  60 | def _ensure_log_table(c: sqlite3.Connection) -> None:
+   L  61 |     c.execute("""
+   L  62 |         CREATE TABLE IF NOT EXISTS risk_pretrade_log (
+   L  63 |             id           INTEGER PRIMARY KEY AUTOINCREMENT,
+   L  64 |             ts           TEXT    NOT NULL,
+   L  65 |             symbol       TEXT    NOT NULL,
+   L  66 |             side         TEXT    NOT NULL,
+   L  67 |             qty          REAL    NOT NULL,
+   L  68 |             price        REAL    NOT NULL,
+   L  69 |             passed       INTEGER NOT NULL,
+   L  70 |             blocked_by   TEXT,
+---
+========================================================================
+[C] tous les def top-level
+------------------------------------------------------------------------
+>> L  50 | def _conn(db_path: str) -> sqlite3.Connection:  # [RISK_V2_DBLOCK_FIX_V1]
+---
+>> L  60 | def _ensure_log_table(c: sqlite3.Connection) -> None:
+---
+>> L  81 | def _get_nav(c: sqlite3.Connection) -> float:
+---
+>> L 103 | def _get_positions(c: sqlite3.Connection) -> Dict[str, Dict[str, float]]:
+---
+>> L 127 | def _get_returns_series(
+---
+>> L 159 | def _pearson(a: List[float], b: List[float]) -> Optional[float]:
+---
+>> L 175 | def _historical_var(returns: List[float], conf: float) -> Optional[float]:
+---
+>> L 188 | def check_concentration(
+---
+>> L 217 | def check_var_marginal(
+---
+>> L 313 | def check_correlation(
+---
+>> L 372 | def _nx_broker_check_load():
+---
+>> L 399 | def _nx_broker_precheck(ticker, qty, price, side, db_path):
+---
+>> L 481 | def run_pretrade_checks(
+---
+========================================================================
+[D] Appels a _conn(...)
+------------------------------------------------------------------------
+  L499 |     c = _conn(db_path)
+========================================================================
+[E] Stats
+------------------------------------------------------------------------
+Total lignes : 564
+commit/close occurrences avec contexte ~5 lignes:
+   L  72 |             marker       TEXT    NOT NULL DEFAULT '[RISK_V2]'
+   L  73 |         )
+   L  74 |     """)
+>> L  75 |     c.commit()
+---
+   L 460 |              "broker_mapping_ok", _json.dumps(details),
+   L 461 |              "[NEXTONES-BROKER-CHECK-V1]"),
+   L 462 |         )
+>> L 463 |         _c.commit()
+---
+   L 461 |              "[NEXTONES-BROKER-CHECK-V1]"),
+   L 462 |         )
+   L 463 |         _c.commit()
+>> L 464 |         _c.close()
+---
+   L 540 |                 MARKER,
+   L 541 |             ),
+   L 542 |         )
+>> L 543 |         c.commit()
+---
+   L 548 |             "marker": MARKER,
+   L 549 |         }
+   L 550 |     finally:
+>> L 551 |         c.close()
+---

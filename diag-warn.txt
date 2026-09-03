@@ -1,0 +1,249 @@
+
+========================================================================
+[1] Grep complet sur 'risk_broker_check audit' dans tout le projet
+------------------------------------------------------------------------
+  nextones-diag-broker-warning-source.py:L3  # Identifier d'ou vient EXACTEMENT le warning "[WARN] risk_broker_check audit: database is locked"
+  nextones-diag-broker-warning-source.py:L11  print("[1] Grep complet sur 'risk_broker_check audit' dans tout le projet")
+  nextones-diag-broker-warning-source.py:L23  if "risk_broker_check audit" in l:
+  nextones-diag-risk-broker-check-conn.py:L27  if "risk_broker_check" in txt or "risk_broker_check audit" in txt:
+  nextones-diag-risk-broker-check-conn.py:L56  if "risk_broker_check audit" in l:
+  nextones-risk-broker-check.py:L100  print("[WARN] risk_broker_check audit: " + str(e))
+
+========================================================================
+[2] Existence et contenu de nextones-risk-broker-check.py
+------------------------------------------------------------------------
+  PRESENT : C:\Users\RichardGUELIN\Prod\ThesiumDesk\nextones-risk-broker-check.py
+  Lignes : 218
+
+  --- DUMP COMPLET ---
+  L   1 # -*- coding: utf-8 -*-
+  L   2 # [NEXTONES-RISK-BROKER-CHECK-V1]
+  L   3 # 5e controle Agent Risque : broker_mapping_ok.
+  L   4 # Ordre d'execution : EN PREMIER (decision user 30/05/2026, option A1).
+  L   5 #
+  L   6 # API publique:
+  L   7 #   check_broker_mapping(proposal: dict) -> dict
+  L   8 #       proposal attendu : {
+  L   9 #           'thesium_ticker': 'CSCO',
+  L  10 #           'side': 'buy'|'sell',
+  L  11 #           'qty': 166,
+  L  12 #           'asset_class': 'equity_us'   # optionnel
+  L  13 #       }
+  L  14 #       retour: {
+  L  15 #           'ok': bool,
+  L  16 #           'reason': str|None,
+  L  17 #           'broker_symbol': str|None,
+  L  18 #           'volume_lots': float,
+  L  19 #           'rounding_gap_pct': float,
+  L  20 #           'diagnostics': {...}
+  L  21 #       }
+  L  22 #
+  L  23 #   make_risk_decorator(existing_pretrade_func)
+  L  24 #       -> nouvelle fonction qui execute broker_check AVANT le pretrade.
+  L  25 #       Si broker_check echoue, on bypass les 4 controles suivants et on
+  L  26 #       renvoie un rejet structure identique a risk_pretrade.
+  L  27 #
+  L  28 # Usage import:
+  L  29 #   import importlib.util
+  L  30 #   spec = importlib.util.spec_from_file_location('rbc', 'nextones-risk-broker-check.py')
+  L  31 #   m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+  L  32 #   result = m.check_broker_mapping({'thesium_ticker': 'HYPE', 'side': 'buy', 'qty': 100})
+  L  33 
+  L  34 import os
+  L  35 import sys
+  L  36 import json
+  L  37 import sqlite3
+  L  38 import importlib.util
+  L  39 from datetime import datetime, timezone
+  L  40 from typing import Optional, Dict, Any
+  L  41 
+  L  42 # [NEXTONES-BROKER-DB-HARDENED-V1]
+  L  43 import sqlite3 as _sq_nx_h
+  L  44 def _nx_open_db(_p, **_kw):
+  L  45     _kw.setdefault('timeout', 10.0)
+  L  46     _c = _sq_nx_h.connect(_p, **_kw)
+  L  47     try:
+  L  48         _c.execute('PRAGMA busy_timeout=10000')
+  L  49     except Exception:
+  L  50         pass
+  L  51     return _c
+  L  52 
+  L  53 
+  L  54 DB_PATH = os.environ.get(
+  L  55     "THESIUM_DB",
+  L  56     r"C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db",
+  L  57 )
+  L  58 
+  L  59 _TRANSLATOR_PATH = os.path.join(
+  L  60     os.path.dirname(os.path.abspath(__file__)),
+  L  61     "nextones-order-translator.py",
+  L  62 )
+  L  63 
+  L  64 _T = None
+  L  65 
+  L  66 
+  L  67 def _translator():
+  L  68     global _T
+  L  69     if _T is None:
+  L  70         spec = importlib.util.spec_from_file_location(
+  L  71             "_nx_order_translator", _TRANSLATOR_PATH
+  L  72         )
+  L  73         if spec is None or spec.loader is None:
+  L  74             raise ImportError("Impossible de charger " + _TRANSLATOR_PATH)
+  L  75         mod = importlib.util.module_from_spec(spec)
+  L  76         spec.loader.exec_module(mod)
+  L  77         _T = mod
+  L  78     return _T
+  L  79 
+  L  80 
+  L  81 def _audit(con, action: str, proposal: dict, result: dict):
+  L  82     try:
+  L  83         ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+  L  84         cur = con.cursor()
+  L  85         cur.execute(
+  L  86             "INSERT INTO broker_mapping_audit(ts, action, thesium_ticker, "
+  L  87             "broker_symbol, payload_json, notes) VALUES(?, ?, ?, ?, ?, ?)",
+  L  88             (
+  L  89                 ts,
+  L  90                 "risk_check_" + action,
+  L  91                 proposal.get("thesium_ticker"),
+  L  92                 result.get("broker_symbol"),
+  L  93                 json.dumps({"proposal": proposal, "result": result},
+  L  94                            default=str)[:4000],
+  L  95                 result.get("reason") or "ok",
+  L  96             ),
+  L  97         )
+  L  98         con.commit()
+  L  99     except Exception as e:
+  L 100         print("[WARN] risk_broker_check audit: " + str(e))
+  L 101 
+  L 102 
+  L 103 def check_broker_mapping(proposal: Dict[str, Any],
+  L 104                          db_path: Optional[str] = None) -> Dict[str, Any]:
+  L 105     """
+  L 106     Verifie qu'un proposal Thesium est tradable chez ActivTrades.
+  L 107     Renvoie ok=False avec raison structuree si refus, sinon ok=True
+  L 108     avec broker_symbol + volume_lots calcule.
+  L 109     """
+  L 110     if not isinstance(proposal, dict):
+  L 111         return {"ok": False, "reason": "invalid_proposal_type",
+  L 112                 "broker_symbol": None, "volume_lots": 0.0,
+  L 113                 "rounding_gap_pct": 0.0, "diagnostics": {}}
+  L 114 
+  L 115     tkr = proposal.get("thesium_ticker") or proposal.get("ticker")
+  L 116     side = (proposal.get("side") or "").lower()
+  L 117     qty = proposal.get("qty") or proposal.get("quantity")
+  L 118     ac = proposal.get("asset_class")
+  L 119 
+  L 120     if not tkr:
+  L 121         return {"ok": False, "reason": "missing_ticker",
+  L 122                 "broker_symbol": None, "volume_lots": 0.0,
+  L 123                 "rounding_gap_pct": 0.0, "diagnostics": {}}
+  L 124 
+  L 125     T = _translator()
+  L 126     res = T.translate(tkr, qty, side, asset_class=ac)
+  L 127 
+  L 128     result = {
+  L 129         "ok": bool(res.accepted),
+  L 130         "reason": res.reason,
+  L 131         "broker_symbol": res.broker_symbol,
+  L 132         "volume_lots": res.volume_lots,
+  L 133         "rounding_gap_pct": res.rounding_gap_pct,
+  L 134         "diagnostics": res.diagnostics,
+  L 135     }
+  L 136 
+  L 137     path = db_path or DB_PATH
+  L 138     try:
+  L 139         con = _nx_open_db(path)
+  L 140         _audit(con, "accept" if result["ok"] else "reject", proposal, result)
+  L 141         con.close()
+  L 142     except Exception as e:
+  L 143         print("[WARN] check_broker_mapping audit: " + str(e))
+  L 144 
+  L 145     return result
+  L 146 
+  L 147 
+  L 148 # ----------------------------------------------------------------------
+  L 149 # Wrapper pour Risk pretrade (ordre A1: broker check en PREMIER)
+  L 150 # ----------------------------------------------------------------------
+  L 151 
+  L 152 def make_risk_decorator(existing_pretrade_func):
+  L 153     """
+  L 154     Decore une fonction pretrade(proposal, *args, **kwargs).
+  L 155     Comportement :
+  L 156       1. broker_check(proposal)   -- 5e controle, execute EN PREMIER
+  L 157       2. si ok=False : retourne immediatement un dict de rejet
+  L 158          (forme alignee avec risk_pretrade v2)
+  L 159       3. si ok=True  : appelle la fonction pretrade existante et lui
+  L 160          passe broker_symbol + volume_lots dans proposal pour permettre
+  L 161          aux 4 controles classiques de raisonner en lots si besoin.
+  L 162     """
+  L 163     def wrapper(proposal, *args, **kwargs):
+  L 164         bc = check_broker_mapping(proposal)
+  L 165         if not bc["ok"]:
+  L 166             return {
+  L 167                 "accepted": False,
+  L 168                 "controls_passed": [],
+  L 169                 "controls_failed": ["broker_mapping_ok"],
+  L 170                 "first_failure": "broker_mapping_ok",
+  L 171                 "reason": bc["reason"],
+  L 172                 "broker_symbol": bc["broker_symbol"],
+  L 173                 "diagnostics": bc["diagnostics"],
+  L 174                 "rejected_by": "broker_mapping_ok",
+  L 175             }
+  L 176         # Enrichit le proposal avec les infos broker pour les controls suivants
+  L 177         enriched = dict(proposal)
+  L 178         enriched["broker_symbol"] = bc["broker_symbol"]
+  L 179         enriched["broker_volume_lots"] = bc["volume_lots"]
+  L 180         enriched["broker_diagnostics"] = bc["diagnostics"]
+  L 181 
+  L 182         result = existing_pretrade_func(enriched, *args, **kwargs)
+  L 183 
+  L 184         # Garantit broker_mapping_ok est marque comme passe dans la trace
+  L 185         if isinstance(result, dict):
+  L 186             passed = list(result.get("controls_passed", []))
+  L 187             if "broker_mapping_ok" not in passed:
+  L 188                 passed.insert(0, "broker_mapping_ok")
+  L 189             result["controls_passed"] = passed
+  L 190             result.setdefault("broker_symbol", bc["broker_symbol"])
+  L 191         return result
+  L 192 
+  L 193     return wrapper
+  L 194 
+  L 195 
+  L 196 # ----------------------------------------------------------------------
+  L 197 # CLI smoke
+  L 198 # ----------------------------------------------------------------------
+  L 199 
+  L 200 def _main_cli():
+  L 201     if len(sys.argv) < 4:
+  L 202         print("Usage: risk-broker-check <ticker> <side buy|sell> <qty> [--asset X]")
+  L 203         sys.exit(1)
+  L 204     tkr = sys.argv[1]
+  L 205     side = sys.argv[2]
+  L 206     qty = float(sys.argv[3])
+  L 207     ac = None
+  L 208     if "--asset" in sys.argv:
+  L 209         i = sys.argv.index("--asset")
+  L 210         if i + 1 < len(sys.argv):
+  L 211             ac = sys.argv[i + 1]
+  L 212     proposal = {"thesium_ticker": tkr, "side": side, "qty": qty,
+  L 213                 "asset_class": ac}
+  L 214     print(json.dumps(check_broker_mapping(proposal), indent=2, default=str))
+  L 215 
+  L 216 
+  L 217 if __name__ == "__main__":
+  L 218     _main_cli()
+  --- /DUMP COMPLET ---
+
+========================================================================
+[3] Test direct du module nextones-risk-broker-check
+------------------------------------------------------------------------
+  Module charge OK
+  Attributs : ['Any', 'DB_PATH', 'Dict', 'Optional', 'check_broker_mapping', 'datetime', 'importlib', 'json', 'make_risk_decorator', 'os', 'sqlite3', 'sys', 'timezone']
+  check_broker_mapping : OK
+    signature : check_broker_mapping(proposal: Dict[str, Any], db_path: Optional[str] = None) -> Dict[str, Any]
+
+========================================================================
+FIN DIAG
+========================================================================

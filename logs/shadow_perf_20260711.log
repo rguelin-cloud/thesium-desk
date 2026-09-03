@@ -1,0 +1,64 @@
+[2026-07-11 22:00:02] ==========================================
+[2026-07-11 22:00:02] SHADOW CRON START (perf-rolling + memo)
+[2026-07-11 22:00:02] ==========================================
+[2026-07-11 22:00:02] [1/2] Run shadow_perf_rolling_j30.py ...
+==============================================================================
+SHADOW PERF ROLLING J-30
+DB        : C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db
+Window    : 2026-06-11 -> 2026-07-11 (30 jours)
+==============================================================================
+
+Variants actifs : [(1, 'prod'), (2, 'tight_conv'), (3, 'loose_score'), (4, 'defensive_crypto')]
+
+[1/2] Compute baseline (variant_id=1 = prod)
+  prod : nav_final=938434.0313442852 return=-6.157% sharpe=-1.0625711590129119 max_dd=-41.489% n_cyc=12 n_ord=73
+
+[2/2] Compute variants + insert
+
+  v1 (prod) : ret=-6.157% delta=0.000% sharpe=-1.063 dd=-41.489% n_cyc=12 n_ord=73 reco=neutral
+  v2 (tight_conv) : ret=-4.705% delta=1.452% sharpe=-1.092 dd=-42.313% n_cyc=12 n_ord=79 reco=champion
+  v3 (loose_score) : ret=-6.968% delta=-0.812% sharpe=-1.078 dd=-41.822% n_cyc=12 n_ord=73 reco=neutral
+  v4 (defensive_crypto) : ret=-6.656% delta=-0.499% sharpe=-1.069 dd=-41.668% n_cyc=12 n_ord=73 reco=neutral
+
+==============================================================================
+PERF ROLLING DONE
+  rows inserted : 4
+  as_of_day     : 2026-07-11
+  window_days   : 30
+==============================================================================
+[2026-07-11 22:00:03] [1/2] exit=0
+[2026-07-11 22:00:03] [2/2] Run shadow_memo_generator.py --force ...
+======================================================================
+SHADOW MEMO GENERATOR - Jalon 9.5b
+DB : C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db
+Force : True | Variant filter : None
+======================================================================
+as_of_day : 2026-07-11 | rows a traiter : 4
+
+[VARIANT 1] prod
+[PPLX-shadow_memo_prod] OK en 4.6s, 8 sources
+    | VERDICT : Variante identique Ó prod : neutral, sans amÚlioration ni dÚgradation, observation requise.
+    | 
+    | JUSTIFICATION
+
+[VARIANT 2] tight_conv
+[PPLX-shadow_memo_tight_conv] OK en 4.2s, 10 sources
+    | VERDICT : Variante non championne : Sharpe et DD aggravÚ®®s malgrÚ delta insuffisant.
+    | 
+    | JUSTIFICATION
+
+[VARIANT 3] loose_score
+[PPLX-shadow_memo_loose_score] OK en 5.0s, 10 sources
+    | VERDICT : Neutral : delta -0.81 pts, risque et Sharpe inchang+®s, aucun gain d'opportunit+® sur 12 cycles.
+    | 
+    | JUSTIFICATION
+
+[VARIANT 4] defensive_crypto
+[PPLX-shadow_memo_defensive_crypto] OK en 4.5s, 10 sources
+  [EXC] UnicodeEncodeError: 'charmap' codec can't encode characters in position 72-73: character maps to <undefined>
+
+======================================================================
+OK : 4 | SKIP : 0 | ERR : 1
+======================================================================
+[2026-07-11 22:00:23] [2/2] exit=1
+[2026-07-11 22:00:23] SHADOW CRON END (exit perf=0 memo=1)

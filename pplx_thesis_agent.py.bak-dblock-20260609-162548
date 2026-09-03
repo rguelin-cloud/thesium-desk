@@ -1,0 +1,540 @@
+# [PPLX_THESIS_AGENT_V3] Challenger Perplexity pour les theses NEXTONES
+# - Schema reel : theses(id, instrument_id, agent_type, thesis_text, conviction_score,
+#                        horizon, key_drivers, proposed_action, status, created_at, updated_at)
+#                 instruments(id, ticker, name, sector, asset_class, created_at)
+# - status = 'active' (pas de 'proposed'/'pending')
+# - Exclut PortfolioConstructionAgent (rebalancement mecanique, pas de these a challenger)
+# - Side derive de proposed_action via regex
+# - Stocke dans table thesis_challenge_context
+# - Utilise par run_agents_endpoint apres execution (top-N theses)
+from __future__ import annotations
+import sqlite3
+import time
+import json
+import re
+import sys
+from pathlib import Path
+from pplx_client import pplx_query, MODEL_REASON, MODEL_DEEP
+
+# V3.1 : switch sur sonar-pro (MODEL_DEEP) - sonar-reasoning-pro genere des sorties
+# JSON instables (texte apres JSON, arrays mal fermes). sonar-pro plus stable.
+_DEFAULT_MODEL = MODEL_DEEP
+
+_DB_PATH = Path(__file__).resolve().parent / "thesium.db"
+
+# Agents dont on challenge les theses (on exclut PortfolioConstructionAgent : pure mecanique)
+_CHALLENGEABLE_AGENTS = (
+    "FactorAgent",
+    "MacroAgent",
+    "MicrostructureAgent",
+    "AltDataAgent",
+    "CryptoAgent",
+    "ExitAgent",
+)
+
+# Patterns d'actions "no edge" (peu de valeur a challenger une absence de these)
+_NO_EDGE_PATTERNS = re.compile(
+    r"no\s+(actionable\s+)?(alt-data\s+|factor\s+|microstructure\s+|macro\s+)?edge|"
+    r"no\s+new\s+position|"
+    r"hold\s+current\s+\w+\s+(allocation|position)s?\s*;\s*no\s+\w+\s+edge|"
+    r"monitor\s+for\s+trend|"
+    r"hold\s+current\s+allocations?\s*;\s*monitor",
+    re.I,
+)
+
+# ---------------------------------------------------------------------------
+# Side derivation
+# ---------------------------------------------------------------------------
+_SIDE_PATTERNS = [
+    (re.compile(r"\b(BUY|LONG|INCREASE|ACCUMULATE|ADD|OVERWEIGHT)\b", re.I), "LONG"),
+    (re.compile(r"\b(SELL|SHORT|REDUCE|TRIM|UNDERWEIGHT|EXIT|CLOSE)\b", re.I), "SHORT"),
+    (re.compile(r"\b(HOLD|MAINTAIN|MONITOR|NEUTRAL|NO\s+EDGE|NO\s+NEW)\b", re.I), "HOLD"),
+]
+
+def _derive_side(proposed_action: str | None) -> str:
+    if not proposed_action:
+        return "HOLD"
+    for pat, side in _SIDE_PATTERNS:
+        if pat.search(proposed_action):
+            return side
+    return "HOLD"
+
+
+def _is_no_edge(proposed_action: str | None) -> bool:
+    """Detecte les theses sans edge actionable (peu utile a challenger)."""
+    if not proposed_action:
+        return True
+    return bool(_NO_EDGE_PATTERNS.search(proposed_action))
+
+
+def _action_priority(thesis: dict) -> int:
+    """Score de priorite pour le tri (plus haut = challenge plus interessant).
+    LONG/SHORT explicite = 100, HOLD substantiel (Accumulate/Reduce/Trim) = 50,
+    HOLD generique = 10, no edge = 0.
+    """
+    side = thesis.get("side", "HOLD")
+    action = (thesis.get("proposed_action") or "").lower()
+    if _is_no_edge(action):
+        return 0
+    if side in ("LONG", "SHORT"):
+        return 100
+    # HOLD mais avec verbe actionable (accumulate, trim, reduce, hedge...)
+    if re.search(r"accumul|trim|reduce|hedge|stop[-\s]?loss|target\s+\$|breakout|pullback", action):
+        return 50
+    return 10
+
+
+# ---------------------------------------------------------------------------
+# Schema JSON
+# ---------------------------------------------------------------------------
+SCHEMA_CHALLENGE = {
+    "type": "object",
+    "properties": {
+        "thesis_id": {
+            "type": "integer",
+            "description": "ID de la these challengee"
+        },
+        "challenge_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Force du contre-narratif 0-100. 0 = pas de counter-evidence. 100 = these largement contestee par les sources publiques."
+        },
+        "verdict": {
+            "type": "string",
+            "enum": ["thesis_holds", "moderate_concerns", "significant_challenge", "thesis_undermined"],
+            "description": "Verdict synthetique"
+        },
+        "counter_arguments": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "argument": {"type": "string", "description": "Argument contre la these"},
+                    "severity": {"type": "string", "enum": ["low", "medium", "high"]},
+                    "evidence_type": {"type": "string", "enum": ["fundamental", "technical", "macro", "sentiment", "regulatory", "competitive"]}
+                },
+                "required": ["argument", "severity", "evidence_type"]
+            },
+            "description": "Arguments opposes a la these, classes par severite"
+        },
+        "supporting_facts_against": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {"type": "string"},
+            "description": "Faits/donnees recents qui contredisent la these (chiffres, decisions, news)"
+        },
+        "alternative_thesis": {
+            "type": "string",
+            "description": "These alternative coherente avec les sources contraires (1-2 phrases)"
+        },
+        "blind_spots": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {"type": "string"},
+            "description": "Points aveugles de la these originale (ce qu'elle ignore)"
+        },
+        "confidence_in_challenge": {
+            "type": "string",
+            "enum": ["low", "medium", "high"],
+            "description": "Confiance de Perplexity dans la qualite du challenge (depend de la richesse des sources)"
+        }
+    },
+    "required": ["thesis_id", "challenge_score", "verdict", "counter_arguments", "confidence_in_challenge"]
+}
+
+
+# ---------------------------------------------------------------------------
+# DB init
+# ---------------------------------------------------------------------------
+def init_table() -> None:
+    cx = sqlite3.connect(str(_DB_PATH), timeout=10)
+    try:
+        cx.execute("""
+            CREATE TABLE IF NOT EXISTS thesis_challenge_context (
+                thesis_id INTEGER PRIMARY KEY,
+                ticker TEXT,
+                side TEXT,
+                conviction REAL,
+                challenge_score REAL,
+                verdict TEXT,
+                counter_arguments TEXT,
+                supporting_facts_against TEXT,
+                alternative_thesis TEXT,
+                blind_spots TEXT,
+                confidence_in_challenge TEXT,
+                citations TEXT,
+                model TEXT,
+                ts INTEGER,
+                source_thesis_summary TEXT
+            )
+        """)
+        cx.execute("CREATE INDEX IF NOT EXISTS idx_tcc_ts ON thesis_challenge_context(ts)")
+        cx.execute("CREATE INDEX IF NOT EXISTS idx_tcc_ticker ON thesis_challenge_context(ticker)")
+        cx.commit()
+        print("Table thesis_challenge_context creee (+ index ts, ticker)")
+    finally:
+        cx.close()
+
+
+# ---------------------------------------------------------------------------
+# Build prompt
+# ---------------------------------------------------------------------------
+def _build_prompt(thesis: dict) -> str:
+    ticker = thesis.get("ticker", "?")
+    name = thesis.get("name", "")
+    sector = thesis.get("sector", "")
+    asset_class = thesis.get("asset_class", "equity")
+    side = thesis.get("side", "?")
+    conviction = thesis.get("conviction", 0)
+    rationale = thesis.get("rationale", "") or thesis.get("thesis_text", "")
+    proposed_action = thesis.get("proposed_action", "")
+    agent_type = thesis.get("agent_type", "unknown")
+    horizon = thesis.get("horizon", "medium")
+    key_drivers = thesis.get("key_drivers", "[]")
+
+    ctx_instrument = f"{ticker}"
+    if name:
+        ctx_instrument += f" ({name})"
+    if sector:
+        ctx_instrument += f" / sector: {sector}"
+    if asset_class:
+        ctx_instrument += f" / class: {asset_class}"
+
+    return f"""Tu es un challenger de theses trading. Une these vient d'etre formulee par un agent automatique.
+Ton role : chercher la counter-evidence et critiquer la these de maniere RIGOUREUSE et FACTUELLE.
+
+THESE A CHALLENGER:
+- Instrument: {ctx_instrument}
+- Side derive: {side} (conviction {conviction}/10, horizon {horizon})
+- Agent source: {agent_type}
+- Rationale: {rationale}
+- Action proposee: {proposed_action}
+- Key drivers: {key_drivers}
+
+MISSION:
+1. Cherche dans les 30 derniers jours les arguments OPPOSES a cette these (counter-evidence)
+2. Identifie 3-5 arguments contre, classes par severite (low/medium/high)
+3. Liste les faits concrets (chiffres, news, decisions) qui contredisent la these
+4. Propose une these alternative coherente
+5. Identifie les points aveugles (ce que la these ignore)
+6. Note la force du challenge sur 100 (0=these solide, 100=these largement contestee)
+
+IMPORTANT:
+- Ne valide PAS la these, joue le diable
+- Cite tes sources (URLs)
+- Sois factuel : pas de speculation, des donnees verifiables
+- Si tu ne trouves rien, dis-le (challenge_score bas, verdict 'thesis_holds')
+- Retourne ton output en JSON strict suivant le schema fourni
+- thesis_id : reprends la valeur {thesis.get('id', 0)}
+"""
+
+
+# ---------------------------------------------------------------------------
+# Run challenge on a single thesis
+# ---------------------------------------------------------------------------
+def challenge_one(thesis: dict, ttl: int = 3600) -> dict | None:
+    thesis_id = thesis.get("id")
+    ticker = thesis.get("ticker", "?")
+    agent_key = f"thesis_challenge_{thesis_id}"
+    prompt = _build_prompt(thesis)
+
+    result = pplx_query(
+        agent=agent_key,
+        prompt=prompt,
+        schema=SCHEMA_CHALLENGE,
+        ttl=ttl,
+        model=_DEFAULT_MODEL,
+        timeout=60,
+    )
+
+    if result is None or not result.get("data"):
+        print(f"  [{ticker} #{thesis_id}] FAIL (no response)")
+        return None
+
+    data = result["data"]
+    # Forcer thesis_id (Perplexity peut le mal renvoyer)
+    data["thesis_id"] = thesis_id
+
+    # Persister
+    cx = sqlite3.connect(str(_DB_PATH), timeout=10)
+    try:
+        cx.execute("""
+            INSERT OR REPLACE INTO thesis_challenge_context (
+                thesis_id, ticker, side, conviction,
+                challenge_score, verdict, counter_arguments, supporting_facts_against,
+                alternative_thesis, blind_spots, confidence_in_challenge,
+                citations, model, ts, source_thesis_summary
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            thesis_id,
+            ticker,
+            thesis.get("side"),
+            thesis.get("conviction"),
+            data.get("challenge_score"),
+            data.get("verdict"),
+            json.dumps(data.get("counter_arguments", []), ensure_ascii=False),
+            json.dumps(data.get("supporting_facts_against", []), ensure_ascii=False),
+            data.get("alternative_thesis"),
+            json.dumps(data.get("blind_spots", []), ensure_ascii=False),
+            data.get("confidence_in_challenge"),
+            json.dumps(result.get("citations", []), ensure_ascii=False),
+            result.get("model"),
+            int(result.get("ts", time.time())),
+            (thesis.get("rationale") or thesis.get("thesis_text") or "")[:500]
+        ))
+        cx.commit()
+    finally:
+        cx.close()
+
+    print(f"  [{ticker} #{thesis_id}] OK challenge={data.get('challenge_score')} verdict={data.get('verdict')}")
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Fetch candidate theses (helper)
+# ---------------------------------------------------------------------------
+def _fetch_candidate_theses(n: int, max_age_hours: int = 24, include_no_edge: bool = False) -> list[dict]:
+    """Recupere les top-N theses actives recentes, hors PortfolioConstructionAgent.
+
+    V3: filtre anti 'no edge' + tri par priorite d'action (LONG/SHORT > Accumulate/Reduce > HOLD generique).
+    On recupere d'abord un pool large (n*5), on filtre, on trie, puis on coupe a N.
+    """
+    placeholders = ",".join("?" for _ in _CHALLENGEABLE_AGENTS)
+    pool_size = max(n * 5, 30)
+    sql = f"""
+        SELECT t.id,
+               t.agent_type,
+               t.conviction_score AS conviction,
+               t.thesis_text      AS rationale,
+               t.proposed_action,
+               t.horizon,
+               t.key_drivers,
+               t.status,
+               t.created_at,
+               i.ticker,
+               i.name,
+               i.sector,
+               i.asset_class
+        FROM theses t
+        JOIN instruments i ON i.id = t.instrument_id
+        WHERE t.status = 'active'
+          AND t.agent_type IN ({placeholders})
+          AND datetime(t.created_at) >= datetime('now', '-{int(max_age_hours)} hours')
+        ORDER BY t.conviction_score DESC, t.created_at DESC
+        LIMIT ?
+    """
+    params = (*_CHALLENGEABLE_AGENTS, pool_size)
+    cx = sqlite3.connect(str(_DB_PATH), timeout=10)
+    cx.row_factory = sqlite3.Row
+    try:
+        rows = cx.execute(sql, params).fetchall()
+    finally:
+        cx.close()
+
+    pool = []
+    for r in rows:
+        d = dict(r)
+        d["side"] = _derive_side(d.get("proposed_action"))
+        d["_priority"] = _action_priority(d)
+        d["_is_no_edge"] = _is_no_edge(d.get("proposed_action"))
+        pool.append(d)
+
+    # Filtre anti no-edge
+    if not include_no_edge:
+        pool = [t for t in pool if not t["_is_no_edge"]]
+
+    # Tri : priorite desc, puis conviction desc, puis created_at desc
+    pool.sort(
+        key=lambda t: (
+            -t["_priority"],
+            -(t.get("conviction") or 0),
+            t.get("created_at") or "",
+        )
+    )
+    return pool[:n]
+
+
+# ---------------------------------------------------------------------------
+# Run on top-N theses of the latest cycle
+# ---------------------------------------------------------------------------
+def challenge_top_n(n: int = 5, max_age_hours: int = 24) -> dict:
+    """Challenge les N theses 'active' avec la plus haute conviction du dernier cycle."""
+    theses = _fetch_candidate_theses(n, max_age_hours=max_age_hours)
+
+    if not theses:
+        print(f"[THESIS-AGENT] Aucune these recente (<{max_age_hours}h) a challenger")
+        return {"ok": 0, "failed": 0, "elapsed_s": 0, "theses": []}
+
+    print(f"[THESIS-AGENT] Challenge des {len(theses)} theses top-conviction (<{max_age_hours}h) :")
+    for t in theses:
+        action_short = (t.get("proposed_action") or "")[:80]
+        print(f"  - #{t['id']} {t['ticker']} {t['side']} conv={t['conviction']} ({t['agent_type']}) :: {action_short}")
+
+    start = time.time()
+    ok = 0
+    failed = 0
+    for t in theses:
+        try:
+            r = challenge_one(t)
+            if r:
+                ok += 1
+            else:
+                failed += 1
+        except Exception as e:
+            print(f"  [{t.get('ticker')}] EXCEPTION: {e}")
+            failed += 1
+
+    elapsed = time.time() - start
+    print(f"[THESIS-AGENT] Done en {elapsed:.1f}s | OK={ok} FAIL={failed}")
+    return {
+        "ok": ok,
+        "failed": failed,
+        "elapsed_s": round(elapsed, 1),
+        "theses": [{"id": t["id"], "ticker": t["ticker"], "side": t["side"], "agent": t["agent_type"]} for t in theses],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Public helper for other agents to get challenge context
+# ---------------------------------------------------------------------------
+def get_challenge_context(thesis_id: int, max_age_h: float = 24.0) -> dict | None:
+    """Renvoie le dernier challenge connu pour une these, ou None si trop vieux/absent."""
+    cx = sqlite3.connect(str(_DB_PATH), timeout=10)
+    cx.row_factory = sqlite3.Row
+    try:
+        row = cx.execute(
+            "SELECT * FROM thesis_challenge_context WHERE thesis_id = ?",
+            (thesis_id,)
+        ).fetchone()
+    finally:
+        cx.close()
+    if not row:
+        return None
+    d = dict(row)
+    if d.get("ts"):
+        age_h = (time.time() - d["ts"]) / 3600.0
+        if age_h > max_age_h:
+            return None
+        d["age_hours"] = round(age_h, 2)
+    for k in ("counter_arguments", "supporting_facts_against", "blind_spots", "citations"):
+        if d.get(k):
+            try:
+                d[k] = json.loads(d[k])
+            except Exception:
+                pass
+    return d
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+def main() -> None:
+    args = sys.argv[1:]
+    if not args:
+        result = challenge_top_n(5)
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return
+
+    cmd = args[0]
+    if cmd == "init":
+        init_table()
+        return
+    if cmd == "top":
+        n = int(args[1]) if len(args) > 1 else 5
+        result = challenge_top_n(n)
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return
+    if cmd == "candidates":
+        # Affiche juste les candidats sans appeler Perplexity
+        # Option --all : inclut les 'no edge'
+        include_no_edge = "--all" in args
+        clean_args = [a for a in args[1:] if not a.startswith("--")]
+        n = int(clean_args[0]) if clean_args else 10
+        theses = _fetch_candidate_theses(n, include_no_edge=include_no_edge)
+        if not theses:
+            print("Aucune these candidate (status=active, <24h, hors PortfolioConstructionAgent, hors no-edge)")
+            print("  Astuce : --all pour inclure les 'no actionable edge'")
+            return
+        flag = " (inclut no-edge)" if include_no_edge else " (no-edge filtres)"
+        print(f"Candidats top-{n}{flag} :")
+        print(f"{'ID':>5} {'TICKER':<8} {'SIDE':<6} {'PRIO':>4} {'CONV':>5} {'AGENT':<22} ACTION")
+        print("-" * 110)
+        for t in theses:
+            print(f"{t['id']:>5} {(t['ticker'] or '-'):<8} {t['side']:<6} "
+                  f"{t.get('_priority', 0):>4} {t['conviction'] or 0:>5.1f} "
+                  f"{(t['agent_type'] or '-'):<22} "
+                  f"{(t.get('proposed_action') or '')[:60]}")
+        return
+    if cmd == "one":
+        thesis_id = int(args[1])
+        cx = sqlite3.connect(str(_DB_PATH), timeout=10)
+        cx.row_factory = sqlite3.Row
+        try:
+            row = cx.execute("""
+                SELECT t.id,
+                       t.agent_type,
+                       t.conviction_score AS conviction,
+                       t.thesis_text      AS rationale,
+                       t.proposed_action,
+                       t.horizon,
+                       t.key_drivers,
+                       t.status,
+                       t.created_at,
+                       i.ticker,
+                       i.name,
+                       i.sector,
+                       i.asset_class
+                FROM theses t
+                JOIN instruments i ON i.id = t.instrument_id
+                WHERE t.id = ?
+            """, (thesis_id,)).fetchone()
+        finally:
+            cx.close()
+        if not row:
+            print(f"These {thesis_id} introuvable")
+            return
+        d = dict(row)
+        d["side"] = _derive_side(d.get("proposed_action"))
+        result = challenge_one(d)
+        print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+        return
+    if cmd == "show":
+        thesis_id = int(args[1])
+        ctx = get_challenge_context(thesis_id, max_age_h=999)
+        print(json.dumps(ctx, indent=2, ensure_ascii=False, default=str))
+        return
+    if cmd == "list":
+        cx = sqlite3.connect(str(_DB_PATH), timeout=10)
+        cx.row_factory = sqlite3.Row
+        try:
+            rows = cx.execute("""
+                SELECT thesis_id, ticker, side, conviction, challenge_score, verdict, ts
+                FROM thesis_challenge_context
+                ORDER BY ts DESC LIMIT 20
+            """).fetchall()
+        finally:
+            cx.close()
+        print(f"{'ID':>5} {'TICKER':<8} {'SIDE':<6} {'CONV':>5} {'CHALL':>6} {'VERDICT':<22} AGE")
+        print("-" * 75)
+        now = time.time()
+        for r in rows:
+            age_h = (now - (r["ts"] or now)) / 3600.0
+            print(f"{r['thesis_id']:>5} {(r['ticker'] or '-'):<8} {(r['side'] or '-'):<6} "
+                  f"{r['conviction'] or 0:>5.1f} {r['challenge_score'] or 0:>6.1f} "
+                  f"{(r['verdict'] or '-'):<22} {age_h:5.1f}h")
+        return
+
+    print(f"Usage:")
+    print(f"  py -3.13 pplx_thesis_agent.py init                # Cree la table")
+    print(f"  py -3.13 pplx_thesis_agent.py candidates [n]      # Liste les candidats (sans appeler Perplexity)")
+    print(f"  py -3.13 pplx_thesis_agent.py                     # Challenge top-5")
+    print(f"  py -3.13 pplx_thesis_agent.py top 10              # Challenge top-N")
+    print(f"  py -3.13 pplx_thesis_agent.py one <thesis_id>     # Challenge une these specifique")
+    print(f"  py -3.13 pplx_thesis_agent.py show <thesis_id>    # Afficher le challenge stocke")
+    print(f"  py -3.13 pplx_thesis_agent.py list                # Lister les 20 derniers challenges")
+
+
+if __name__ == "__main__":
+    main()

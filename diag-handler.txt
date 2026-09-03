@@ -1,0 +1,82 @@
+﻿======================================================================
+1) Marker [EXECUTE_CYCLE_TRACE_V1] location
+======================================================================
+  found at line 726
+  found at line 738
+
+======================================================================
+2) Toutes les def/async def avec 'cycle' dans le nom
+======================================================================
+  L  716  indent= 0  def execute_cycle(request: Request, user: dict = Depends(require_manager)
+  L 2870  indent= 0  def pplx_cycle_snapshot()
+  L 2943  indent= 1  def pplx_cycle_snapshot()
+
+======================================================================
+3) Routes FastAPI contenant 'cycle'
+======================================================================
+  L  714  POST   /api/orders/execute-cycle                -> execute_cycle
+  L 2869  GET    /api/pplx/cycle-snapshot                 -> pplx_cycle_snapshot
+
+======================================================================
+4) Fonction contenant [EXECUTE_CYCLE_TRACE_V1] (remontee jusqu'a la def)
+======================================================================
+  L716  indent=0  def execute_cycle(request: Request, user: dict = Depends(require_manager)
+  L713   
+  L714   @app.post("/api/orders/execute-cycle")
+  L715   @limiter.limit("5/minute")
+
+======================================================================
+5) Contexte autour du marker (40 lignes avant + 5 apres)
+======================================================================
+  L  665  
+  L  666              WHERE 1=1
+  L  667          """
+  L  668          params = []
+  L  669          if status:
+  L  670              query += " AND o.status = ?"
+  L  671              params.append(status)
+  L  672          if ticker:
+  L  673              query += " AND i.ticker = ?"
+  L  674              params.append(ticker.upper())
+  L  675          query += " ORDER BY o.created_at DESC LIMIT ?"
+  L  676          params.append(limit)
+  L  677  
+  L  678          rows = conn.execute(query, params).fetchall()
+  L  679          orders = []
+  L  680          for row in rows:
+  L  681              d = dict(row)
+  L  682              if isinstance(d.get("risk_check_result"), str):
+  L  683                  try:
+  L  684                      d["risk_check_result"] = json.loads(d["risk_check_result"])
+  L  685                  except Exception:
+  L  686                      d["risk_check_result"] = {}
+  L  687              orders.append(d)
+  L  688  
+  L  689          return {"orders": orders, "total": len(orders)}
+  L  690      finally:
+  L  691          conn.close()
+  L  692  
+  L  693  
+  L  694  @app.get("/api/fills")
+  L  695  def list_fills(limit: int = Query(50)):
+  L  696      """List recent fills with order and instrument context."""
+  L  697      conn = db()
+  L  698      try:
+  L  699          rows = conn.execute(
+  L  700              """SELECT f.id, f.fill_price, f.fill_quantity, f.slippage, f.fees, f.filled_at,
+  L  701                        o.side, o.order_type,
+  L  702                        i.ticker, i.name
+  L  703                 FROM fills f
+  L  704                 JOIN orders o ON o.id = f.order_id
+  L  705                 JOIN instruments i ON i.id = o.instrument_id
+  L  706                 ORDER BY f.filled_at DESC LIMIT ?""",
+  L  707              (limit,)
+  L  708          ).fetchall()
+  L  709          return {"fills": [dict(r) for r in rows], "total": len(rows)}
+  L  710      finally:
+  L  711          conn.close()
+  L  712  
+  L  713  
+  L  714  @app.post("/api/orders/execute-cycle")
+  L  715  @limiter.limit("5/minute")
+  L  716  def execute_cycle(request: Request, user: dict = Depends(require_manager)):

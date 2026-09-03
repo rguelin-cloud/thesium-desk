@@ -1,0 +1,200 @@
+======================================================================
+DIAG V12 - flush_md_table dans fonction #1 (api_server.py)
+======================================================================
+
+[1] Bornes fonction #1
+    start = L1079
+    end   = L1528
+    span  = 449 lignes
+
+[2] Dump flush_md_table
+----------------------------------------------------------------------
+def flush_md_table trouvee : L1313..1364
+
+L1313 |     def flush_md_table(table_rows, separator_idx):
+L1314 |         if not table_rows:
+L1315 |             return []
+L1316 |         header = [c.strip() for c in table_rows[0].strip("|").split("|")]
+L1317 |         body_rows = []
+L1318 |         start = separator_idx if separator_idx is not None else 1
+L1319 |         for row_str in table_rows[start:]:
+L1320 |             cells = [c.strip() for c in row_str.strip("|").split("|")]
+L1321 |             body_rows.append(cells)
+L1322 |         col_count = len(header)
+L1323 |         if col_count == 0:
+L1324 |             return []
+L1325 |         available_width = W - 30*mm
+L1326 |         col_w = available_width / col_count
+L1327 |         col_widths = [col_w] * col_count
+L1328 |         sTH = ParagraphStyle("TH", parent=sBody, fontSize=7.5, leading=9.5,
+L1329 |             textColor=white, fontName=FONT_BOLD)
+L1330 |         sTC = ParagraphStyle("TC", parent=sBody, fontSize=7.5, leading=9.5,
+L1331 |             fontName=FONT_REG)
+L1332 |         data = [[Paragraph(_re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', _xml_escape(h)), sTH)
+L1333 |                  for h in header]]
+L1334 |         for r in body_rows:
+L1335 |             row = []
+L1336 |             for c in r:
+L1337 |                 c2 = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', _xml_escape(c))
+L1338 |                 row.append(Paragraph(c2, sTC))
+L1339 |             data.append(row)
+L1340 |         for row in data:
+L1341 |             while len(row) < col_count:
+L1342 |                 row.append(Paragraph("", sTC))
+L1343 |         t = Table(data, colWidths=col_widths, repeatRows=1)
+L1344 |         t.setStyle(TableStyle([
+L1345 |             # [V3_LIGHT] header transparent, juste filet bas teal pastel
+L1346 |             ("TEXTCOLOR",  (0, 0), (-1, 0), DEEP_TEAL),
+L1347 |             ("FONTNAME",   (0, 0), (-1, 0), FONT_BOLD),
+L1348 |             ("FONTSIZE",   (0, 0), (-1, -1), 7.5),
+L1349 |             ("LEADING",    (0, 0), (-1, -1), 9.5),
+L1350 |             ("LINEBELOW",  (0, 0), (-1, 0), 0.8, MUTED_TEAL),
+L1351 |             ("LINEBELOW",  (0, 1), (-1, -1), 0.25, HexColor("#E5E3D4")),
+L1352 |             ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
+L1353 |             ("TOPPADDING", (0, 0), (-1, -1), 3),
+L1354 |             ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+L1355 |             ("LEFTPADDING",  (0, 0), (-1, -1), 5),
+L1356 |             ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+L1357 |             ('FONTSIZE', (0, 0), (-1, 0), 8.5),  # [ICMEMO_V6_R3] header plus lisible
+L1358 |             ('TOPPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V6_R3]
+L1359 |             ('BOTTOMPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V6_R3]
+L1360 |             ('LINEBELOW', (0, 0), (-1, 0), 1.2, white),  # [ICMEMO_V6_R3]
+L1361 |         ]))
+L1362 |         return [KeepTogether([t])]
+L1363 | 
+
+----------------------------------------------------------------------
+[3] Tous TableStyle de fonction #1
+----------------------------------------------------------------------
+--- TableStyle L1344..1361 ---
+L1344 |         t.setStyle(TableStyle([
+L1345 |             # [V3_LIGHT] header transparent, juste filet bas teal pastel
+L1346 |             ("TEXTCOLOR",  (0, 0), (-1, 0), DEEP_TEAL),
+L1347 |             ("FONTNAME",   (0, 0), (-1, 0), FONT_BOLD),
+L1348 |             ("FONTSIZE",   (0, 0), (-1, -1), 7.5),
+L1349 |             ("LEADING",    (0, 0), (-1, -1), 9.5),
+L1350 |             ("LINEBELOW",  (0, 0), (-1, 0), 0.8, MUTED_TEAL),
+L1351 |             ("LINEBELOW",  (0, 1), (-1, -1), 0.25, HexColor("#E5E3D4")),
+L1352 |             ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
+L1353 |             ("TOPPADDING", (0, 0), (-1, -1), 3),
+L1354 |             ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+L1355 |             ("LEFTPADDING",  (0, 0), (-1, -1), 5),
+L1356 |             ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+L1357 |             ('FONTSIZE', (0, 0), (-1, 0), 8.5),  # [ICMEMO_V6_R3] header plus lisible
+L1358 |             ('TOPPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V6_R3]
+L1359 |             ('BOTTOMPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V6_R3]
+L1360 |             ('LINEBELOW', (0, 0), (-1, 0), 1.2, white),  # [ICMEMO_V6_R3]
+L1361 |         ]))
+
+--- TableStyle L1477..1488 ---
+L1477 |             t.setStyle(TableStyle([  # [V3_LIGHT] header transparent, filet bas teal
+L1478 |                 ("TEXTCOLOR",  (0, 0), (-1, 0), DEEP_TEAL),
+L1479 |                 ("FONTNAME",   (0, 0), (-1, 0), FONT_BOLD),
+L1480 |                 ("FONTSIZE",   (0, 0), (-1, -1), 8.5),
+L1481 |                 ("LEADING",    (0, 0), (-1, -1), 11),
+L1482 |                 ("LINEBELOW",  (0, 0), (-1, 0), 0.8, MUTED_TEAL),
+L1483 |                 ("LINEBELOW",  (0, 1), (-1, -1), 0.25, HexColor("#E5E3D4")),
+L1484 |                 ("VALIGN",     (0, 0), (-1, -1), "TOP"),
+L1485 |                 ("TOPPADDING", (0, 0), (-1, -1), 4),
+L1486 |                 ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+L1487 |                 ("LEFTPADDING", (0, 0), (-1, -1), 6),
+L1488 |             ]))
+
+--- TableStyle L1505..1516 ---
+L1505 |             t.setStyle(TableStyle([  # [V3_LIGHT] header transparent, filet bas teal
+L1506 |                 ("TEXTCOLOR",  (0, 0), (-1, 0), DEEP_TEAL),
+L1507 |                 ("FONTNAME",   (0, 0), (-1, 0), FONT_BOLD),
+L1508 |                 ("FONTSIZE",   (0, 0), (-1, -1), 8.5),
+L1509 |                 ("LEADING",    (0, 0), (-1, -1), 11),
+L1510 |                 ("LINEBELOW",  (0, 0), (-1, 0), 0.8, MUTED_TEAL),
+L1511 |                 ("LINEBELOW",  (0, 1), (-1, -1), 0.25, HexColor("#E5E3D4")),
+L1512 |                 ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
+L1513 |                 ("TOPPADDING", (0, 0), (-1, -1), 4),
+L1514 |                 ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+L1515 |                 ("LEFTPADDING", (0, 0), (-1, -1), 6),
+L1516 |             ]))
+
+
+----------------------------------------------------------------------
+[4] Lignes contenant 'BACKGROUND', 'TEXTCOLOR', 'header', 'Paragraph' dans fonction #1
+----------------------------------------------------------------------
+L1208 | [Header]     # -- Header / footer : 1 SEULE ligne haute pour eviter le doublon visuel (B2) --
+L1209 | [header]     def header_footer(canvas, doc):  # [V3_LIGHT] header epure, sans aplat
+L1259 | [Paragraph(]     story.append(Paragraph(_normalize_glyphes(pdf_title), sH1))
+L1261 | [Paragraph(]         story.append(Paragraph(
+L1316 | [header]         header = [c.strip() for c in table_rows[0].strip("|").split("|")]
+L1322 | [header]         col_count = len(header)
+L1332 | [Paragraph(]         data = [[Paragraph(_re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', _xml_escape(h)), sTH)
+L1333 | [header]                  for h in header]]
+L1338 | [Paragraph(]                 row.append(Paragraph(c2, sTC))
+L1342 | [Paragraph(]                 row.append(Paragraph("", sTC))
+L1345 | [header]             # [V3_LIGHT] header transparent, juste filet bas teal pastel
+L1346 | [TEXTCOLOR]             ("TEXTCOLOR",  (0, 0), (-1, 0), DEEP_TEAL),
+L1357 | [header]             ('FONTSIZE', (0, 0), (-1, 0), 8.5),  # [ICMEMO_V6_R3] header plus lisible
+L1390 | [Paragraph(]             story.append(Paragraph(txt, sH1))
+L1395 | [Paragraph(]             story.append(Paragraph(txt, sH2))
+L1401 | [Paragraph(]             story.append(Paragraph(f"<b>{txt}</b>", sBody))
+L1411 | [Paragraph(]             story.append(Paragraph(f"\u2022  {txt}", sBullet))
+L1423 | [Paragraph(]             story.append(Paragraph(txt, sBody))
+L1429 | [Paragraph(]             story.append(Paragraph(f"<i>{txt}</i>", sSmall))
+L1435 | [Paragraph(]         story.append(Paragraph(txt, sBody))
+L1444 | [Paragraph(]         story.append(Paragraph("<i>Contenu markdown non parsable - affichage brut :</i>", sSmall))
+L1448 | [Paragraph(]                 story.append(Paragraph(_xml_escape(chunk), sBody))
+L1467 | [Paragraph(]             story.append(Paragraph("Thesis Summaries", sH2))
+L1470 | [data.append([]                 table_data.append([
+L1471 | [Paragraph(]                     Paragraph(f"<b>{_xml_escape(str(ts.get('ticker', '--')))}</b>", sBody),
+L1472 | [Paragraph(]                     Paragraph(_xml_escape(str(ts.get("agent", "--"))), sSmall),
+L1473 | [Paragraph(]                     Paragraph(f"{ts.get('conviction', '--')}/10", sBody),
+L1474 | [Paragraph(]                     Paragraph(_xml_escape(str(ts.get("action", "--"))), sBody),
+L1477 | [header]             t.setStyle(TableStyle([  # [V3_LIGHT] header transparent, filet bas teal
+L1478 | [TEXTCOLOR]                 ("TEXTCOLOR",  (0, 0), (-1, 0), DEEP_TEAL),
+L1493 | [Paragraph(]             story.append(Paragraph("Proposed Changes", sH2))
+L1498 | [data.append([]                 table_data.append([
+L1499 | [Paragraph(]                     Paragraph(f"<b>{_xml_escape(str(pc.get('ticker', '--')))}</b>", sBody),
+L1500 | [Paragraph(]                     Paragraph(f'<font color="{side_color}">{side_str}</font>', sBody),
+L1501 | [Paragraph(]                     Paragraph(_xml_escape(str(pc.get("quantity", "--"))), sBody),
+L1502 | [Paragraph(]                     Paragraph(_xml_escape(str(pc.get("status", "--"))).upper(), sSmall),
+L1505 | [header]             t.setStyle(TableStyle([  # [V3_LIGHT] header transparent, filet bas teal
+L1506 | [TEXTCOLOR]                 ("TEXTCOLOR",  (0, 0), (-1, 0), DEEP_TEAL),
+L1519 | [header]     doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
+L1526 | [header]         headers={"Content-Disposition": f'inline; filename="ic-memo-{memo_id}-{safe_date}.pdf"'},
+
+----------------------------------------------------------------------
+[5] Recherche 'col_widths' et 'data =' / 'data.append' dans fonction #1
+----------------------------------------------------------------------
+L1327 |         col_widths = [col_w] * col_count
+L1332 |         data = [[Paragraph(_re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', _xml_escape(h)), sTH)
+L1339 |             data.append(row)
+L1343 |         t = Table(data, colWidths=col_widths, repeatRows=1)
+
+----------------------------------------------------------------------
+[6] R5 - recherche 'Factor Scores' dans fonction #1 et memo_generator
+----------------------------------------------------------------------
+memo_generator.py L90..101
+L  90 |         f"**Underweight:** {', '.join(f['ticker'] for f in underweight) or 'None'}",
+L  91 |         f"**Neutral:** {', '.join(f['ticker'] for f in neutral) or 'None'}",
+L  92 |         "",
+L  93 |         "### Factor Scores",
+L  94 |         "",
+L  95 |         "| Ticker | Composite Score | Tilt | Conviction | Proposed Action |",
+L  96 |         "|--------|----------------|------|------------|----------------|",
+L  97 |     ]
+L  98 | 
+L  99 |     for f in factor_results[:10]:  # Top 10
+L 100 |         lines.append(
+
+
+----------------------------------------------------------------------
+[7] Markers V6 - localisation precise
+----------------------------------------------------------------------
+L1464 | [ICMEMO_V6_R2] |     if False:  # [ICMEMO_V6_R2] doublons Thesis Summaries / Proposed Changes neutralises (fonction #1)
+L1357 | [ICMEMO_V6_R3] |             ('FONTSIZE', (0, 0), (-1, 0), 8.5),  # [ICMEMO_V6_R3] header plus lisible
+L1358 | [ICMEMO_V6_R3] |             ('TOPPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V6_R3]
+L1359 | [ICMEMO_V6_R3] |             ('BOTTOMPADDING', (0, 0), (-1, 0), 6),  # [ICMEMO_V6_R3]
+L1360 | [ICMEMO_V6_R3] |             ('LINEBELOW', (0, 0), (-1, 0), 1.2, white),  # [ICMEMO_V6_R3]
+L1277 | [ICMEMO_V6_R4] |     # [ICMEMO_V6_R4] - tronque Active Thesis Summaries a top-5 blocs (fonction #1)
+L1305 | [ICMEMO_V6_R4] |     lines = _truncate_active_thesis_v6(lines, _keep=5)  # [ICMEMO_V6_R4]
+
+======================================================================
+FIN DIAG V12
+======================================================================

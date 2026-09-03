@@ -1,0 +1,63 @@
+[2026-06-28 22:00:03] ==========================================
+[2026-06-28 22:00:03] SHADOW CRON START (perf-rolling + memo)
+[2026-06-28 22:00:03] ==========================================
+[2026-06-28 22:00:03] [1/2] Run shadow_perf_rolling_j30.py ...
+==============================================================================
+SHADOW PERF ROLLING J-30
+DB        : C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db
+Window    : 2026-05-29 -> 2026-06-28 (30 jours)
+==============================================================================
+
+Variants actifs : [(1, 'prod'), (2, 'tight_conv'), (3, 'loose_score'), (4, 'defensive_crypto')]
+
+[1/2] Compute baseline (variant_id=1 = prod)
+  prod : nav_final=1299504.4414341156 return=29.950% sharpe=2.8587657340469117 max_dd=-22.086% n_cyc=15 n_ord=183
+
+[2/2] Compute variants + insert
+
+  v1 (prod) : ret=29.950% delta=0.000% sharpe=2.859 dd=-22.086% n_cyc=15 n_ord=183 reco=neutral
+  v2 (tight_conv) : ret=36.040% delta=6.089% sharpe=3.229 dd=-22.365% n_cyc=15 n_ord=200 reco=champion
+  v3 (loose_score) : ret=30.102% delta=0.151% sharpe=2.826 dd=-22.771% n_cyc=15 n_ord=184 reco=neutral
+  v4 (defensive_crypto) : ret=29.700% delta=-0.251% sharpe=2.856 dd=-22.219% n_cyc=15 n_ord=183 reco=neutral
+
+==============================================================================
+PERF ROLLING DONE
+  rows inserted : 4
+  as_of_day     : 2026-06-28
+  window_days   : 30
+==============================================================================
+[2026-06-28 22:00:04] [1/2] exit=0
+[2026-06-28 22:00:04] [2/2] Run shadow_memo_generator.py --force ...
+======================================================================
+SHADOW MEMO GENERATOR - Jalon 9.5b
+DB : C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db
+Force : True | Variant filter : None
+======================================================================
+as_of_day : 2026-06-28 | rows a traiter : 4
+
+[VARIANT 1] prod
+[PPLX-shadow_memo_prod] parse error: Unterminated string starting at: line 1 column 66 (char 65) | body: {'choices': [{'delta': {'content': '', 'role': 'assistant'}, 'finish_reason': 'stop', 'index': 0, 'message': {'content': '{"action_recommandee": "Continuer observation", "justification": "La variante shadow \'prod\' affiche une performance identique Ó la prod sur 30 jours, avec un retour de 29.950%,
+  [ERR] pplx_query a retourne None pour variant prod
+[VARIANT 2] tight_conv
+[PPLX-shadow_memo_tight_conv] OK en 4.4s, 9 sources
+    | VERDICT : Variante champion validÚ®®e : retour et Sharpe supÚ®®rieurs, risque ma¯trisÚ®®, Úchantillon fiable.
+    | 
+    | JUSTIFICATION
+
+[VARIANT 3] loose_score
+[PPLX-shadow_memo_loose_score] OK en 3.6s, 9 sources
+    | VERDICT : Neutral : retour lÚgÞrement supÚrieur mais Sharpe et DD infÚÀÀrieurs, Úchantillon trop restreint.
+    | 
+    | JUSTIFICATION
+
+[VARIANT 4] defensive_crypto
+[PPLX-shadow_memo_defensive_crypto] OK en 3.8s, 7 sources
+    | VERDICT : Variante defensive_crypto : performance quasi-identique Ó la prod, delta nÚgatif minime, Sharpe Úquivalent, DD lÚgÞrement accru, Úchantillon limitÚ.
+    | 
+    | JUSTIFICATION
+
+======================================================================
+OK : 3 | SKIP : 0 | ERR : 1
+======================================================================
+[2026-06-28 22:00:52] [2/2] exit=1
+[2026-06-28 22:00:52] SHADOW CRON END (exit perf=0 memo=1)

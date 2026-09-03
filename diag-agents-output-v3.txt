@@ -1,0 +1,314 @@
+﻿Last 5 cycles (regime_log) :
+  20260609-091332 @ 2026-06-09 09:13:32
+  20260609-085551 @ 2026-06-09 08:55:51
+  20260609-085121 @ 2026-06-09 08:51:21
+  20260609-063042 @ 2026-06-09 06:30:42
+  20260608-063833 @ 2026-06-08 06:38:33
+
+==============================================================================
+THESES TABLE
+==============================================================================
+Columns (11) : id, instrument_id, agent_type, thesis_text, conviction_score, horizon, key_drivers, proposed_action, status, created_at, updated_at
+Total rows : 6666
+
+------------------------------------------------------------------------------
+Agents all-time (count + last_run)
+------------------------------------------------------------------------------
+  MicrostructureAgent              2436   last=2026-06-09T09:13:32.783784
+  FactorAgent                      1654   last=2026-06-09T09:13:32.569711
+  AltDataAgent                     1653   last=2026-06-09T09:13:32.891698
+  CryptoAgent                       446   last=2026-06-09T09:13:32.938983
+  ExitAgent                         200   last=2026-06-09 09:13:32
+  PortfolioConstructionAgent        144   last=2026-06-08 06:39:38
+  MacroAgent                        133   last=2026-06-09T09:13:32.366156
+
+instruments table present : True
+
+------------------------------------------------------------------------------
+Agent : MicrostructureAgent
+------------------------------------------------------------------------------
+  last burst window : [2026-06-09 09:08:32.783784, 2026-06-09T09:13:32.783784]
+  rows in burst : 120
+  conviction_score : min=5.0 max=7.5 avg=5.433333333333334
+  proposed_action :
+    RSI oversold (28.1); accumulate on weakness, stop  ...    4
+    RSI overbought (74.5); reduce position or set trai ...    4
+    RSI overbought (70.4); reduce position or set trai ...    4
+    No microstructure edge; hold XOM with stop at 139. ...    4
+    No microstructure edge; hold XLK with stop at 169. ...    4
+    No microstructure edge; hold XLI with stop at 159. ...    4
+    No microstructure edge; hold XLE with stop at 53.6 ...    4
+    No microstructure edge; hold XLB with stop at 45.9 ...    4
+    No microstructure edge; hold TXN with stop at 267. ...    4
+    No microstructure edge; hold TSLA with stop at 376 ...    4
+    No microstructure edge; hold SPY with stop at 680. ...    4
+    No microstructure edge; hold REET with stop at 24. ...    4
+    No microstructure edge; hold QQQ with stop at 658. ...    4
+    No microstructure edge; hold PLD with stop at 131. ...    4
+    No microstructure edge; hold NVDA with stop at 191 ...    4
+  status :
+    superseded                  90
+    active                      30
+  horizon :
+    medium                      88
+    short                       32
+  tickers sample : ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META', 'JPM', 'BAC', 'XOM', 'JNJ', 'UNH', 'SPY', 'QQQ', 'BTC', 'ETH', 'LINK', 'SOL', 'XLE', 'XLK', 'XLI', 'XLB', 'HYPE', 'ZEC', 'CAT', 'CSCO', 'TXN', 'AMD', 'PLD', 'REET']
+
+  Sample row :
+    id                     : 6361
+    instrument_id          : 1
+    agent_type             : MicrostructureAgent
+    thesis_text            : ## Microstructure Signal û AAPL û 2026-06-09 **Signal:** HOLD | **Conviction:** 5.0/10 Technical analysis of **Apple Inc.** (AAPL) current price $301.54 is at the 19th percentile o ...
+    conviction_score       : 5.0
+    horizon                : medium
+    key_drivers            : ["Price vs BB: 19th percentile of 20-day range", "Volume ratio (5d/20d): 1.47x", "RSI(14): 54.0", "10-day support: 301.17 | resistance: 317.40", "ATR-based stop: 288.59"]
+    proposed_action        : No microstructure edge; hold AAPL with stop at 277.42
+    status                 : superseded
+    created_at             : 2026-06-09T06:30:42.180087
+    updated_at             : 2026-06-09T08:51:20.781964
+
+------------------------------------------------------------------------------
+Agent : FactorAgent
+------------------------------------------------------------------------------
+  last burst window : [2026-06-09 09:08:32.569711, 2026-06-09T09:13:32.569711]
+  rows in burst : 68
+  conviction_score : min=4.1 max=7.8 avg=5.276470588235294
+  proposed_action :
+    Reduce TSLA allocation by 2-3%; factor composite s ...    4
+    Maintain current XOM allocation; no factor edge    4
+    Maintain current UNH allocation; no factor edge    4
+    Maintain current NVDA allocation; no factor edge    4
+    Maintain current MSFT allocation; no factor edge    4
+    Maintain current JPM allocation; no factor edge    4
+    Maintain current JNJ allocation; no factor edge    4
+    Maintain current GOOGL allocation; no factor edge    4
+    Maintain current BAC allocation; no factor edge    4
+    Maintain current AMZN allocation; no factor edge    4
+    Maintain current AAPL allocation; no factor edge    4
+    Increase TXN allocation by 2-3%; factor composite  ...    4
+    Increase PLD allocation by 2-3%; factor composite  ...    4
+    Increase META allocation by 2-3%; factor composite ...    4
+    Increase CSCO allocation by 2-3%; factor composite ...    4
+  status :
+    superseded                  51
+    active                      17
+  horizon :
+    medium                      68
+  tickers sample : ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META', 'JPM', 'BAC', 'XOM', 'JNJ', 'UNH', 'CAT', 'CSCO', 'TXN', 'AMD', 'PLD']
+
+  Sample row :
+    id                     : 6344
+    instrument_id          : 1
+    agent_type             : FactorAgent
+    thesis_text            : ## Factor Analysis û AAPL û 2026-06-09 **Tilt:** NEUTRAL | **Composite Score:** 5.2/10 Factor analysis for **Apple Inc.** (AAPL) indicates a **neutral** stance. Price momentum of - ...
+    conviction_score       : 4.2
+    horizon                : medium
+    key_drivers            : ["Momentum (12-1m): -1.8%", "Quality proxy (inv-vol): 6.6/10", "RSI(14): 54.0", "Factor composite: 5.2/10", "Tilt recommendation: neutral"]
+    proposed_action        : Maintain current AAPL allocation; no factor edge
+    status                 : superseded
+    created_at             : 2026-06-09T06:30:41.990612
+    updated_at             : 2026-06-09T08:51:20.636532
+
+------------------------------------------------------------------------------
+Agent : AltDataAgent
+------------------------------------------------------------------------------
+  last burst window : [2026-06-09 09:08:32.891698, 2026-06-09T09:13:32.891698]
+  rows in burst : 68
+  conviction_score : min=5.0 max=7.8 avg=5.541176470588235
+  proposed_action :
+    No actionable alt-data edge for XOM at this time    4
+    No actionable alt-data edge for UNH at this time    4
+    No actionable alt-data edge for TXN at this time    4
+    No actionable alt-data edge for TSLA at this time    4
+    No actionable alt-data edge for PLD at this time    4
+    No actionable alt-data edge for META at this time    4
+    No actionable alt-data edge for GOOGL at this time    4
+    No actionable alt-data edge for CSCO at this time    4
+    No actionable alt-data edge for BAC at this time    4
+    No actionable alt-data edge for AMZN at this time    4
+    No actionable alt-data edge for AMD at this time    4
+    No actionable alt-data edge for AAPL at this time    4
+    Mixed alt-data signals for NVDA; monitor for clari ...    4
+    Mixed alt-data signals for MSFT; monitor for clari ...    4
+    Mixed alt-data signals for JPM; monitor for clarif ...    4
+  status :
+    superseded                  51
+    active                      17
+  horizon :
+    medium                      48
+    short                       20
+  tickers sample : ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META', 'JPM', 'BAC', 'XOM', 'JNJ', 'UNH', 'CAT', 'CSCO', 'TXN', 'AMD', 'PLD']
+
+  Sample row :
+    id                     : 6391
+    instrument_id          : 1
+    agent_type             : AltDataAgent
+    thesis_text            : ## Alt-Data Signal û AAPL û 2026-06-09 **Sentiment:** NEUTRAL | **Conviction:** 5.0/10 Alternative data analysis of **Apple Inc.** (AAPL) using price-volume dynamics and trend cons ...
+    conviction_score       : 5.0
+    horizon                : medium
+    key_drivers            : ["Price-volume sentiment: neutral", "5-day price change: -1.6%", "5-day volume change: +6.7%", "Trend consistency (10d above SMA20): 60%", "Last-day return z-score: -0.73 (normal)" ...
+    proposed_action        : No actionable alt-data edge for AAPL at this time
+    status                 : superseded
+    created_at             : 2026-06-09T06:30:42.442567
+    updated_at             : 2026-06-09T08:51:21.026129
+
+------------------------------------------------------------------------------
+Agent : CryptoAgent
+------------------------------------------------------------------------------
+  last burst window : [2026-06-09 09:08:32.938983, 2026-06-09T09:13:32.938983]
+  rows in burst : 24
+  conviction_score : min=5.0 max=7.0 avg=6.283333333333334
+  proposed_action :
+    Maintenir la position LINK ; pas de signal directi ...    4
+    Accumuler HYPE ; composite 6.7/10, momentum 7j +11 ...    4
+    Zone d'accumulation pour ETH ; RSI survendu a 20.1    3
+    Zone d'accumulation pour BTC ; RSI survendu a 14.9    3
+    Maintenir la position ZEC ; pas de signal directio ...    3
+    Zone d'accumulation pour SOL ; RSI survendu a 19.0    2
+    Zone d'accumulation pour SOL ; RSI survendu a 20.8    1
+    Zone d'accumulation pour SOL ; RSI survendu a 19.1    1
+    Zone d'accumulation pour ETH ; RSI survendu a 21.6    1
+    Zone d'accumulation pour BTC ; RSI survendu a 16.9    1
+    Maintenir la position ZEC ; pas de signal directio ...    1
+  status :
+    superseded                  18
+    active                       6
+  horizon :
+    short                       16
+    medium                       8
+  tickers sample : ['BTC', 'ETH', 'LINK', 'SOL', 'HYPE', 'ZEC']
+
+  Sample row :
+    id                     : 6408
+    instrument_id          : 15
+    agent_type             : CryptoAgent
+    thesis_text            : ## Analyse Crypto û BTC û 2026-06-09 **Signal :** ACCUMULATE | **Conviction :** 7.0/10 | **Composite :** 4.1/10 Analyse specialisee de **Bitcoin** (BTC). Prix actuel $63,295.75. La ...
+    conviction_score       : 7.0
+    horizon                : short
+    key_drivers            : ["Tendance SMA7/SMA21 : bearish (ecart 11.07%)", "Momentum 7j : -5.1%", "Regime de volatilite : low (36% ann.)", "Ratio volume 5j/20j : 1.16x", "Bollinger : 21e percentile", "RSI(1 ...
+    proposed_action        : Zone d'accumulation pour BTC ; RSI survendu a 16.9
+    status                 : superseded
+    created_at             : 2026-06-09T06:30:42.572400
+    updated_at             : 2026-06-09T08:51:21.142580
+
+------------------------------------------------------------------------------
+Agent : ExitAgent
+------------------------------------------------------------------------------
+  last burst window : [2026-06-09 09:08:32, 2026-06-09 09:13:32]
+  rows in burst : 10
+  conviction_score : min=7.0 max=7.0 avg=7.0
+  proposed_action :
+    STOP_LOSS                    9
+    DRIFT                        1
+  status :
+    active                      10
+  horizon :
+    medium                      10
+  tickers sample : ['META', 'ETH', 'LINK', 'AMZN', 'BTC', 'GOOGL', 'TSLA', 'SOL', 'XLK', 'AMD']
+
+  Sample row :
+    id                     : 6657
+    instrument_id          : 7
+    agent_type             : ExitAgent
+    thesis_text            : P&L -5.08 % Ôëñ seuil -5.0 % ÔåÆ SELL 50 %
+    conviction_score       : 7.0
+    horizon                : medium
+    key_drivers            : []
+    proposed_action        : STOP_LOSS
+    status                 : active
+    created_at             : 2026-06-09 09:13:32
+    updated_at             : 2026-06-09 09:13:32
+
+------------------------------------------------------------------------------
+Agent : PortfolioConstructionAgent
+------------------------------------------------------------------------------
+  last burst window : [2026-06-08 06:34:38, 2026-06-08 06:39:38]
+  rows in burst : 2
+  conviction_score : min=8.0 max=8.0 avg=8.0
+  proposed_action :
+    BUY XLK to close target gap (2.46% NAV)    1
+    BUY NVDA to close target gap (0.32% NAV)    1
+  status :
+    active                       2
+  horizon :
+    medium                       2
+  tickers sample : ['NVDA', 'XLK']
+
+  Sample row :
+    id                     : 6341
+    instrument_id          : 5
+    agent_type             : PortfolioConstructionAgent
+    thesis_text            : TargetGap synth: Gap to target +0.32% NAV (cible 4.65% ÔêÆ actuel 4.33%)
+    conviction_score       : 8.0
+    horizon                : medium
+    key_drivers            : portfolio_targets gap
+    proposed_action        : BUY NVDA to close target gap (0.32% NAV)
+    status                 : active
+    created_at             : 2026-06-08 06:39:38
+    updated_at             : 2026-06-08 06:39:38
+
+------------------------------------------------------------------------------
+Agent : MacroAgent
+------------------------------------------------------------------------------
+  last burst window : [2026-06-09 09:08:32.366156, 2026-06-09T09:13:32.366156]
+  rows in burst : 4
+  conviction_score : min=5.0 max=5.0 avg=5.0
+  proposed_action :
+    Hold current allocations; monitor for trend clarif ...    4
+  status :
+    superseded                   3
+    active                       1
+  horizon :
+    short                        4
+  tickers sample : [None]
+
+  Sample row :
+    id                     : 6343
+    instrument_id          : <None>
+    agent_type             : MacroAgent
+    thesis_text            : ## Macro Outlook û 2026-06-09 **Stance:** NEUTRAL Analysis of broad-market ETFs (SPY, QQQ, DIA) indicates a **neutral** environment. Moving average analysis shows 0 of 3 indices on ...
+    conviction_score       : 5.0
+    horizon                : short
+    key_drivers            : ["SPY/QQQ/DIA moving average crosses: 0 bullish, 0 bearish", "Average 20-day momentum across indices: +4.3%", "RSI condition: 0 index ETFs in overbought territory", "Macro stance:  ...
+    proposed_action        : Hold current allocations; monitor for trend clarification
+    status                 : superseded
+    created_at             : 2026-06-09T06:30:41.953749
+    updated_at             : 2026-06-09T08:51:20.596919
+
+==============================================================================
+AUX TABLE : factor_quality
+==============================================================================
+  Table missing
+
+==============================================================================
+AUX TABLE : pplx_geo
+==============================================================================
+  Table missing
+
+==============================================================================
+AUX TABLE : crypto_context
+==============================================================================
+Columns (13) : symbol, narrative_score, social_sentiment, current_narratives, regulatory_status, onchain_signals, smart_money_positioning, key_catalysts_30d, red_flags, thesis_short, citations, model, ts
+Total rows : 6
+Time/cycle column : ts
+
+------------------------------------------------------------------------------
+Latest row
+------------------------------------------------------------------------------
+  symbol                 : ZEC
+  narrative_score        : 66.0
+  social_sentiment       : bullish
+  current_narratives     : ["Privacy coin rotation", "High-beta crypto momentum", "Technical breakout / overbought continuation", "Potential risk-on altseason spillover"]
+  regulatory_status      : {"us": "ZEC nÆa pas de statut SEC/CFTC spÚcifique public distinct; en pratique il est traitÚ comme un actif crypto non adossÚ Ó un registre de titres, avec une attention rÚglementa ...
+  onchain_signals        : ["Les rÚsultats fournis montrent surtout une forte hausse de prix et de volume, mais ne contiennent pas de mÚtriques on-chain vÚrifiables de whales, flux dÆexchange ou rÚserves.",  ...
+  smart_money_positioning : Aucune information fiable dans les sources fournies ne confirme des achats rÚcents de BlackRock, MicroStrategy, Grayscale ou dÆautres fonds majeurs sur ZEC. LÆabsence de couverture ...
+  key_catalysts_30d      : [{"date": "TBD", "event": "Aucun catalyseur fondamental majeur confirmÚ dans les sources fournies pour les 30 prochains jours", "type": "macro", "impact": "low"}, {"date": "TBD", " ...
+  red_flags              : ["Signal de surachat et risque de correction Ó court terme mentionnÚ par les sources de marchÚ.", "DonnÚes fournies non corroborÚes par des sources on-chain spÚcialisÚes comme Arkh ...
+  thesis_short           : ZEC affiche un profil de momentum fort mais tardif: le narratif dominant est celui dÆune poussÚe spÚculative sur un privacy coin Ó bÛta ÚlevÚ, avec risque de retracement si le flux ...
+  citations              : ["https://www.binance.com/fr/square/post/32469326778193", "https://fr.tradingview.com/symbols/ZECUSD/", "https://www.youtube.com/watch?v=x26wzBnNGSU", "https://www.youtube.com/watc ...
+  model                  : sonar-pro
+  ts                     : 1780996529
+
+==============================================================================
+DONE
+==============================================================================

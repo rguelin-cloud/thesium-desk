@@ -1,0 +1,785 @@
+
+================================================================================
+== [1] memo_generator.py - dump complet
+================================================================================
+  Lignes : 384  |  Taille : 13532 bytes
+
+    1 | """
+    2 | memo_generator.py - IC Memo generation for Nextones.finance
+    3 | Generates Markdown Investment Committee memos from agent results and portfolio state.
+    4 | """
+    5 | import json
+    6 | import sqlite3
+    7 | from datetime import datetime
+    8 | from models import get_db, log_event
+    9 | 
+   10 | 
+   11 | # ---------------------------------------------------------------------------
+   12 | # Memo Sections
+   13 | # ---------------------------------------------------------------------------
+   14 | 
+   15 | def _build_header(date_str: str, portfolio_state: dict) -> str:
+   16 |     total_value = portfolio_state.get("total_value", 0)
+   17 |     total_pnl   = portfolio_state.get("total_pnl", 0)
+   18 |     total_pnl_pct = portfolio_state.get("total_pnl_pct", 0)
+   19 |     var_95      = portfolio_state.get("var_95", 0)
+   20 |     cash        = portfolio_state.get("cash", 0)
+   21 | 
+   22 |     return f"""# Nextones IC Memo ? {date_str}
+   23 | **Generated:** {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}
+   24 | **Mode:** Paper Trading | **Disclaimer:** Not investment advice. Research and execution automation under user control.
+   25 | 
+   26 | ---
+   27 | 
+   28 | ## Portfolio Snapshot
+   29 | 
+   30 | | Metric | Value |
+   31 | |--------|-------|
+   32 | | Total AUM | ${total_value:,.2f} |
+   33 | | Cash | ${cash:,.2f} ({cash / total_value * 100:.1f}% of AUM) |
+   34 | | Total P&L | ${total_pnl:+,.2f} ({total_pnl_pct:+.2f}%) |
+   35 | | VAR (95%, 1-day) | {var_95:.2f}% of AUM |
+   36 | 
+   37 | """
+   38 | 
+   39 | 
+   40 | def _build_macro_section(macro_result: dict) -> str:
+   41 |     if not macro_result:
+   42 |         return "## Macro Outlook\n\n*No macro data available.*\n\n"
+   43 | 
+   44 |     stance     = macro_result.get("stance", "neutral").upper()
+   45 |     conviction = macro_result.get("conviction", 0)
+   46 |     proposed   = macro_result.get("proposed_action", "")
+   47 |     signals    = macro_result.get("signals", {})
+   48 | 
+   49 |     lines = [
+   50 |         "## Macro Outlook",
+   51 |         "",
+   52 |         f"**Stance:** {stance} | **Conviction:** {conviction}/10",
+   53 |         "",
+   54 |         "### Market Indicators",
+   55 |         "",
+   56 |         "| Index ETF | Price | SMA50 | SMA200 | Cross | RSI(14) | 20d Momentum |",
+   57 |         "|-----------|-------|-------|--------|-------|---------|--------------|",
+   58 |     ]
+   59 | 
+   60 |     for ticker, sig in signals.items():
+   61 |         lines.append(
+   62 |             f"| {ticker} | ${sig.get('current_price', 0):.2f} | "
+   63 |             f"${sig.get('sma50', 0) or 0:.2f} | "
+   64 |             f"${sig.get('sma200', 0) or 0:.2f} | "
+   65 |             f"{sig.get('cross', 'N/A')} | "
+   66 |             f"{sig.get('rsi14', 0) or 0:.1f} | "
+   67 |             f"{sig.get('momentum_20d', 0):+.1f}% |"
+   68 |         )
+   69 | 
+   70 |     lines += [
+   71 |         "",
+   72 |         f"**Recommended posture:** {proposed}",
+   73 |         "",
+   74 |     ]
+   75 |     return "\n".join(lines) + "\n"
+   76 | 
+   77 | 
+   78 | def _build_factor_section(factor_results: list) -> str:
+   79 |     if not factor_results:
+   80 |         return "## Factor Tilts\n\n*No factor data available.*\n\n"
+   81 | 
+   82 |     overweight  = [f for f in factor_results if f.get("tilt") == "overweight"]
+   83 |     underweight = [f for f in factor_results if f.get("tilt") == "underweight"]
+   84 |     neutral     = [f for f in factor_results if f.get("tilt") == "neutral"]
+   85 | 
+   86 |     lines = [
+   87 |         "## Factor Tilts",
+   88 |         "",
+   89 |         f"**Overweight:** {', '.join(f['ticker'] for f in overweight) or 'None'}",
+   90 |         f"**Underweight:** {', '.join(f['ticker'] for f in underweight) or 'None'}",
+   91 |         f"**Neutral:** {', '.join(f['ticker'] for f in neutral) or 'None'}",
+   92 |         "",
+   93 |         "### Factor Scores",
+   94 |         "",
+   95 |         "| Ticker | Composite Score | Tilt | Conviction | Proposed Action |",
+   96 |         "|--------|----------------|------|------------|----------------|",
+   97 |     ]
+   98 | 
+   99 |     for f in factor_results[:10]:  # Top 10
+  100 |         lines.append(
+  101 |             f"| {f['ticker']} | {f.get('combined_score', 0):.2f}/10 | "
+  102 |             f"**{f.get('tilt', 'neutral')}** | "
+  103 |             f"{f.get('conviction', 0):.1f} | "
+  104 |             f"{f.get('proposed_action', '')[:60]}... |"
+  105 |         )
+  106 | 
+  107 |     lines.append("")
+  108 |     return "\n".join(lines) + "\n"
+  109 | 
+  110 | 
+  111 | def _build_thesis_section(conn: sqlite3.Connection, agent_results: dict) -> str:
+  112 |     lines = [
+  113 |         "## Active Thesis Summaries",
+  114 |         "",
+  115 |     ]
+  116 | 
+  117 |     # Get most recent theses per agent type
+  118 |     theses = conn.execute(
+  119 |         """SELECT t.id, t.agent_type, t.thesis_text, t.conviction_score, t.horizon,
+  120 |                   t.proposed_action, i.ticker, i.name
+  121 |            FROM theses t
+  122 |            LEFT JOIN instruments i ON i.id = t.instrument_id
+  123 |            WHERE t.status = 'active'
+  124 |            ORDER BY t.conviction_score DESC, t.updated_at DESC
+  125 |            LIMIT 20"""
+  126 |     ).fetchall()
+  127 | 
+  128 |     if not theses:
+  129 |         return "## Active Thesis Summaries\n\n*No active theses.*\n\n"
+  130 | 
+  131 |     for t in theses:
+  132 |         ticker_str = f"**{t['ticker']}** ? " if t['ticker'] else ""
+  133 |         lines += [
+  134 |             f"### {ticker_str}{t['agent_type']} | Conviction: {t['conviction_score']:.1f}/10 | Horizon: {t['horizon']}",
+  135 |             "",
+  136 |             f"*Thesis ID #{t['id']}*",
+  137 |             "",
+  138 |             f"{t['proposed_action']}",
+  139 |             "",
+  140 |             "---",
+  141 |             "",
+  142 |         ]
+  143 | 
+  144 |     return "\n".join(lines)
+  145 | 
+  146 | 
+  147 | def _build_proposed_changes_section(conn: sqlite3.Connection) -> str:
+  148 |     """Show orders created in this cycle."""
+  149 |     orders = conn.execute(
+  150 |         """SELECT o.id, o.side, o.quantity, o.status, o.risk_check_result,
+  151 |                   i.ticker, i.name,
+  152 |                   f.fill_price, f.slippage, f.fees
+  153 |            FROM orders o
+  154 |            JOIN instruments i ON i.id = o.instrument_id
+  155 |            LEFT JOIN fills f ON f.order_id = o.id
+  156 |            ORDER BY o.created_at DESC
+  157 |            LIMIT 10"""
+  158 |     ).fetchall()
+  159 | 
+  160 |     if not orders:
+  161 |         return "## Proposed Changes & Executions\n\n*No orders in this cycle.*\n\n"
+  162 | 
+  163 |     lines = [
+  164 |         "## Proposed Changes & Executions",
+  165 |         "",
+  166 |         "| Order ID | Ticker | Side | Qty | Status | Fill Price | Slippage | Risk Notes |",
+  167 |         "|----------|--------|------|-----|--------|------------|----------|------------|",
+  168 |     ]
+  169 | 
+  170 |     for o in orders:
+  171 |         risk_check = {}
+  172 |         try:
+  173 |             risk_check = json.loads(o["risk_check_result"]) if o["risk_check_result"] else {}
+  174 |         except Exception:
+  175 |             pass
+  176 | 
+  177 |         risk_notes = risk_check.get("action", "N/A")
+  178 |         fill_str = f"${o['fill_price']:.2f}" if o["fill_price"] else "?"
+  179 |         slip_str = f"${o['slippage']:.2f}" if o["slippage"] else "?"
+  180 | 
+  181 |         lines.append(
+  182 |             f"| #{o['id']} | {o['ticker']} | {o['side'].upper()} | "
+  183 |             f"{int(o['quantity'])} | {o['status']} | "
+  184 |             f"{fill_str} | {slip_str} | {risk_notes} |"
+  185 |         )
+  186 | 
+  187 |     lines.append("")
+  188 |     return "\n".join(lines) + "\n"
+  189 | 
+  190 | 
+  191 | def _build_audit_trail_section(conn: sqlite3.Connection) -> str:
+  192 |     events = conn.execute(
+  193 |         """SELECT event_type, entity_type, entity_id, agent, created_at, details
+  194 |            FROM event_log
+  195 |            ORDER BY created_at DESC LIMIT 20"""
+  196 |     ).fetchall()
+  197 | 
+  198 |     lines = [
+  199 |         "## Audit Trail",
+  200 |         "",
+  201 |         "| Timestamp (UTC) | Event | Agent | Entity | Details |",
+  202 |         "|----------------|-------|-------|--------|---------|",
+  203 |     ]
+  204 | 
+  205 |     for e in events:
+  206 |         details_str = ""
+  207 |         try:
+  208 |             d = json.loads(e["details"]) if e["details"] else {}
+  209 |             # Show key=value for first 2 items
+  210 |             details_str = "; ".join(f"{k}={v}" for k, v in list(d.items())[:2])
+  211 |         except Exception:
+  212 |             pass
+  213 | 
+  214 |         lines.append(
+  215 |             f"| {e['created_at'][:19]} | {e['event_type']} | "
+  216 |             f"{e['agent'] or '?'} | "
+  217 |             f"{e['entity_type'] or '?'}#{e['entity_id'] or '?'} | "
+  218 |             f"{details_str[:60]} |"
+  219 |         )
+  220 | 
+  221 |     lines.append("")
+  222 |     return "\n".join(lines) + "\n"
+  223 | 
+  224 | 
+  225 | # ---------------------------------------------------------------------------
+  226 | # Main Generator
+  227 | # ---------------------------------------------------------------------------
+  228 | 
+  229 | 
+  230 | 
+  231 | # [RISK_V2_WIRED] Pre-trade controls section
+  232 | def _build_risk_v2_section(conn: sqlite3.Connection) -> str:
+  233 |     """Render the pre-trade [RISK_V2] controls table for the current cycle's orders."""
+  234 |     orders = conn.execute(
+  235 |         """SELECT o.id, o.side, o.quantity, o.status, o.risk_check_result, i.ticker
+  236 |            FROM orders o JOIN instruments i ON i.id = o.instrument_id
+  237 |            ORDER BY o.created_at DESC LIMIT 10"""
+  238 |     ).fetchall()
+  239 |     if not orders:
+  240 |         return ""
+  241 | 
+  242 |     rows_seen = 0
+  243 |     body = []
+  244 |     for o in orders:
+  245 |         try:
+  246 |             rc = json.loads(o["risk_check_result"]) if o["risk_check_result"] else {}
+  247 |         except Exception:
+  248 |             rc = {}
+  249 |         v2 = rc.get("risk_v2")
+  250 |         if not v2:
+  251 |             continue
+  252 |         rows_seen += 1
+  253 |         d = v2.get("details", {})
+  254 |         c = d.get("concentration", {}) or {}
+  255 |         v = d.get("var", {}) or {}
+  256 |         cor = d.get("correlation", {}) or {}
+  257 | 
+  258 |         blocked = v2.get("blocked_by")
+  259 |         passed = v2.get("passed", True)
+  260 |         verdict = "PASS" if passed else f"BLOCK ({blocked})"
+  261 | 
+  262 |         new_pct = c.get("new_pct")
+  263 |         new_pct_str = f"{(new_pct*100):.2f}%" if isinstance(new_pct, (int, float)) else "n/a"
+  264 | 
+  265 |         var_dm = v.get("delta_marginal_pct")
+  266 |         var_dm_str = f"{(var_dm*100):.3f}%" if isinstance(var_dm, (int, float)) else (v.get("note", "n/a"))
+  267 | 
+  268 |         cor_max = cor.get("max_correl_value")
+  269 |         cor_sym = cor.get("max_correl_symbol", "")
+  270 |         cor_str = (f"{cor_max:.2f} vs {cor_sym}" if isinstance(cor_max, (int, float))
+  271 |                    else (cor.get("note", "n/a")))
+  272 | 
+  273 |         body.append(
+  274 |             f"| #{o['id']} | {o['ticker']} | {o['side'].upper()} | "
+  275 |             f"{int(o['quantity'])} | {verdict} | {new_pct_str} | {var_dm_str} | {cor_str} |"
+  276 |         )
+  277 | 
+  278 |     if rows_seen == 0:
+  279 |         return ""
+  280 | 
+  281 |     head = [
+  282 |         "## Pre-trade Controls [RISK_V2]",
+  283 |         "",
+  284 |         "Controls: Concentration 15% per name (BLOCK), VaR historical 99%/1d budget+marginal (WARN), Pearson correlation 60d (WARN).",
+  285 |         "",
+  286 |         "| Order | Ticker | Side | Qty | Verdict | Concentration | Delta VaR | Max Correlation |",
+  287 |         "|-------|--------|------|-----|---------|---------------|-----------|------------------|",
+  288 |     ]
+  289 |     return "\n".join(head + body) + "\n\n"
+  290 | 
+  291 | 
+  292 | def generate_ic_memo(conn: sqlite3.Connection, agent_results: dict | None = None) -> int:
+  293 |     """
+  294 |     Build a complete IC memo from current state and store in DB.
+  295 |     Returns the memo ID.
+  296 |     """
+  297 |     date_str = datetime.utcnow().strftime("%Y-%m-%d")
+  298 |     title    = f"Nextones IC Memo ? {date_str}"
+  299 | 
+  300 |     portfolio_state = conn.execute("SELECT * FROM portfolio_state WHERE id = 1").fetchone()
+  301 |     ps = dict(portfolio_state) if portfolio_state else {}
+  302 | 
+  303 |     macro_result   = agent_results.get("macro", {})   if agent_results else {}
+  304 |     factor_results = agent_results.get("factor", [])  if agent_results else []
+  305 |     micro_results  = agent_results.get("microstructure", []) if agent_results else []
+  306 |     alt_results    = agent_results.get("altdata", [])  if agent_results else []
+  307 | 
+  308 |     # Build full markdown
+  309 |     sections = [
+  310 |         _build_header(date_str, ps),
+  311 |         _build_macro_section(macro_result),
+  312 |         _build_factor_section(factor_results),
+  313 |         _build_thesis_section(conn, agent_results or {}),
+  314 |         _build_proposed_changes_section(conn),
+  315 |         _build_risk_v2_section(conn),  # [RISK_V2_WIRED]
+  316 |         _build_audit_trail_section(conn),
+  317 |         "\n---\n*This memo was automatically generated by Nextones.finance. Not investment advice.*\n",
+  318 |     ]
+  319 |     full_markdown = "\n".join(sections)
+  320 | 
+  321 |     # Prepare JSON summaries
+  322 |     macro_summary = macro_result.get("stance", "neutral") if macro_result else "not available"
+  323 |     factor_tilts  = {
+  324 |         "overweight":  [f["ticker"] for f in factor_results if f.get("tilt") == "overweight"],
+  325 |         "underweight": [f["ticker"] for f in factor_results if f.get("tilt") == "underweight"],
+  326 |     }
+  327 | 
+  328 |     thesis_summaries = [
+  329 |         {
+  330 |             "ticker":    t.get("ticker"),
+  331 |             "agent":     t.get("agent_type") if hasattr(t, "get") else "",
+  332 |             "conviction": t.get("conviction", t.get("conviction_score", 0)) if hasattr(t, "get") else 0,
+  333 |             "action":    t.get("proposed_action"),
+  334 |         }
+  335 |         for t in (
+  336 |             list(factor_results[:5]) +
+  337 |             [{"ticker": m.get("ticker"), "agent_type": "MicrostructureAgent",
+  338 |               "conviction": m.get("conviction"), "proposed_action": m.get("proposed_action")}
+  339 |              for m in micro_results[:5]]
+  340 |         )
+  341 |         if t
+  342 |     ]
+  343 | 
+  344 |     proposed_changes_rows = conn.execute(
+  345 |         """SELECT o.id, o.side, o.quantity, o.status, i.ticker
+  346 |            FROM orders o JOIN instruments i ON i.id = o.instrument_id
+  347 |            ORDER BY o.created_at DESC LIMIT 10"""
+  348 |     ).fetchall()
+  349 |     proposed_changes = [
+  350 |         {"order_id": r["id"], "ticker": r["ticker"], "side": r["side"],
+  351 |          "quantity": r["quantity"], "status": r["status"]}
+  352 |         for r in proposed_changes_rows
+  353 |     ]
+  354 | 
+  355 |     cur = conn.execute(
+  356 |         """INSERT INTO ic_memos
+  357 |                (date, title, macro_summary, factor_tilts, thesis_summaries,
+  358 |                 proposed_changes, full_markdown)
+  359 |            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+  360 |         (
+  361 |             date_str, title, macro_summary,
+  362 |             json.dumps(factor_tilts),
+  363 |             json.dumps(thesis_summaries),
+  364 |             json.dumps(proposed_changes),
+  365 |             full_markdown,
+  366 |         )
+  367 |     )
+  368 |     memo_id = cur.lastrowid
+  369 | 
+  370 |     log_event(conn, "ic_memo_generated", "ic_memo", memo_id,
+  371 |               {"date": date_str, "title": title, "sections": len(sections)},
+  372 |               agent="MemoGenerator")
+  373 | 
+  374 |     return memo_id
+  375 | 
+  376 | 
+  377 | if __name__ == "__main__":
+  378 |     from models import init_db
+  379 |     init_db()
+  380 |     conn = get_db()
+  381 |     memo_id = generate_ic_memo(conn)
+  382 |     conn.commit()
+  383 |     print(f"Memo generated with ID {memo_id}")
+  384 |     conn.close()
+
+================================================================================
+== [2] api_server.py L1500-1750 (zone route relais memo_generator)
+================================================================================
+  Extraction L1500 -> L1750 (sur 3441 total)
+
+ 1500 |             raise HTTPException(status_code=404, detail="Memo not found")
+ 1501 |         memo = row_to_dict(row)
+ 1502 |     finally:
+ 1503 |         conn.close()
+ 1504 | 
+ 1505 |     import io
+ 1506 |     import re
+ 1507 |     from reportlab.lib.pagesizes import A4
+ 1508 |     from reportlab.lib.units import mm, cm
+ 1509 |     from reportlab.lib.colors import HexColor, white, black
+ 1510 |     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+ 1511 |     from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+ 1512 |     from reportlab.platypus import (
+ 1513 |         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+ 1514 |         HRFlowable, KeepTogether,
+ 1515 |     )
+ 1516 |     from reportlab.pdfbase import pdfmetrics
+ 1517 |     from reportlab.pdfbase.ttfonts import TTFont
+ 1518 | 
+ 1519 |     # -- Brand colors --
+ 1520 |     DARK_NAVY   = HexColor("#091717")
+ 1521 |     OFFBLACK    = HexColor("#13343B")
+ 1522 |     DEEP_TEAL   = HexColor("#115058")
+ 1523 |     MUTED_TEAL  = HexColor("#20808D")
+ 1524 |     LIGHT_TEAL  = HexColor("#D6F5FA")
+ 1525 |     OFF_WHITE   = HexColor("#FCFAF6")
+ 1526 |     PAPER_WHITE = HexColor("#F3F3EE")
+ 1527 |     WARM_BEIGE  = HexColor("#E5E3D4")
+ 1528 |     TERRA       = HexColor("#A84B2F")
+ 1529 |     GOLD        = HexColor("#FFC553")
+ 1530 |     GREEN_OK    = HexColor("#70AD47")
+ 1531 |     RED_RISK    = HexColor("#C00000")
+ 1532 | 
+ 1533 |     W, H = A4
+ 1534 |     buf = io.BytesIO()
+ 1535 | 
+ 1536 |     def header_footer(canvas, doc):
+ 1537 |         canvas.saveState()
+ 1538 |         # Header bar
+ 1539 |         canvas.setFillColor(DARK_NAVY)
+ 1540 |         canvas.rect(0, H - 22*mm, W, 22*mm, fill=1, stroke=0)
+ 1541 |         canvas.setFillColor(MUTED_TEAL)
+ 1542 |         canvas.setFont("Helvetica-Bold", 11)
+ 1543 |         canvas.drawString(15*mm, H - 14*mm, "NEXTONES.FINANCE")
+ 1544 |         canvas.setFillColor(white)
+ 1545 |         canvas.setFont("Helvetica", 8)
+ 1546 |         canvas.drawRightString(W - 15*mm, H - 10*mm, f"IC Memo ? {memo.get('date', '')}")
+ 1547 |         canvas.drawRightString(W - 15*mm, H - 15*mm, "Paper Trading | Not Investment Advice")
+ 1548 |         # Accent line below header
+ 1549 |         canvas.setStrokeColor(MUTED_TEAL)
+ 1550 |         canvas.setLineWidth(1.5)
+ 1551 |         canvas.line(15*mm, H - 22*mm, W - 15*mm, H - 22*mm)
+ 1552 |         # Footer
+ 1553 |         canvas.setFillColor(OFFBLACK)
+ 1554 |         canvas.setFont("Helvetica", 7)
+ 1555 |         canvas.drawString(15*mm, 10*mm, "Nextones Desk ? AI-native fund operating system")
+ 1556 |         canvas.drawRightString(W - 15*mm, 10*mm, f"Page {doc.page}")
+ 1557 |         canvas.restoreState()
+ 1558 | 
+ 1559 |     doc = SimpleDocTemplate(
+ 1560 |         buf, pagesize=A4,
+ 1561 |         title=memo.get("title", "IC Memo"),
+ 1562 |         author="Perplexity Computer",
+ 1563 |         topMargin=28*mm,
+ 1564 |         bottomMargin=20*mm,
+ 1565 |         leftMargin=15*mm,
+ 1566 |         rightMargin=15*mm,
+ 1567 |     )
+ 1568 | 
+ 1569 |     # -- Styles --
+ 1570 |     styles = getSampleStyleSheet()
+ 1571 |     sH1 = ParagraphStyle("MemoH1", parent=styles["Heading1"],
+ 1572 |         fontSize=16, leading=20, textColor=OFFBLACK,
+ 1573 |         spaceAfter=6, spaceBefore=12, fontName="Helvetica-Bold")
+ 1574 |     sH2 = ParagraphStyle("MemoH2", parent=styles["Heading2"],
+ 1575 |         fontSize=12, leading=15, textColor=DEEP_TEAL,
+ 1576 |         spaceAfter=4, spaceBefore=10, fontName="Helvetica-Bold")
+ 1577 |     sBody = ParagraphStyle("MemoBody", parent=styles["Normal"],
+ 1578 |         fontSize=9.5, leading=13, textColor=OFFBLACK,
+ 1579 |         spaceAfter=4, fontName="Helvetica")
+ 1580 |     sBold = ParagraphStyle("MemoBold", parent=sBody,
+ 1581 |         fontName="Helvetica-Bold")
+ 1582 |     sBullet = ParagraphStyle("MemoBullet", parent=sBody,
+ 1583 |         leftIndent=12, bulletIndent=4, spaceBefore=1, spaceAfter=1)
+ 1584 |     sSmall = ParagraphStyle("MemoSmall", parent=sBody,
+ 1585 |         fontSize=8, leading=10, textColor=HexColor("#5a7a7e"))
+ 1586 |     sLabel = ParagraphStyle("MemoLabel", parent=sBody,
+ 1587 |         fontSize=8, leading=10, textColor=MUTED_TEAL,
+ 1588 |         fontName="Helvetica-Bold", spaceAfter=2)
+ 1589 | 
+ 1590 |     story = []
+ 1591 | 
+ 1592 |     # -- Parse markdown --
+ 1593 |     md = memo.get("full_markdown") or f"# {memo.get('title', 'IC Memo')}\n\nNo content."
+ 1594 |     lines = md.split("\n")
+ 1595 | 
+ 1596 |     # -- Helper: flush accumulated markdown table rows into a ReportLab Table --
+ 1597 |     def flush_md_table(table_rows, separator_idx):
+ 1598 |         if not table_rows:
+ 1599 |             return []
+ 1600 |         elements = []
+ 1601 |         header = [c.strip() for c in table_rows[0].strip('|').split('|')]
+ 1602 |         body_rows = []
+ 1603 |         # separator_idx = len(pending_table_rows) at time separator was seen
+ 1604 |         # Since separator line is NOT stored in pending_table_rows,
+ 1605 |         # body rows start at separator_idx (not +1)
+ 1606 |         start = separator_idx if separator_idx is not None else 1
+ 1607 |         for row_str in table_rows[start:]:
+ 1608 |             cells = [c.strip() for c in row_str.strip('|').split('|')]
+ 1609 |             body_rows.append(cells)
+ 1610 | 
+ 1611 |         col_count = len(header)
+ 1612 |         if col_count == 0:
+ 1613 |             return []
+ 1614 |         available_width = W - 30*mm
+ 1615 |         col_w = available_width / col_count
+ 1616 |         col_widths = [col_w] * col_count
+ 1617 | 
+ 1618 |         sTableHead = ParagraphStyle("TH", parent=sBody, fontSize=7.5, leading=9.5,
+ 1619 |             textColor=white, fontName="Helvetica-Bold")
+ 1620 |         sTableCell = ParagraphStyle("TC", parent=sBody, fontSize=7.5, leading=9.5,
+ 1621 |             fontName="Helvetica")
+ 1622 | 
+ 1623 |         data = [[Paragraph(re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', h), sTableHead) for h in header]]
+ 1624 |         for r in body_rows:
+ 1625 |             row = []
+ 1626 |             for c in r:
+ 1627 |                 c = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', c)
+ 1628 |                 row.append(Paragraph(c, sTableCell))
+ 1629 |             data.append(row)
+ 1630 | 
+ 1631 |         # Pad short rows
+ 1632 |         for row in data:
+ 1633 |             while len(row) < col_count:
+ 1634 |                 row.append(Paragraph("", sTableCell))
+ 1635 | 
+ 1636 |         t = Table(data, colWidths=col_widths, repeatRows=1)
+ 1637 |         t.setStyle(TableStyle([
+ 1638 |             ('BACKGROUND', (0, 0), (-1, 0), DEEP_TEAL),
+ 1639 |             ('TEXTCOLOR', (0, 0), (-1, 0), white),
+ 1640 |             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+ 1641 |             ('FONTSIZE', (0, 0), (-1, -1), 7.5),
+ 1642 |             ('LEADING', (0, 0), (-1, -1), 9.5),
+ 1643 |             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [PAPER_WHITE, OFF_WHITE]),
+ 1644 |             ('GRID', (0, 0), (-1, -1), 0.4, WARM_BEIGE),
+ 1645 |             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+ 1646 |             ('TOPPADDING', (0, 0), (-1, -1), 3),
+ 1647 |             ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+ 1648 |             ('LEFTPADDING', (0, 0), (-1, -1), 5),
+ 1649 |             ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+ 1650 |         ]))
+ 1651 |         elements.append(KeepTogether([t]))
+ 1652 |         return elements
+ 1653 | 
+ 1654 |     # -- Table accumulation state --
+ 1655 |     pending_table_rows = []
+ 1656 |     pending_table_sep = None
+ 1657 | 
+ 1658 |     for line in lines:
+ 1659 |         stripped = line.strip()
+ 1660 | 
+ 1661 |         # -- Table row detection --
+ 1662 |         if stripped.startswith('|'):
+ 1663 |             # Check if this is a separator row like |---|---|---|
+ 1664 |             if re.match(r'^\|[\s\-:]+\|', stripped) and '---' in stripped:
+ 1665 |                 pending_table_sep = len(pending_table_rows)  # index where separator would be
+ 1666 |             else:
+ 1667 |                 pending_table_rows.append(stripped)
+ 1668 |             continue
+ 1669 |         else:
+ 1670 |             # Flush any accumulated table
+ 1671 |             if pending_table_rows:
+ 1672 |                 story.extend(flush_md_table(pending_table_rows, pending_table_sep))
+ 1673 |                 pending_table_rows = []
+ 1674 |                 pending_table_sep = None
+ 1675 | 
+ 1676 |         if not stripped:
+ 1677 |             story.append(Spacer(1, 3))
+ 1678 |             continue
+ 1679 | 
+ 1680 |         # Headings
+ 1681 |         if stripped.startswith("# "):
+ 1682 |             txt = stripped[2:].strip()
+ 1683 |             story.append(Paragraph(txt, sH1))
+ 1684 |             continue
+ 1685 |         if stripped.startswith("## "):
+ 1686 |             txt = stripped[3:].strip()
+ 1687 |             story.append(Paragraph(txt, sH2))
+ 1688 |             continue
+ 1689 |         if stripped.startswith("### "):
+ 1690 |             txt = stripped[4:].strip()
+ 1691 |             txt = re.sub(r'\*\*(.+?)\*\*', r'\1', txt)  # Remove ** bold markers (already bold)
+ 1692 |             story.append(Paragraph(f"<b>{txt}</b>", sBody))
+ 1693 |             continue
+ 1694 | 
+ 1695 |         # Horizontal rule
+ 1696 |         if stripped.startswith("---"):
+ 1697 |             story.append(Spacer(1, 4))
+ 1698 |             story.append(HRFlowable(width="100%", thickness=0.8,
+ 1699 |                                      color=WARM_BEIGE, spaceAfter=4, spaceBefore=4))
+ 1700 |             continue
+ 1701 | 
+ 1702 |         # Bullet points
+ 1703 |         if stripped.startswith("- ") or stripped.startswith("* "):
+ 1704 |             txt = stripped[2:].strip()
+ 1705 |             # Bold **text** rendering
+ 1706 |             txt = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', txt)
+ 1707 |             story.append(Paragraph(f"\u2022  {txt}", sBullet))
+ 1708 |             continue
+ 1709 | 
+ 1710 |         # Bold whole lines
+ 1711 |         bold_match = re.match(r'^\*\*(.+?)\*\*(.*)$', stripped)
+ 1712 |         if bold_match:
+ 1713 |             btxt = bold_match.group(1)
+ 1714 |             rest = bold_match.group(2).strip()
+ 1715 |             txt = f"<b>{btxt}</b>"
+ 1716 |             if rest:
+ 1717 |                 # Also convert any remaining inline **bold** in the rest
+ 1718 |                 rest = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', rest)
+ 1719 |                 txt += f" {rest}"
+ 1720 |             story.append(Paragraph(txt, sBody))
+ 1721 |             continue
+ 1722 | 
+ 1723 |         # Italic / small
+ 1724 |         if stripped.startswith("*") and stripped.endswith("*") and not stripped.startswith("**"):
+ 1725 |             txt = stripped.strip("*")
+ 1726 |             story.append(Paragraph(txt, sSmall))
+ 1727 |             continue
+ 1728 | 
+ 1729 |         # Normal paragraph ? convert inline bold
+ 1730 |         txt = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', stripped)
+ 1731 |         story.append(Paragraph(txt, sBody))
+ 1732 | 
+ 1733 |     # Flush any remaining table at end of loop
+ 1734 |     if pending_table_rows:
+ 1735 |         story.extend(flush_md_table(pending_table_rows, pending_table_sep))
+ 1736 | 
+ 1737 |     # -- Add structured data sections if available --
+ 1738 |     factor_tilts = memo.get("factor_tilts")
+ 1739 |     thesis_summaries = memo.get("thesis_summaries")
+ 1740 |     proposed_changes = memo.get("proposed_changes")
+ 1741 | 
+ 1742 |     if factor_tilts and isinstance(factor_tilts, str):
+ 1743 |         try:
+ 1744 |             factor_tilts = json.loads(factor_tilts)
+ 1745 |         except Exception:
+ 1746 |             factor_tilts = None
+ 1747 | 
+ 1748 |     if thesis_summaries and isinstance(thesis_summaries, str):
+ 1749 |         try:
+ 1750 |             thesis_summaries = json.loads(thesis_summaries)
+
+================================================================================
+== [3] Recherche bouton 'Export PDF' + endpoint associe (HTML/JS)
+================================================================================
+  Fichiers UI scannes : 4
+
+  -- Pattern : Texte bouton 'Export PDF'  ( Export\s+PDF )
+    app.js : L2926
+         2925 |         </svg>
+ >>      2926 |         Export PDF
+         2927 |       </button>
+         2928 |     </div>
+         2929 |   `;
+
+    app.js : L3460
+         3459 |   } catch (err) {
+ >>      3460 |     showToast('Export PDF echoue: ' + err.message, 'error');
+         3461 |   } finally {
+         3462 |     if (btn) {
+         3463 |       btn.disabled = false;
+
+    app.js : L3471
+         3470 |         </svg>
+ >>      3471 |         Export PDF
+         3472 |       `;
+         3473 |     }
+         3474 |   }
+
+
+  -- Pattern : Texte bouton 'Export pdf'  ( export[_\-\s]?pdf )
+    app.js : L2919
+         2918 |       </div>
+ >>      2919 |       <button class="btn btn-export-pdf" onclick="exportMemoPDF('${esc(memo.id ?? memo._id)}')" title="Exporter en PDF">
+         2920 |         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+         2921 |           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+         2922 |           <polyline points="14 2 14 8 20 8"/>
+
+    app.js : L2926
+         2925 |         </svg>
+ >>      2926 |         Export PDF
+         2927 |       </button>
+         2928 |     </div>
+         2929 |   `;
+
+    app.js : L3109
+         3108 | async function exportMemoPDF(memoId) {
+ >>      3109 |   const btn = document.querySelector('.btn-export-pdf');
+         3110 |   if (btn) {
+         3111 |     btn.disabled = true;
+         3112 |     btn.innerHTML = `
+
+    app.js : L3460
+         3459 |   } catch (err) {
+ >>      3460 |     showToast('Export PDF echoue: ' + err.message, 'error');
+         3461 |   } finally {
+         3462 |     if (btn) {
+         3463 |       btn.disabled = false;
+
+    app.js : L3471
+         3470 |         </svg>
+ >>      3471 |         Export PDF
+         3472 |       `;
+         3473 |     }
+         3474 |   }
+
+
+  -- Pattern : Texte 'Telecharger'  ( [Tt]el[e\u00e9]?charger.*pdf )
+    (aucun match)
+
+  -- Pattern : Class export  ( class=["\'][^"\']*export[^"\']*["\'] )
+    app.js : L2919
+         2918 |       </div>
+ >>      2919 |       <button class="btn btn-export-pdf" onclick="exportMemoPDF('${esc(memo.id ?? memo._id)}')" title="Exporter en PDF">
+         2920 |         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+         2921 |           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+         2922 |           <polyline points="14 2 14 8 20 8"/>
+
+
+  -- Pattern : data-action export  ( data-action=["\'][^"\']*export[^"\']*["\'] )
+    (aucun match)
+
+  -- Pattern : onclick exportPdf  ( onclick=["\'][^"\']*[Ee]xport[Pp]df[^"\']*["\'] )
+    (aucun match)
+
+  -- Pattern : Fonction exportPdf  ( function\s+exportPdf )
+    (aucun match)
+
+  -- Pattern : Fonction export_pdf  ( def\s+export_pdf )
+    (aucun match)
+
+  -- Pattern : Fetch /export  ( (?:fetch|apiFetch)\(["\'][^"\']*export[^"\']*["\'] )
+    (aucun match)
+
+  -- Pattern : Fetch /pdf  ( (?:fetch|apiFetch)\(["\'][^"\']*\.pdf["\'] )
+    (aucun match)
+
+  -- Pattern : Fetch /memos/.../pdf  ( (?:fetch|apiFetch)\(["\'][^"\']*memos?/[^"\']*pdf[^"\']*["\'] )
+    (aucun match)
+
+================================================================================
+== [4] Routes Python qui IMPORTENT memo_generator
+================================================================================
+  Fichiers .py scannes : 372
+
+  -- import\s+memo_generator
+
+  -- from\s+memo_generator
+    execution_engine.py : L1896 :     from memo_generator import generate_ic_memo
+    execution_engine_v6_4_backup.py : L1576 :     from memo_generator import generate_ic_memo
+    execution_engine_v6_5.py : L1597 :     from memo_generator import generate_ic_memo
+
+  -- memo_generator\.
+    generate_admin_guide_v2.py : L507 : |-- memo_generator.py      # Generateur de memos IC
+    generate_install_v2.py : L543 :         "|-- memo_generator.py      # Generateur de memos IC\n"
+    generate_pdf.py : L662 : |-- memo_generator.py      # Generateur de memos IC
+    memo_generator.py : L2 : memo_generator.py - IC Memo generation for Nextones.finance
+    nextones-diag-ic-memo-v6-memo-generator.py : L4 : # Le VRAI generateur est memo_generator.py (signature "Nextones IC Memo" L22).
+    nextones-diag-ic-memo-v6-memo-generator.py : L9 : #   1) Dump memo_generator.py en entier (1193 lignes -> on prend tout)
+    nextones-diag-ic-memo-v6-memo-generator.py : L54 :     banner("[1] memo_generator.py - dump complet")
+    nextones-diag-ic-memo-v6-memo-generator.py : L56 :     mg = os.path.join(ROOT, "memo_generator.py")
+    nextones-diag-ic-memo-v6-memo-generator.py : L58 :         W("  [ABSENT] memo_generator.py n'existe pas a la racine")
+    nextones-diag-memo-generator.py : L3 : Inspecte memo_generator.py + create_and_execute_order pour preparer le patch
+    nextones-diag-memo-generator.py : L7 :   - signatures publiques de memo_generator.py
+    nextones-diag-memo-generator.py : L66 :     # 1. memo_generator.py - structure
+    nextones-diag-memo-generator.py : L67 :     print_signatures(ROOT / "memo_generator.py")
+    nextones-diag-memo-generator.py : L71 :     for fname in ["memo_generator.py", "api_server.py", "execution_engine.py"]:
+    nextones-diag-memo-generator.py : L96 :     # 6. memo_generator.py - extrait integral si <500 lignes
+    nextones-diag-memo-generator.py : L97 :     p = ROOT / "memo_generator.py"
+    nextones-diag-memo-generator.py : L101 :         print(f"\n=== memo_generator.py : {n_lines} lignes ===")
+    nextones-install-risk-v2-wired.py : L14 :   1. Backup horodate de execution_engine.py + memo_generator.py
+    nextones-install-risk-v2-wired.py : L16 :   3. Patch memo_generator.py : ajoute _build_risk_v2_section + l'insere dans generate_ic_memo
+    nextones-install-risk-v2-wired.py : L87 : # 2) memo_generator.py - nouvelle section
+    nextones-install-risk-v2-wired.py : L187 :     for fname in ("execution_engine.py", "memo_generator.py"):
+    nextones-install-risk-v2-wired.py : L231 :     p = ROOT / "memo_generator.py"
+    nextones-install-risk-v2-wired.py : L235 :         info(f"marker {MARKER} deja present dans memo_generator.py - skip patch.")
+    nextones-install-risk-v2-wired.py : L241 :         fatal("Ancre 'def generate_ic_memo' introuvable dans memo_generator.py.")
+    nextones-install-risk-v2-wired.py : L259 :     ok(f"memo_generator.py patche - markers {MARKER} : {after_marker}")
+    nextones-install-risk-v2-wired.py : L263 :     for fname, expected_min in (("execution_engine.py", 1), ("memo_generator.py", 2)):

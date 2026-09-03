@@ -1,0 +1,176 @@
+
+========================================================================
+[1] PRAGMA de la DB
+------------------------------------------------------------------------
+  PRAGMA journal_mode = wal
+  PRAGMA busy_timeout = 2000
+  PRAGMA synchronous = 2
+  PRAGMA wal_autocheckpoint = 1000
+  PRAGMA locking_mode = normal
+  thesium.db-wal : 0 bytes
+  thesium.db-shm : 32768 bytes
+
+========================================================================
+[2] sqlite3.connect / open patterns dans risk_pretrade.py
+------------------------------------------------------------------------
+  Taille : 19318 bytes, 578 lignes
+  marker [RISK_V2] : 3 occurrence(s)
+  marker [DB_LOCK_FIX_V1] : 0 occurrence(s)
+  marker RISK_V2_FALLBACK : 0 occurrence(s)
+
+  [sqlite3.connect] 1 match(s) pour /sqlite3\.connect/
+       L  53 |     for _attempt in range(3):
+       L  54 |         try:
+    >> L  55 |             c = sqlite3.connect(db_path, timeout=30.0)
+       L  56 |             c.row_factory = sqlite3.Row
+       L  57 |             try:
+    ---
+  [busy_timeout] 1 match(s) pour /busy_timeout/
+       L  57 |             try:
+    >> L  58 |                 c.execute("PRAGMA busy_timeout=30000")
+       L  59 |             except Exception:
+    ---
+  [PRAGMA] 1 match(s) pour /PRAGMA/
+       L  57 |             try:
+    >> L  58 |                 c.execute("PRAGMA busy_timeout=30000")
+       L  59 |             except Exception:
+    ---
+  [isolation_level] 0 match(s) pour /isolation_level/
+  [timeout=...] 2 match(s) pour /timeout\s*=/
+       L  54 |         try:
+    >> L  55 |             c = sqlite3.connect(db_path, timeout=30.0)
+       L  56 |             c.row_factory = sqlite3.Row
+    ---
+       L  57 |             try:
+    >> L  58 |                 c.execute("PRAGMA busy_timeout=30000")
+       L  59 |             except Exception:
+    ---
+  [commit/rollback/close] 5 match(s) pour /\.commit\(\)|\.rollback\(\)|\.close\(\)/
+    >> L  85 |     c.commit()
+    ---
+    >> L 473 |         _c.commit()
+    ---
+    >> L 474 |         _c.close()
+    ---
+    >> L 556 |         c.commit()
+    ---
+    >> L 565 |             c.close()
+    ---
+  [lock handling] 2 match(s) pour /database is locked|OperationalError/
+       L  60 |                 pass
+       L  61 |             return c
+    >> L  62 |         except sqlite3.OperationalError as _e:
+       L  63 |             _last = _e
+       L  64 |             if "locked" not in str(_e).lower():
+    ---
+       L  65 |                 raise
+       L  66 |             _t.sleep([0.1, 0.3, 0.9][_attempt])
+    >> L  67 |     raise _last if _last is not None else sqlite3.OperationalError("unknown lock")
+       L  68 | 
+       L  69 | 
+    ---
+
+========================================================================
+[3] Wrapper [RISK_V2_WIRED] dans execution_engine.py
+------------------------------------------------------------------------
+  Taille : 99168 bytes
+  marker [RISK_V2_WIRED] : 1 occurrence(s)
+  marker [RISK_V2] : 5 occurrence(s)
+  marker risk_v2_error : 2 occurrence(s)
+  marker database is locked : 0 occurrence(s)
+
+  [[RISK_V2_WIRED]] 1 match(s) pour /\[RISK_V2_WIRED\]/
+       L1189 |     effective_price = limit_price if (order_type == "limit" and limit_price) else current_price
+       L1190 | 
+       L1191 |     risk_result = check_order(conn, instrument_id, thesis_id, side, quantity, effective_price)
+       L1192 | 
+    >> L1193 |     # [RISK_V2_WIRED] gate hybride - Concentration (block) / VaR + Correlation (warn)
+       L1194 |     try:
+       L1195 |         # Resolve ticker pour le module risk_pretrade (qui attend ticker, pas instrument_id)
+       L1196 |         _rv2_ticker_row = conn.execute(
+       L1197 |             "SELECT ticker FROM instruments WHERE id = ?", (instrument_id,)
+    ---
+  [risk_v2_error] 2 match(s) pour /risk_v2_error/
+       L1227 |         if isinstance(risk_result, dict):
+       L1228 |             risk_result.setdefault("warnings", []).append({
+       L1229 |                 "source": "[RISK_V2]",
+    >> L1230 |                 "code": "risk_v2_error",
+       L1231 |                 "message": str(_rv2_err)[:160],
+       L1232 |             })
+       L1233 | 
+    ---
+       L2257 |         res = _risk_v2_run(ticker, qty, price, side, db_path=db_path)
+       L2258 |         return bool(res.get("passed")), res.get("blocked_by"), res.get("details", {})
+       L2259 |     except Exception as _e:
+    >> L2260 |         return True, "risk_v2_error:" + str(_e)[:80], {}
+    ---
+  [appel risk_v2] 4 match(s) pour /def\s+run_risk_v2|risk_pretrade/
+       L1193 |     # [RISK_V2_WIRED] gate hybride - Concentration (block) / VaR + Correlation (warn)
+       L1194 |     try:
+    >> L1195 |         # Resolve ticker pour le module risk_pretrade (qui attend ticker, pas instrument_id)
+       L1196 |         _rv2_ticker_row = conn.execute(
+       L1197 |             "SELECT ticker FROM instruments WHERE id = ?", (instrument_id,)
+    ---
+       L1199 |         _rv2_ticker = _rv2_ticker_row[0] if _rv2_ticker_row else None
+       L1200 |         if _rv2_ticker:
+    >> L1201 |             from risk_pretrade import run_pretrade_checks as _rv2_run
+       L1202 |             # [RISK_V2_DBLOCK_FIX_V2] passe la conn ouverte pour eviter db lock
+       L1203 |             _rv2 = _rv2_run(_rv2_ticker, quantity, effective_price, side, conn=conn)
+    ---
+       L1224 |                     })
+       L1225 |     except Exception as _rv2_err:
+    >> L1226 |         # Fail-safe : ne bloque pas la prod si le module risk_pretrade plante
+       L1227 |         if isinstance(risk_result, dict):
+       L1228 |             risk_result.setdefault("warnings", []).append({
+    ---
+       L2242 | # [RISK_V2] Hook pre-trade - Concentration / VaR marginal / Correlation (schema-aware)
+       L2243 | try:
+    >> L2244 |     from risk_pretrade import run_pretrade_checks as _risk_v2_run
+       L2245 |     _RISK_V2_AVAILABLE = True
+       L2246 | except Exception as _e:
+    ---
+
+========================================================================
+[4] Occurrences 'database is locked' dans orders.risk_check_result (recent)
+------------------------------------------------------------------------
+  orders scannes : 50
+  with 'database is locked' : 33 -> [266, 264, 262, 261, 260, 259, 258, 257, 256, 255, 254, 252, 251, 250, 249, 248, 247, 246, 245, 244, 243, 242, 241, 239, 236, 235, 233, 232, 231, 228, 227, 221, 220]
+  with risk_v2 anywhere     : 50
+  with risk_v2 passed=1     : 0
+  with risk_v2 passed=0     : 5
+
+  Detail des 5 derniers ordres en lock :
+    --- order #266 (2026-06-10 08:26:25) ---
+    approved=True  action=approved
+    RISK_V2: {"source": "[RISK_V2]", "code": "risk_v2_error", "message": "database is locked"}
+    --- order #264 (2026-06-10 06:32:23) ---
+    approved=True  action=approved
+    RISK_V2: {"source": "[RISK_V2]", "code": "risk_v2_error", "message": "database is locked"}
+    --- order #262 (2026-06-09 14:55:21) ---
+    approved=True  action=approved
+    RISK_V2: {"source": "[RISK_V2]", "code": "risk_v2_error", "message": "database is locked"}
+    --- order #261 (2026-06-09 14:44:12) ---
+    approved=True  action=approved
+    RISK_V2: {"source": "[RISK_V2]", "code": "risk_v2_error", "message": "database is locked"}
+    --- order #260 (2026-06-09 14:35:46) ---
+    approved=True  action=approved
+    RISK_V2: {"source": "[RISK_V2]", "code": "risk_v2_error", "message": "database is locked"}
+
+  Cycles d'aujourd'hui (orders.created_at) :
+    2026-06-10 : 4 ordres
+    2026-06-09 : 43 ordres
+    2026-06-08 : 6 ordres
+
+========================================================================
+[6] Tasks scheduler suceptibles de tenir un lock long
+------------------------------------------------------------------------
+  ABSENT : scheduler.py
+
+========================================================================
+[7] broker_reconciler.py - transactions
+------------------------------------------------------------------------
+  ABSENT : broker_reconciler.py
+
+========================================================================
+FIN DIAG RISK V2 LOCK
+------------------------------------------------------------------------

@@ -1,0 +1,220 @@
+import uvicorn
+from api_server import app
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+from portfolio_construction_agent_jalon2 import run_construction_agent
+
+# =============================================================================
+# PATCH 2026-05-24 — Endpoints Portfolio Construction (Jalon 2)
+# =============================================================================
+#
+# OÙ COLLER CE CODE :
+#   Ouvre api_server_with_static.py.
+#   Repère la section des imports en haut du fichier.
+#   Colle le bloc d'import ci-dessous juste après les imports existants
+#   (après les lignes "from models import ..." ou "from execution_engine ...").
+#
+# IMPORT — AJOUTER (si pas déjà présent) :
+#
+#   from portfolio_construction_agent_jalon2 import run_construction_agent
+#
+# Puis colle les deux routes FastAPI n'importe où dans le fichier,
+# avant la ligne `if __name__ == "__main__":` ou avant le bloc uvicorn.
+#
+# DÉPENDANCES :
+#   - portfolio_construction_agent_jalon2.py (Jalon 2) dans le même répertoire
+#   - Les fonctions get_db() et DB_PATH doivent exister dans api_server_with_static.py
+#     (ce sont des helpers déjà présents dans la plupart des versions)
+#
+# =============================================================================
+
+# --- Colle cet import après les imports existants ---
+from portfolio_construction_agent_jalon2 import run_construction_agent  # noqa: E402
+import sqlite3
+import os
+DB_PATH = os.environ.get('THESIUM_DB', 'thesium.db')
+
+
+
+# --- Colle ces deux routes dans le corps de l'application FastAPI ---
+
+@app.post("/api/construction/run")
+async def run_construction():
+    """Relance le PortfolioConstructionAgent Jalon 2 pour recalculer les cibles.
+
+    Lance un cycle complet : lecture du régime, calcul conviction/macro/vol/diversif,
+    normalisation, softmax, écriture portfolio_targets + snapshot history.
+
+    Retourne le résumé du cycle : snapshot_id, régime, nb tickers évalués/inclus,
+    et la liste des cibles calculées.
+    """
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row
+    try:
+        result = run_construction_agent(
+            conn,
+            cycle_id=None,   # pas de cycle_id explicite depuis l'API
+            regime_info=None, # détecté automatiquement via portfolio_state
+            dry_run=False,
+        )
+        return {
+            "status": "ok",
+            "snapshot_id":        result.get("snapshot_id"),
+            "regime":             result.get("regime"),
+            "macro_env":          result.get("macro_env"),
+            "n_tickers_evaluated": result.get("n_tickers_evaluated"),
+            "n_tickers_included": result.get("n_tickers_included"),
+            "targets":            result.get("targets", []),
+        }
+    except Exception as e:
+        # On renvoie l'erreur en JSON plutôt que de crasher le serveur
+        import traceback
+        return {
+            "status": "error",
+            "detail": str(e),
+            "traceback": traceback.format_exc(),
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/api/construction/targets")
+async def get_construction_targets():
+    """Retourne les cibles actives + le portefeuille actuel pour le panel UI.
+
+    Calcule pour chaque ticker cible :
+      - actual_weight_pct  : poids actuel en portefeuille (depuis portfolio_positions)
+      - target_weight_pct  : poids cible (depuis portfolio_targets WHERE active=1)
+      - delta_pct          : cible - actuel
+      - action             : 'Accumuler' / 'Réduire' / 'Neutre'
+      - signal             : 'BUY' / 'SELL' / 'NEUTRAL'
+      - score / source / agent_decided / snapshot_id
+
+    Inclut aussi une ligne synthétique pour le cash résiduel.
+    """
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row
+    try:
+        # Cibles actives triées par poids décroissant
+        targets = conn.execute('''
+            SELECT pt.ticker, pt.target_weight_pct, pt.score, pt.source,
+                   pt.agent_decided, pt.updated_at, pt.snapshot_id
+            FROM portfolio_targets pt
+            WHERE pt.active = 1
+            ORDER BY pt.target_weight_pct DESC
+        ''').fetchall()
+
+        # Positions actuelles avec poids
+        positions = conn.execute('''
+            SELECT i.ticker, pp.quantity, pp.current_price, pp.weight_pct
+            FROM portfolio_positions pp
+            JOIN instruments i ON i.id = pp.instrument_id
+        ''').fetchall()
+
+        # Construire un dict {ticker: position_dict}
+        pos_map = {}
+        for p in positions:
+            tkr = p["ticker"] if hasattr(p, "keys") else p[0]
+            pos_map[tkr] = {
+                "ticker":       tkr,
+                "quantity":     float(p["quantity"]     if hasattr(p, "keys") else p[1] or 0),
+                "current_price": float(p["current_price"] if hasattr(p, "keys") else p[2] or 0),
+                "weight_pct":   float(p["weight_pct"]   if hasattr(p, "keys") else p[3] or 0),
+            }
+
+        # NAV courante
+        ps = conn.execute(
+            'SELECT total_value FROM portfolio_state WHERE id=1'
+        ).fetchone()
+        nav = float(ps["total_value"] if ps and hasattr(ps, "keys") else ps[0]) if ps else 1_000_000
+
+        result = []
+        for t in targets:
+            ticker      = t["ticker"]      if hasattr(t, "keys") else t[0]
+            target_pct  = float(t["target_weight_pct"] if hasattr(t, "keys") else t[1] or 0)
+            score       = float(t["score"]  if hasattr(t, "keys") else t[2] or 0)
+            source      = t["source"]      if hasattr(t, "keys") else t[3]
+            agent_dec   = t["agent_decided"] if hasattr(t, "keys") else t[4]
+            updated_at  = t["updated_at"]  if hasattr(t, "keys") else t[5]
+            snapshot_id = t["snapshot_id"] if hasattr(t, "keys") else t[6]
+
+            pos = pos_map.get(ticker, {})
+            actual_pct = float(pos.get("weight_pct", 0.0) or 0.0)
+            delta      = round(target_pct - actual_pct, 4)
+
+            # Seuil 0.30 % : cohérent avec TARGET_GAP_MIN_DELTA_PCT de l'engine
+            if abs(delta) < 0.30:
+                action = "Neutre"
+                signal = "NEUTRAL"
+            elif delta > 0:
+                action = "Accumuler"
+                signal = "BUY"
+            else:
+                action = "Réduire"
+                signal = "SELL"
+
+            result.append({
+                "ticker":            ticker,
+                "actual_weight_pct": round(actual_pct, 4),
+                "target_weight_pct": round(target_pct, 4),
+                "delta_pct":         delta,
+                "action":            action,
+                "signal":            signal,
+                "score":             round(score, 4),
+                "source":            source,
+                "agent_decided":     bool(agent_dec),
+                "snapshot_id":       snapshot_id,
+                "updated_at":        updated_at,
+            })
+
+        # Ligne synthétique cash
+        sum_actual  = sum(r["actual_weight_pct"]  for r in result)
+        sum_target  = sum(r["target_weight_pct"]  for r in result)
+        cash_actual = round(100.0 - sum_actual,  4)
+        cash_target = round(100.0 - sum_target,  4)
+
+        first_updated = None
+        if targets:
+            first_updated = (
+                targets[0]["updated_at"] if hasattr(targets[0], "keys")
+                else targets[0][5]
+            )
+
+        return {
+            "targets": result,
+            "cash": {
+                "actual_pct":  cash_actual,
+                "target_pct":  cash_target,
+                "delta_pct":   round(cash_target - cash_actual, 4),
+            },
+            "nav":        nav,
+            "updated_at": first_updated,
+        }
+
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "detail": str(e),
+            "traceback": traceback.format_exc(),
+        }
+    finally:
+        conn.close()
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+# ---------- UTF-8 StaticFiles patch ----------
+from starlette.staticfiles import StaticFiles as _StaticFiles_UTF8
+class UTF8StaticFiles(_StaticFiles_UTF8):
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        if hasattr(resp, "media_type") and resp.media_type:
+            mt = resp.media_type.lower()
+            if mt.startswith("text/") or mt in (
+                "application/javascript", "application/json", "application/xml"):
+                ct = resp.headers.get("content-type") or ""
+                if "charset" not in ct:
+                    resp.headers["content-type"] = f"{resp.media_type}; charset=utf-8"
+        return resp
+# ----------------------------------------------
+
+app.mount("/", UTF8StaticFiles(directory=str(Path(__file__).parent), html=True), name="static")

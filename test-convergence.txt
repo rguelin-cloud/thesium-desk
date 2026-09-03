@@ -1,0 +1,231 @@
+﻿==============================================================================
+Test convergence sur cycle_id = 20260609-091332
+==============================================================================
+
+Tickers retournes : 30
+
+Ticker  | Dir      | n/N | Conv% | Sizing | Notes
+--------|----------|-----|-------|--------|------
+AAPL    | neutral  | 0/4 | 0%  | 0.25x  | 
+AMD     | short    | 1/5 | 20%  | 0.00x  | STOP_LOSS
+AMZN    | short    | 1/5 | 20%  | 0.00x  | STOP_LOSS
+BAC     | short    | 1/4 | 25%  | 0.25x  | 
+BTC     | short    | 1/3 | 33%  | 0.00x  | STOP_LOSS, crypto
+CAT     | long     | 1/4 | 25%  | 0.25x  | 
+CSCO    | long     | 1/4 | 25%  | 0.25x  | 
+ETH     | short    | 1/3 | 33%  | 0.00x  | STOP_LOSS, crypto
+GOOGL   | short    | 1/5 | 20%  | 0.00x  | STOP_LOSS
+HYPE    | long     | 1/2 | 50%  | 0.25x  | crypto
+JNJ     | neutral  | 0/4 | 0%  | 0.25x  | 
+JPM     | neutral  | 0/4 | 0%  | 0.25x  | 
+LINK    | short    | 1/3 | 33%  | 0.00x  | STOP_LOSS, crypto
+META    | short    | 1/5 | 20%  | 0.00x  | STOP_LOSS
+MSFT    | neutral  | 0/4 | 0%  | 0.25x  | 
+NVDA    | neutral  | 0/4 | 0%  | 0.25x  | 
+PLD     | long     | 1/4 | 25%  | 0.25x  | 
+QQQ     | neutral  | 0/2 | 0%  | 0.25x  | 
+REET    | neutral  | 0/2 | 0%  | 0.25x  | 
+SOL     | short    | 1/3 | 33%  | 0.00x  | STOP_LOSS, crypto
+SPY     | neutral  | 0/2 | 0%  | 0.25x  | 
+TSLA    | short    | 2/5 | 40%  | 0.00x  | STOP_LOSS
+TXN     | long     | 1/4 | 25%  | 0.25x  | 
+UNH     | neutral  | 0/4 | 0%  | 0.25x  | 
+XLB     | neutral  | 0/2 | 0%  | 0.25x  | 
+XLE     | neutral  | 0/2 | 0%  | 0.25x  | 
+XLI     | neutral  | 0/2 | 0%  | 0.25x  | 
+XLK     | short    | 1/3 | 33%  | 0.12x  | DRIFT
+XOM     | neutral  | 0/4 | 0%  | 0.25x  | 
+ZEC     | neutral  | 0/2 | 0%  | 0.25x  | crypto
+
+==============================================================================
+DUMP DETAILLE
+==============================================================================
+
+--- EQUITY ---
+{
+  "cycle_id": "20260609-091332",
+  "ticker": "AAPL",
+  "is_crypto": false,
+  "direction_consensus": "neutral",
+  "n_aligned": 0,
+  "n_present": 4,
+  "convergence_pct": 0.0,
+  "sizing_multiplier": 0.25,
+  "forced_exit": false,
+  "drift": false,
+  "buckets": {
+    "L2": {
+      "bucket": "L2",
+      "source": "FactorAgent",
+      "direction": "neutral",
+      "conviction": 4.2,
+      "driver": "Momentum (12-1m): -1.8%",
+      "raw_signal": "NEUTRAL"
+    },
+    "L3": {
+      "bucket": "L3",
+      "source": "MicrostructureAgent",
+      "direction": "neutral",
+      "conviction": 5.0,
+      "driver": "Price vs BB: 19th percentile of 20-day range",
+      "raw_signal": "No microstructure edge; hold AAPL with stop at 277.42"
+    },
+    "L4": {
+      "bucket": "L4",
+      "source": "AltDataAgent",
+      "direction": "neutral",
+      "conviction": 5.0,
+      "driver": "Price-volume sentiment: neutral",
+      "raw_signal": "NEUTRAL"
+    },
+    "L1": {
+      "bucket": "L1",
+      "source": "MacroAgent",
+      "direction": "neutral",
+      "conviction": 5.0,
+      "driver": "SPY/QQQ/DIA moving average crosses: 0 bullish, 0 bearish",
+      "raw_signal": "NEUTRAL"
+    }
+  },
+  "counted_buckets": [
+    "L1",
+    "L2",
+    "L3",
+    "L4"
+  ]
+}
+
+--- CRYPTO ---
+{
+  "cycle_id": "20260609-091332",
+  "ticker": "BTC",
+  "is_crypto": true,
+  "direction_consensus": "short",
+  "n_aligned": 1,
+  "n_present": 3,
+  "convergence_pct": 0.333,
+  "sizing_multiplier": 0.0,
+  "forced_exit": true,
+  "drift": false,
+  "buckets": {
+    "L3": {
+      "bucket": "L3-L4",
+      "source": "CryptoAgent",
+      "direction": "long",
+      "conviction": 7.0,
+      "driver": "Tendance SMA7/SMA21 : bearish (ecart 11.21%)",
+      "raw_signal": "ACCUMULATE",
+      "note": "merged_crypto_L3"
+    },
+    "L5": {
+      "bucket": "L5",
+      "source": "ExitAgent",
+      "direction": "short",
+      "conviction": 7.0,
+      "driver": "P&L -16.68 % Ôëñ seuil -5.0 % ÔåÆ SELL 50 %",
+      "raw_signal": "STOP_LOSS",
+      "forced_exit": true,
+      "drift_attenuation": false,
+      "crypto_red_flags": [
+        "Pression vendeuse persistante liÚe aux sorties nettes des ETF spot BTC sur plusieurs sÚances consÚcutives, qui a dÚjÓ gÚnÚrÚ un ½ coup de mou ╗ marquÚ sur le marchÚ et peut se prolonger en cas de conditions macro dÚfavorables[5].",
+        "Traitement explicite de BTC par les desks comme actif macro sensible aux attentes de cessez-le-feu/gÚopolitique et aux taux, crÚant des gaps de liquiditÚ lors des annonces inattendues et augmentant le risque de volatilitÚ exogÞne[5].",
+        "Niveau de prix toujours ÚlevÚ historiquement, avec des analystes de marchÚ traditionnels Úvoquant la possibilitÚ de corrections profondes (scÚnarios de -60 Ó -70 % depuis les sommets dans certains stress tests), ce qui implique un risque de drawdown important si le cycle sÆinverse[3]."
+      ]
+    },
+    "L4": {
+      "bucket": "L3-L4",
+      "source": "CryptoAgent",
+      "direction": "long",
+      "conviction": 7.0,
+      "driver": "Tendance SMA7/SMA21 : bearish (ecart 11.21%)",
+      "raw_signal": "ACCUMULATE",
+      "note": "merged_crypto_L4"
+    },
+    "L1": {
+      "bucket": "L1",
+      "source": "MacroAgent",
+      "direction": "neutral",
+      "conviction": 5.0,
+      "driver": "SPY/QQQ/DIA moving average crosses: 0 bullish, 0 bearish",
+      "raw_signal": "NEUTRAL"
+    }
+  },
+  "counted_buckets": [
+    "L1",
+    "L3",
+    "L5"
+  ]
+}
+
+--- FORCED_EXIT ---
+{
+  "cycle_id": "20260609-091332",
+  "ticker": "AMD",
+  "is_crypto": false,
+  "direction_consensus": "short",
+  "n_aligned": 1,
+  "n_present": 5,
+  "convergence_pct": 0.2,
+  "sizing_multiplier": 0.0,
+  "forced_exit": true,
+  "drift": false,
+  "buckets": {
+    "L2": {
+      "bucket": "L2",
+      "source": "FactorAgent",
+      "direction": "long",
+      "conviction": 6.0,
+      "driver": "Momentum (12-1m): +251.5%",
+      "raw_signal": "OVERWEIGHT"
+    },
+    "L3": {
+      "bucket": "L3",
+      "source": "MicrostructureAgent",
+      "direction": "neutral",
+      "conviction": 5.0,
+      "driver": "Price vs BB: 60th percentile of 20-day range",
+      "raw_signal": "No microstructure edge; hold AMD with stop at 451.10"
+    },
+    "L4": {
+      "bucket": "L4",
+      "source": "AltDataAgent",
+      "direction": "neutral",
+      "conviction": 5.0,
+      "driver": "Price-volume sentiment: neutral",
+      "raw_signal": "NEUTRAL"
+    },
+    "L5": {
+      "bucket": "L5",
+      "source": "ExitAgent",
+      "direction": "short",
+      "conviction": 7.0,
+      "driver": "P&L -5.09 % Ôëñ seuil -5.0 % ÔåÆ SELL 50 %",
+      "raw_signal": "STOP_LOSS",
+      "forced_exit": true,
+      "drift_attenuation": false
+    },
+    "L1": {
+      "bucket": "L1",
+      "source": "MacroAgent",
+      "direction": "neutral",
+      "conviction": 5.0,
+      "driver": "SPY/QQQ/DIA moving average crosses: 0 bullish, 0 bearish",
+      "raw_signal": "NEUTRAL"
+    }
+  },
+  "counted_buckets": [
+    "L1",
+    "L2",
+    "L3",
+    "L4",
+    "L5"
+  ]
+}
+
+==============================================================================
+PERSISTENCE
+==============================================================================
+INSERT OK : 30 lignes
+Lignes en DB pour ce cycle : 30
+
+DONE

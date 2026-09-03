@@ -1,0 +1,244 @@
+"""
+data_crypto.py — Crypto market data for Nextones Desk
+Combines CoinGecko (live prices) with Finviz ETF proxies (technical signals).
+"""
+import json
+import time
+import urllib.request
+from typing import Optional
+
+# --- Cache ---
+_cache = {}
+_CACHE_TTL = 300  # 5 min for crypto (faster-moving)
+
+def _cached(key):
+    if key in _cache and (time.time() - _cache[key]['ts']) < _CACHE_TTL:
+        return _cache[key]['data']
+    return None
+
+def _set_cache(key, data):
+    _cache[key] = {'data': data, 'ts': time.time()}
+
+# CoinGecko ID mapping — TOP 25 by market cap (excl. stablecoins)
+CG_MAP = {
+    'BTC':   'bitcoin',
+    'ETH':   'ethereum',
+    'XRP':   'ripple',
+    'BNB':   'binancecoin',
+    'SOL':   'solana',
+    'DOGE':  'dogecoin',
+    'ADA':   'cardano',
+    'TRX':   'tron',
+    'LINK':  'chainlink',
+    'AVAX':  'avalanche-2',
+    'SUI':   'sui',
+    'XLM':   'stellar',
+    'TON':   'the-open-network',
+    'SHIB':  'shiba-inu',
+    'HBAR':  'hedera-hashgraph',
+    'DOT':   'polkadot',
+    'BCH':   'bitcoin-cash',
+    'LTC':   'litecoin',
+    'UNI':   'uniswap',
+    'NEAR':  'near',
+    'APT':   'aptos',
+    'ICP':   'internet-computer',
+    'POL':   'polygon-ecosystem-token',
+    'ATOM':  'cosmos',
+    'RENDER':'render-token',
+    'HYPE':  'hyperliquid',  # [CG_MAP_HYPE_V1]
+}
+
+# Finviz ETF proxy tickers (for technical signals — only where ETF exists)
+ETF_MAP = {}  # [DATA_CRYPTO_MULTIFIX_V1]  disabled: finvizfinance crashe sur les 4 ETF spot crypto
+# ETF_MAP historique (a reactiver si finvizfinance supporte un jour ces tickers,
+# ou si on remplace par calcul RSI/SMA maison depuis la table 'prices') :
+#     'BTC':  'IBIT',   # iShares Bitcoin Trust
+#     'ETH':  'ETHA',   # iShares Ethereum Trust
+#     'SOL':  'GSOL',   # Grayscale Solana Trust
+#     'LINK': 'GLNK',   # Grayscale Chainlink Trust
+
+def fetch_crypto_prices() -> list:
+    """Fetch live crypto prices from CoinGecko."""
+    cached = _cached('crypto_prices')
+    if cached:
+        return cached
+    
+    try:
+        ids = ','.join(CG_MAP.values())
+        url = (f"https://api.coingecko.com/api/v3/simple/price"
+               f"?ids={ids}"
+               f"&vs_currencies=usd"
+               f"&include_24hr_change=true"
+               f"&include_market_cap=true"
+               f"&include_24hr_vol=true")
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'})
+        resp = urllib.request.urlopen(req, timeout=15)
+        data = json.loads(resp.read())
+        
+        result = []
+        for ticker, cg_id in CG_MAP.items():
+            if cg_id in data:
+                d = data[cg_id]
+                result.append({
+                    'ticker': ticker,
+                    'price': d.get('usd'),
+                    'change_24h': round(d.get('usd_24h_change', 0), 2),
+                    'market_cap': d.get('usd_market_cap'),
+                    'volume_24h': d.get('usd_24h_vol'),
+                })
+        
+        _set_cache('crypto_prices', result)
+        return result
+    except Exception as e:
+        print(f"[data_crypto] CoinGecko error: {e}")
+        return []
+
+
+def fetch_crypto_signals() -> list:
+    """Fetch technical signals from Finviz ETF proxies for each crypto."""
+    cached = _cached('crypto_signals')
+    if cached:
+        return cached
+    
+    try:
+        from finvizfinance.quote import finvizfinance
+    except ImportError:
+        return []
+    
+    result = []
+    for crypto_ticker, etf_ticker in ETF_MAP.items():
+        try:
+            stock = finvizfinance(etf_ticker)
+            info = stock.ticker_fundament()
+            
+            def parse_pct(val):
+                if val is None:
+                    return None
+                if isinstance(val, str):
+                    return float(val.replace('%', ''))
+                return float(val)
+            
+            result.append({
+                'ticker': crypto_ticker,
+                'etf_proxy': etf_ticker,
+                'etf_price': float(info.get('Price', 0)),
+                'rsi': parse_pct(info.get('RSI (14)')),
+                'sma20': parse_pct(info.get('SMA20')),
+                'sma50': parse_pct(info.get('SMA50')),
+                'sma200': parse_pct(info.get('SMA200')),
+                'perf_week': parse_pct(info.get('Perf Week')),
+                'perf_month': parse_pct(info.get('Perf Month')),
+                'perf_ytd': parse_pct(info.get('Perf YTD')),
+                'rel_volume': parse_pct(info.get('Rel Volume')),
+                'volatility_w': info.get('Volatility W'),
+                'volatility_m': info.get('Volatility M'),
+                'beta': parse_pct(info.get('Beta')),
+            })
+        except Exception as e:
+            print(f"[data_crypto] Finviz error for {etf_ticker}: {e}")
+    
+    _set_cache('crypto_signals', result)
+    return result
+
+
+def fetch_crypto_combined() -> list:
+    """Merge CoinGecko prices with Finviz ETF signals."""
+    prices = fetch_crypto_prices()
+    signals = fetch_crypto_signals()
+    
+    # Index signals by ticker
+    sig_map = {s['ticker']: s for s in signals}
+    
+    combined = []
+    for p in prices:
+        ticker = p['ticker']
+        sig = sig_map.get(ticker, {})
+        combined.append({
+            **p,
+            'etf_proxy': sig.get('etf_proxy'),
+            'rsi': sig.get('rsi'),
+            'sma20': sig.get('sma20'),
+            'sma50': sig.get('sma50'),
+            'sma200': sig.get('sma200'),
+            'perf_week': sig.get('perf_week'),
+            'perf_month': sig.get('perf_month'),
+            'perf_ytd': sig.get('perf_ytd'),
+            'rel_volume': sig.get('rel_volume'),
+            'volatility_w': sig.get('volatility_w'),
+            'volatility_m': sig.get('volatility_m'),
+            'beta': sig.get('beta'),
+        })
+    
+    # Sort by market cap descending (BTC first)
+    combined.sort(key=lambda x: x.get('market_cap') or 0, reverse=True)
+    return combined
+
+
+# [CG_REFRESH_TO_DB_V1] BEGIN  ---------------------------------------------------
+def refresh_crypto_prices_to_db():
+    """Refresh CoinGecko prices and upsert into the 'prices' table.
+
+    Pour chaque ticker du CG_MAP qui existe dans la table 'instruments',
+    insere une ligne OHLC synthetique (O=H=L=C=price) datee de today.
+    Utilise INSERT OR REPLACE pour etre idempotent sur la cle (instrument_id, date).
+
+    Appele par le scheduler APScheduler ([CG_REFRESH_TO_DB_V1]).
+    Retourne un dict {{updated, skipped, errors}}.
+    """
+    import sqlite3
+    from datetime import datetime as _dt
+    from models import get_db
+    from data_ingestion import upsert_prices
+
+    result = {"updated": [], "skipped": [], "errors": []}  # [DATA_CRYPTO_MULTIFIX_V1]
+    prices = fetch_crypto_prices()
+    if not prices:
+        print("[crypto_cg] fetch_crypto_prices() vide - skip")
+        return result
+
+    today = _dt.utcnow().strftime("%Y-%m-%d")
+    conn = get_db()
+    try:
+        # [CG_REFRESH_HYPE_ONLY_V2] : filtre = uniquement tickers YAHOO_BLACKLIST
+        try:
+            from data_ingestion import YAHOO_BLACKLIST
+        except Exception:
+            YAHOO_BLACKLIST = {"HYPE"}
+        for p in prices:
+            ticker = p.get("ticker")
+            price = p.get("price")
+            if not ticker or price is None:
+                result["skipped"].append(ticker)
+                continue
+            # [CG_REFRESH_HYPE_ONLY_V2] : ne pas ecraser le vrai OHLC Yahoo des autres crypto
+            if ticker not in YAHOO_BLACKLIST:
+                result["skipped"].append(ticker)
+                continue
+            # Find instrument
+            row = conn.execute(
+                "SELECT id FROM instruments WHERE ticker = ?", (ticker,)
+            ).fetchone()
+            if not row:
+                result["skipped"].append(ticker)
+                continue
+            instrument_id = row[0] if not hasattr(row, "keys") else row["id"]
+            # Build OHLC synthetique
+            ohlc_row = {  # [DATA_CRYPTO_MULTIFIX_V1]
+                "date": today,
+                "open": price, "high": price,
+                "low": price,  "close": price,
+                "volume": p.get("volume_24h") or 0,
+            }  # [DATA_CRYPTO_MULTIFIX_V1]
+            try:
+                upsert_prices(conn, instrument_id, [ohlc_row])
+                result["updated"].append(ticker)
+            except Exception as e:
+                result["errors"].append({"ticker": ticker, "err": str(e)})  # [DATA_CRYPTO_MULTIFIX_V1]
+        conn.commit()
+        print(f"[crypto_cg] updated={len(result['updated'])} "  # [DATA_CRYPTO_MULTIFIX_V1]
+              f"skipped={len(result['skipped'])} errors={len(result['errors'])}")
+    finally:
+        conn.close()
+    return result
+# [CG_REFRESH_TO_DB_V1] END  -----------------------------------------------------

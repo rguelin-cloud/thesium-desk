@@ -1,0 +1,132 @@
+======================================================================
+DIAG V13 - styles sH1/sH2/sH3 + Spacer insertions
+======================================================================
+
+Bornes fonction #1 : L1079..1537
+
+[1] Definitions des styles ParagraphStyle dans fonction #1
+----------------------------------------------------------------------
+L1241 |     sH1 = ParagraphStyle("MemoH1", parent=styles["Heading1"],  # [V4_COVER]
+L1242 |         fontSize=14, leading=18, textColor=DEEP_TEAL,
+L1243 |         spaceAfter=6, spaceBefore=12, fontName=FONT_BOLD,
+L1244 |         wordWrap="LTR")
+L1245 |     sH2 = ParagraphStyle("MemoH2", parent=styles["Heading2"],  # [V3_LIGHT]
+L1246 |         fontSize=12, leading=15, textColor=MUTED_TEAL,
+L1247 |         spaceAfter=4, spaceBefore=10, fontName=FONT_BOLD)
+L1248 |     sBody = ParagraphStyle("MemoBody", parent=styles["Normal"],
+L1249 |         fontSize=9.5, leading=13, textColor=OFFBLACK,
+L1250 |         spaceAfter=4, fontName=FONT_REG)
+L1251 |     sBullet = ParagraphStyle("MemoBullet", parent=sBody,
+L1252 |         leftIndent=12, bulletIndent=4, spaceBefore=1, spaceAfter=1)
+L1253 |     sSmall = ParagraphStyle("MemoSmall", parent=sBody,
+L1254 |         fontSize=8, leading=10, textColor=HexColor("#5a7a7e"))
+
+[2] Tous les ParagraphStyle(...) dans fonction #1
+----------------------------------------------------------------------
+L1241 |     sH1 = ParagraphStyle("MemoH1", parent=styles["Heading1"],  # [V4_COVER]
+L1245 |     sH2 = ParagraphStyle("MemoH2", parent=styles["Heading2"],  # [V3_LIGHT]
+L1248 |     sBody = ParagraphStyle("MemoBody", parent=styles["Normal"],
+L1251 |     sBullet = ParagraphStyle("MemoBullet", parent=sBody,
+L1253 |     sSmall = ParagraphStyle("MemoSmall", parent=sBody,
+L1328 |         sTH = ParagraphStyle("TH", parent=sBody, fontSize=7.5, leading=9.5,
+L1330 |         sTC = ParagraphStyle("TC", parent=sBody, fontSize=7.5, leading=9.5,
+
+[3] Toutes les insertions Spacer dans fonction #1
+----------------------------------------------------------------------
+L1258 |     story.append(Spacer(1, 4*mm))
+L1392 |             story.append(Spacer(1, 3))
+L1454 |         story.append(Spacer(1, 3))
+L1475 |             story.append(Spacer(1, 8))
+L1501 |             story.append(Spacer(1, 8))
+
+[4] Contexte story.append(Paragraph(txt, sH1/sH2/sH3)
+----------------------------------------------------------------------
+--- Match L1259 style=sH1 ---
+L1257 |     # Cover bloc : titre significatif en tete de premiere page
+L1258 |     story.append(Spacer(1, 4*mm))
+L1259 |     story.append(Paragraph(_normalize_glyphes(pdf_title), sH1))
+L1260 |     if n_ords > 0:
+L1261 |         story.append(Paragraph(
+L1262 |             f"<i>{n_ords} ordres proposes &middot; {n_buys} achats &middot; {n_sells} ventes</i>",
+L1263 |             sSmall))
+
+--- Match L1399 style=sH1 ---
+L1397 |             if body_paragraphs_count == 0 and ("ic memo" in txt.lower() or "nextones" in txt.lower()):
+L1398 |                 continue
+L1399 |             story.append(Paragraph(txt, sH1))
+L1400 |             body_paragraphs_count += 1
+L1401 |             continue
+L1402 |         if stripped.startswith("## "):
+L1403 |             txt = _xml_escape(stripped[3:].strip())
+
+--- Match L1404 style=sH2 ---
+L1402 |         if stripped.startswith("## "):
+L1403 |             txt = _xml_escape(stripped[3:].strip())
+L1404 |             story.append(Paragraph(txt, sH2))
+L1405 |             body_paragraphs_count += 1
+L1406 |             continue
+L1407 |         if stripped.startswith("### "):
+L1408 |             txt = _xml_escape(stripped[4:].strip())
+
+--- Match L1476 style=sH2 ---
+L1474 |         if thesis_summaries and isinstance(thesis_summaries, list) and len(thesis_summaries) > 0:
+L1475 |             story.append(Spacer(1, 8))
+L1476 |             story.append(Paragraph("Thesis Summaries", sH2))
+L1477 |             table_data = [["Ticker", "Agent", "Conviction", "Action"]]
+L1478 |             for ts in thesis_summaries:
+L1479 |                 table_data.append([
+L1480 |                     Paragraph(f"<b>{_xml_escape(str(ts.get('ticker', '--')))}</b>", sBody),
+
+--- Match L1502 style=sH2 ---
+L1500 |         if proposed_changes and isinstance(proposed_changes, list) and len(proposed_changes) > 0:
+L1501 |             story.append(Spacer(1, 8))
+L1502 |             story.append(Paragraph("Proposed Changes", sH2))
+L1503 |             table_data = [["Ticker", "Side", "Qty", "Status"]]
+L1504 |             for pc in proposed_changes:
+L1505 |                 side_str = str(pc.get("side", "--")).upper()
+L1506 |                 side_color = GREEN_OK if side_str == "BUY" else TERRA
+
+[5] Zone V7_R5 (return KeepTogether)
+----------------------------------------------------------------------
+L1360 |             ('LINEBELOW', (0, 0), (-1, 0), 1.2, white),  # [ICMEMO_V6_R3]
+L1361 |         ]))
+L1362 |         # [ICMEMO_V7_R5] - absorbe titre H1/H2/H3 precedent dans KeepTogether
+L1363 |         try:
+L1364 |             _last = story[-1] if story else None
+L1365 |             _style_name = getattr(getattr(_last, 'style', None), 'name', '') if _last is not None else ''
+L1366 |             if _style_name in ('H1', 'H2', 'H3'):
+L1367 |                 story.pop()
+L1368 |                 return [KeepTogether([_last, t])]
+L1369 |         except Exception:
+L1370 |             pass
+L1371 |         return [KeepTogether([t])]
+L1372 | 
+L1373 |     pending_table_rows = []
+L1374 |     pending_table_sep = None
+L1375 |     body_paragraphs_count = 0
+
+[6] Appels flush_md_table dans fonction #1 (contexte 4 lignes)
+----------------------------------------------------------------------
+--- Appel L1387 ---
+L1384 |             continue
+L1385 |         else:
+L1386 |             if pending_table_rows:
+L1387 |                 story.extend(flush_md_table(pending_table_rows, pending_table_sep))
+L1388 |                 body_paragraphs_count += 1
+L1389 |                 pending_table_rows = []
+L1390 |                 pending_table_sep = None
+L1391 |         if not stripped:
+
+--- Appel L1448 ---
+L1445 |         body_paragraphs_count += 1
+L1446 | 
+L1447 |     if pending_table_rows:
+L1448 |         story.extend(flush_md_table(pending_table_rows, pending_table_sep))
+L1449 |         body_paragraphs_count += 1
+L1450 | 
+L1451 |     # B1 garde-fou : si rien n'a ete genere depuis le markdown, ecrit le brut
+L1452 |     if body_paragraphs_count == 0:
+
+======================================================================
+FIN DIAG V13
+======================================================================

@@ -1,0 +1,17 @@
+﻿==============================================================================
+ROOT : C:\Users\RichardGUELIN\Prod\ThesiumDesk (exclu : nextones-* / _backups* / diag-*)
+==============================================================================
+
+Files DEFINING class PortfolioConstructionAgent : 0
+
+Files REFERENCING (sans definir) : 9
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\api_endpoints_construction_patch.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\api_server_with_static.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\execution_engine.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\execution_engine_v6_4_backup.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\execution_engine_v6_5.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\portfolio_construction_agent.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\portfolio_construction_agent_jalon1_backup.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\portfolio_construction_agent_jalon2.py
+  REF  C:\Users\RichardGUELIN\Prod\ThesiumDesk\pplx_thesis_agent.py
+ERROR: aucun fichier ne definit la classe

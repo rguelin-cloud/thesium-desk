@@ -1,0 +1,234 @@
+==============================================================================
+DIAG V9 - DUMP FONCTION #2 get_memo_pdf + MARKDOWN MEMO 51
+==============================================================================
+
+------------------------------------------------------------------------------
+[A] Signature et debut fonction #2 (L1494-L1530)
+------------------------------------------------------------------------------
+1494 | def get_memo_pdf(memo_id: int):
+1495 |     """Generate and return a styled PDF export of an IC memo."""
+1496 |     conn = db()
+1497 |     try:
+1498 |         row = conn.execute("SELECT * FROM ic_memos WHERE id = ?", (memo_id,)).fetchone()
+1499 |         if not row:
+1500 |             raise HTTPException(status_code=404, detail="Memo not found")
+1501 |         memo = row_to_dict(row)
+1502 |     finally:
+1503 |         conn.close()
+1504 | 
+1505 |     import io
+1506 |     import re
+1507 |     from reportlab.lib.pagesizes import A4
+1508 |     from reportlab.lib.units import mm, cm
+1509 |     from reportlab.lib.colors import HexColor, white, black
+1510 |     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+1511 |     from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+1512 |     from reportlab.platypus import (
+1513 |         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+1514 |         HRFlowable, KeepTogether,
+1515 |     )
+1516 |     from reportlab.pdfbase import pdfmetrics
+1517 |     from reportlab.pdfbase.ttfonts import TTFont
+1518 | 
+1519 |     # -- Brand colors --
+1520 |     DARK_NAVY   = HexColor("#091717")
+1521 |     OFFBLACK    = HexColor("#13343B")
+1522 |     DEEP_TEAL   = HexColor("#115058")
+1523 |     MUTED_TEAL  = HexColor("#20808D")
+1524 |     LIGHT_TEAL  = HexColor("#D6F5FA")
+1525 |     OFF_WHITE   = HexColor("#FCFAF6")
+1526 |     PAPER_WHITE = HexColor("#F3F3EE")
+1527 |     WARM_BEIGE  = HexColor("#E5E3D4")
+1528 |     TERRA       = HexColor("#A84B2F")
+1529 |     GOLD        = HexColor("#FFC553")
+1530 |     GREEN_OK    = HexColor("#70AD47")
+
+------------------------------------------------------------------------------
+[B] Zone R2 doublon - bloc Thesis Summaries #2 (L1755-L1800)
+------------------------------------------------------------------------------
+1755 |         try:
+1756 |             proposed_changes = json.loads(proposed_changes)
+1757 |         except Exception:
+1758 |             proposed_changes = None
+1759 | 
+1760 |     # Thesis summary table
+1761 |     if thesis_summaries and isinstance(thesis_summaries, list) and len(thesis_summaries) > 0:
+1762 |         story.append(Spacer(1, 8))
+1763 |         story.append(Paragraph("Thesis Summaries", sH2))
+1764 |         table_data = [["Ticker", "Agent", "Conviction", "Action"]]
+1765 |         for ts in thesis_summaries:
+1766 |             table_data.append([
+1767 |                 Paragraph(f"<b>{ts.get('ticker', '—')}</b>", sBody),
+1768 |                 Paragraph(str(ts.get('agent', '—')), sSmall),
+1769 |                 Paragraph(f"{ts.get('conviction', '—')}/10", sBody),
+1770 |                 Paragraph(str(ts.get('action', '—')), sBody),
+1771 |             ])
+1772 | 
+1773 |         t = Table(table_data, colWidths=[55, 85, 55, None])
+1774 |         t.setStyle(TableStyle([
+1775 |             ('BACKGROUND', (0, 0), (-1, 0), DEEP_TEAL),
+1776 |             ('TEXTCOLOR', (0, 0), (-1, 0), white),
+1777 |             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+1778 |             ('FONTSIZE', (0, 0), (-1, -1), 8.5),
+1779 |             ('LEADING', (0, 0), (-1, -1), 11),
+1780 |             ('BACKGROUND', (0, 1), (-1, -1), PAPER_WHITE),
+1781 |             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [PAPER_WHITE, OFF_WHITE]),
+1782 |             ('GRID', (0, 0), (-1, -1), 0.4, WARM_BEIGE),
+1783 |             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+1784 |             ('TOPPADDING', (0, 0), (-1, -1), 4),
+1785 |             ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+1786 |             ('LEFTPADDING', (0, 0), (-1, -1), 6),
+1787 |         ]))
+1788 |         story.append(t)
+1789 | 
+1790 |     # Proposed changes table
+1791 |     if proposed_changes and isinstance(proposed_changes, list) and len(proposed_changes) > 0:
+1792 |         story.append(Spacer(1, 8))
+1793 |         story.append(Paragraph("Proposed Changes", sH2))
+1794 |         table_data = [["Ticker", "Side", "Qty", "Status"]]
+1795 |         for pc in proposed_changes:
+1796 |             side_str = str(pc.get('side', '—')).upper()
+1797 |             side_color = GREEN_OK if side_str == 'BUY' else TERRA
+1798 |             table_data.append([
+1799 |                 Paragraph(f"<b>{pc.get('ticker', '—')}</b>", sBody),
+1800 |                 Paragraph(f'<font color="{side_color}">{side_str}</font>', sBody),
+
+------------------------------------------------------------------------------
+[C] Zone R2 suite + Proposed Changes #2 (L1790-L1839)
+------------------------------------------------------------------------------
+1790 |     # Proposed changes table
+1791 |     if proposed_changes and isinstance(proposed_changes, list) and len(proposed_changes) > 0:
+1792 |         story.append(Spacer(1, 8))
+1793 |         story.append(Paragraph("Proposed Changes", sH2))
+1794 |         table_data = [["Ticker", "Side", "Qty", "Status"]]
+1795 |         for pc in proposed_changes:
+1796 |             side_str = str(pc.get('side', '—')).upper()
+1797 |             side_color = GREEN_OK if side_str == 'BUY' else TERRA
+1798 |             table_data.append([
+1799 |                 Paragraph(f"<b>{pc.get('ticker', '—')}</b>", sBody),
+1800 |                 Paragraph(f'<font color="{side_color}">{side_str}</font>', sBody),
+1801 |                 Paragraph(str(pc.get('quantity', '—')), sBody),
+1802 |                 Paragraph(str(pc.get('status', '—')).upper(), sSmall),
+1803 |             ])
+1804 | 
+1805 |         t = Table(table_data, colWidths=[70, 60, 60, None])
+1806 |         t.setStyle(TableStyle([
+1807 |             ('BACKGROUND', (0, 0), (-1, 0), DEEP_TEAL),
+1808 |             ('TEXTCOLOR', (0, 0), (-1, 0), white),
+1809 |             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+1810 |             ('FONTSIZE', (0, 0), (-1, -1), 8.5),
+1811 |             ('LEADING', (0, 0), (-1, -1), 11),
+1812 |             ('BACKGROUND', (0, 1), (-1, -1), PAPER_WHITE),
+1813 |             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [PAPER_WHITE, OFF_WHITE]),
+1814 |             ('GRID', (0, 0), (-1, -1), 0.4, WARM_BEIGE),
+1815 |             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+1816 |             ('TOPPADDING', (0, 0), (-1, -1), 4),
+1817 |             ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+1818 |             ('LEFTPADDING', (0, 0), (-1, -1), 6),
+1819 |         ]))
+1820 |         story.append(t)
+1821 | 
+1822 |     doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
+1823 |     buf.seek(0)
+1824 | 
+1825 |     from starlette.responses import Response
+1826 |     safe_date = memo.get("date", "unknown").replace("/", "-")
+1827 |     return Response(
+1828 |         content=buf.read(),
+1829 |         media_type="application/pdf",
+1830 |         headers={
+1831 |             "Content-Disposition": f'attachment; filename="IC-Memo-{safe_date}.pdf"',
+1832 |         },
+1833 |     )
+1834 | 
+1835 | 
+1836 | # ---------------------------------------------------------------------------
+1837 | # Finviz Endpoints
+1838 | # ---------------------------------------------------------------------------
+1839 | 
+1840 | @app.get("/api/finviz/signals")
+
+------------------------------------------------------------------------------
+[D] Zone flush_md_table fonction #2 (L1595-L1670) - R3 logique en-tete
+------------------------------------------------------------------------------
+1595 | 
+1596 |     # -- Helper: flush accumulated markdown table rows into a ReportLab Table --
+1597 |     def flush_md_table(table_rows, separator_idx):
+1598 |         if not table_rows:
+1599 |             return []
+1600 |         elements = []
+1601 |         header = [c.strip() for c in table_rows[0].strip('|').split('|')]
+1602 |         body_rows = []
+1603 |         # separator_idx = len(pending_table_rows) at time separator was seen
+1604 |         # Since separator line is NOT stored in pending_table_rows,
+1605 |         # body rows start at separator_idx (not +1)
+1606 |         start = separator_idx if separator_idx is not None else 1
+1607 |         for row_str in table_rows[start:]:
+1608 |             cells = [c.strip() for c in row_str.strip('|').split('|')]
+1609 |             body_rows.append(cells)
+1610 | 
+1611 |         col_count = len(header)
+1612 |         if col_count == 0:
+1613 |             return []
+1614 |         available_width = W - 30*mm
+1615 |         col_w = available_width / col_count
+1616 |         col_widths = [col_w] * col_count
+1617 | 
+1618 |         sTableHead = ParagraphStyle("TH", parent=sBody, fontSize=7.5, leading=9.5,
+1619 |             textColor=white, fontName="Helvetica-Bold")
+1620 |         sTableCell = ParagraphStyle("TC", parent=sBody, fontSize=7.5, leading=9.5,
+1621 |             fontName="Helvetica")
+1622 | 
+1623 |         data = [[Paragraph(re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', h), sTableHead) for h in header]]
+1624 |         for r in body_rows:
+1625 |             row = []
+1626 |             for c in r:
+1627 |                 c = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', c)
+1628 |                 row.append(Paragraph(c, sTableCell))
+1629 |             data.append(row)
+1630 | 
+1631 |         # Pad short rows
+1632 |         for row in data:
+1633 |             while len(row) < col_count:
+1634 |                 row.append(Paragraph("", sTableCell))
+1635 | 
+1636 |         t = Table(data, colWidths=col_widths, repeatRows=1)
+1637 |         t.setStyle(TableStyle([
+1638 |             ('BACKGROUND', (0, 0), (-1, 0), DEEP_TEAL),
+1639 |             ('TEXTCOLOR', (0, 0), (-1, 0), white),
+1640 |             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+1641 |             ('FONTSIZE', (0, 0), (-1, -1), 7.5),
+1642 |             ('LEADING', (0, 0), (-1, -1), 9.5),
+1643 |             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [PAPER_WHITE, OFF_WHITE]),
+1644 |             ('GRID', (0, 0), (-1, -1), 0.4, WARM_BEIGE),
+1645 |             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+1646 |             ('TOPPADDING', (0, 0), (-1, -1), 3),
+1647 |             ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+1648 |             ('LEFTPADDING', (0, 0), (-1, -1), 5),
+1649 |             ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+1650 |         ]))
+1651 |         elements.append(KeepTogether([t]))
+1652 |         return elements
+1653 | 
+1654 |     # -- Table accumulation state --
+1655 |     pending_table_rows = []
+1656 |     pending_table_sep = None
+1657 | 
+1658 |     for line in lines:
+1659 |         stripped = line.strip()
+1660 | 
+1661 |         # -- Table row detection --
+1662 |         if stripped.startswith('|'):
+1663 |             # Check if this is a separator row like |---|---|---|
+1664 |             if re.match(r'^\|[\s\-:]+\|', stripped) and '---' in stripped:
+1665 |                 pending_table_sep = len(pending_table_rows)  # index where separator would be
+1666 |             else:
+1667 |                 pending_table_rows.append(stripped)
+1668 |             continue
+1669 |         else:
+1670 |             # Flush any accumulated table
+
+------------------------------------------------------------------------------
+[E] Markdown source memo 51 - sections Active Thesis / Factor Scores
+------------------------------------------------------------------------------
+[ERREUR DB] no such column: body_md

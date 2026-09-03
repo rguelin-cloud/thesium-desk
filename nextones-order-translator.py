@@ -1,0 +1,358 @@
+# -*- coding: utf-8 -*-
+# [NEXTONES-ORDER-TRANSLATOR-V1]
+# Traduit un ordre Thesium (qty en unites/parts) en ordre broker ActivTrades
+# (volume en lots MT5), avec REFUS STRICT si tradable=false.
+#
+# Politique adoptee (decision user 30/05/2026): regle A
+#   - tout instrument non present dans broker_universe_activtrades OU
+#     instrument_broker_mapping.tradable=0 -> ordre REJETE (raison loggee).
+#   - aucune substitution, aucune simulation shadow.
+#
+# Modele de sortie:
+#   TranslatedOrder(
+#       accepted: bool,
+#       broker_symbol: Optional[str],
+#       side: 'buy'|'sell',
+#       volume_lots: float,          # arrondi sur lot_step
+#       sl: Optional[float],
+#       tp: Optional[float],
+#       rounding_gap_pct: float,     # ecart relatif vs qty cible
+#       reason: Optional[str],
+#       diagnostics: dict
+#   )
+#
+# Regles d'arrondi:
+#   - on calcule target_lots = qty / contract_size
+#   - on arrondit sur lot_step (round-half-down vers min_lots)
+#   - si volume_lots < min_lots : rejet (under_min_lots)
+#   - si abs(volume_lots - target_lots) / max(target_lots, 1e-9) > 0.10
+#       -> rejet (rounding_gap_too_large)
+#
+# Hypotheses par defaut quand specs MetaAPI absentes:
+#   - equity_us / etf_us : contract_size=1, lot_step=1, min_lots=1
+#       (1 CFD action = 1 share chez ActivTrades par defaut)
+#   - crypto             : lot_step=0.01, min_lots=0.01, contract_size=1
+#   - fx                 : lot_step=0.01, min_lots=0.01, contract_size=100000
+#   - index / metal / energy / soft : lot_step=0.1, min_lots=0.1, contract_size=1
+#
+# Usage import:
+#   from nextones_order_translator import translate, TranslatedOrder
+
+import os
+import sys
+import math
+import json
+import sqlite3
+import importlib.util
+from dataclasses import dataclass, asdict, field
+from typing import Optional, Dict, Any
+
+# [NEXTONES-BROKER-DB-HARDENED-V1]
+import sqlite3 as _sq_nx_h
+def _nx_open_db(_p, **_kw):
+    _kw.setdefault('timeout', 10.0)
+    _c = _sq_nx_h.connect(_p, **_kw)
+    try:
+        _c.execute('PRAGMA busy_timeout=10000')
+    except Exception:
+        pass
+    return _c
+
+
+DB_PATH = os.environ.get(
+    "THESIUM_DB",
+    r"C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db",
+)
+
+# Import du resolver (fichier avec tirets -> importlib)
+_RESOLVER_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "nextones-broker-resolver.py",
+)
+
+
+def _load_resolver():
+    spec = importlib.util.spec_from_file_location(
+        "_nx_broker_resolver", _RESOLVER_PATH
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError("Impossible de charger " + _RESOLVER_PATH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_R = None
+
+
+def _resolver():
+    global _R
+    if _R is None:
+        _R = _load_resolver()
+    return _R
+
+
+# ----------------------------------------------------------------------
+# Defaults par classe d'actif
+# ----------------------------------------------------------------------
+
+DEFAULT_SPECS_BY_CLASS = {
+    "equity_us":  {"contract_size": 1.0,      "lot_step": 1.0,   "min_lots": 1.0},
+    "etf_us":     {"contract_size": 1.0,      "lot_step": 1.0,   "min_lots": 1.0},
+    "crypto":     {"contract_size": 1.0,      "lot_step": 0.01,  "min_lots": 0.01},
+    "fx":         {"contract_size": 100000.0, "lot_step": 0.01,  "min_lots": 0.01},
+    "metal":      {"contract_size": 1.0,      "lot_step": 0.1,   "min_lots": 0.1},
+    "index":      {"contract_size": 1.0,      "lot_step": 0.1,   "min_lots": 0.1},
+    "energy":     {"contract_size": 1.0,      "lot_step": 0.1,   "min_lots": 0.1},
+    "soft":       {"contract_size": 1.0,      "lot_step": 0.1,   "min_lots": 0.1},
+}
+
+DEFAULT_SPECS_FALLBACK = {
+    "contract_size": 1.0, "lot_step": 1.0, "min_lots": 1.0,
+}
+
+MAX_ROUNDING_GAP_PCT = 0.10  # 10%
+
+
+# ----------------------------------------------------------------------
+# Modeles
+# ----------------------------------------------------------------------
+
+@dataclass
+class TranslatedOrder:
+    accepted: bool
+    thesium_ticker: str
+    broker_symbol: Optional[str]
+    side: str
+    qty_requested: float
+    volume_lots: float
+    sl: Optional[float] = None
+    tp: Optional[float] = None
+    rounding_gap_pct: float = 0.0
+    reason: Optional[str] = None
+    diagnostics: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+# ----------------------------------------------------------------------
+# Arrondi sur lot_step (floor) avec garde min_lots
+# ----------------------------------------------------------------------
+
+def _floor_to_step(value: float, step: float) -> float:
+    if step is None or step <= 0:
+        return value
+    return math.floor(value / step) * step
+
+
+def _spec_for(match, override: Optional[Dict[str, Any]]) -> Dict[str, float]:
+    """
+    Construit le spec final en priorisant:
+      1. override explicite (kwargs translate(...))
+      2. valeurs de instrument_broker_mapping (via resolver)
+      3. defaults par asset_class
+      4. fallback global
+    """
+    base = dict(DEFAULT_SPECS_FALLBACK)
+    if match and match.asset_class in DEFAULT_SPECS_BY_CLASS:
+        base.update(DEFAULT_SPECS_BY_CLASS[match.asset_class])
+    if match:
+        if match.contract_size is not None:
+            base["contract_size"] = float(match.contract_size)
+        if match.lot_step is not None and match.lot_step > 0:
+            base["lot_step"] = float(match.lot_step)
+        if match.min_lots is not None and match.min_lots > 0:
+            base["min_lots"] = float(match.min_lots)
+    if override:
+        for k in ("contract_size", "lot_step", "min_lots"):
+            if k in override and override[k] is not None:
+                base[k] = float(override[k])
+    return base
+
+
+# ----------------------------------------------------------------------
+# API principale
+# ----------------------------------------------------------------------
+
+def translate(thesium_ticker: str,
+              qty: float,
+              side: str,
+              asset_class: Optional[str] = None,
+              sl: Optional[float] = None,
+              tp: Optional[float] = None,
+              spec_override: Optional[Dict[str, Any]] = None,
+              max_rounding_gap_pct: float = MAX_ROUNDING_GAP_PCT
+              ) -> TranslatedOrder:
+    """
+    Convertit un ordre Thesium en ordre broker ActivTrades.
+    REFUS STRICT si tradable=false (regle A).
+    """
+    side = (side or "").lower().strip()
+    if side not in ("buy", "sell"):
+        return TranslatedOrder(
+            accepted=False,
+            thesium_ticker=thesium_ticker,
+            broker_symbol=None,
+            side=side,
+            qty_requested=qty,
+            volume_lots=0.0,
+            reason="invalid_side",
+            diagnostics={"side_received": side},
+        )
+
+    if qty is None or float(qty) <= 0:
+        return TranslatedOrder(
+            accepted=False,
+            thesium_ticker=thesium_ticker,
+            broker_symbol=None,
+            side=side,
+            qty_requested=float(qty or 0),
+            volume_lots=0.0,
+            reason="qty_non_positive",
+            diagnostics={"qty_received": qty},
+        )
+
+    R = _resolver()
+    match = R.resolve(thesium_ticker, asset_class=asset_class)
+
+    if not match.tradable:
+        return TranslatedOrder(
+            accepted=False,
+            thesium_ticker=thesium_ticker,
+            broker_symbol=match.broker_symbol,
+            side=side,
+            qty_requested=float(qty),
+            volume_lots=0.0,
+            reason="not_tradable_strict_refusal",
+            diagnostics={
+                "resolver_source": match.source,
+                "resolver_reason": match.reason,
+                "asset_class": match.asset_class,
+                "policy": "A_strict_refuse",
+            },
+        )
+
+    specs = _spec_for(match, spec_override)
+    contract_size = specs["contract_size"]
+    lot_step = specs["lot_step"]
+    min_lots = specs["min_lots"]
+
+    target_lots = float(qty) / contract_size
+    volume_lots = _floor_to_step(target_lots, lot_step)
+
+    if volume_lots < min_lots:
+        return TranslatedOrder(
+            accepted=False,
+            thesium_ticker=thesium_ticker,
+            broker_symbol=match.broker_symbol,
+            side=side,
+            qty_requested=float(qty),
+            volume_lots=volume_lots,
+            reason="under_min_lots",
+            diagnostics={
+                "target_lots": target_lots,
+                "min_lots": min_lots,
+                "lot_step": lot_step,
+                "contract_size": contract_size,
+                "asset_class": match.asset_class,
+            },
+        )
+
+    if target_lots <= 0:
+        gap = 1.0
+    else:
+        gap = abs(volume_lots - target_lots) / target_lots
+
+    if gap > max_rounding_gap_pct:
+        return TranslatedOrder(
+            accepted=False,
+            thesium_ticker=thesium_ticker,
+            broker_symbol=match.broker_symbol,
+            side=side,
+            qty_requested=float(qty),
+            volume_lots=volume_lots,
+            rounding_gap_pct=gap,
+            reason="rounding_gap_too_large",
+            diagnostics={
+                "target_lots": target_lots,
+                "max_gap": max_rounding_gap_pct,
+                "lot_step": lot_step,
+                "asset_class": match.asset_class,
+            },
+        )
+
+    return TranslatedOrder(
+        accepted=True,
+        thesium_ticker=thesium_ticker,
+        broker_symbol=match.broker_symbol,
+        side=side,
+        qty_requested=float(qty),
+        volume_lots=volume_lots,
+        sl=sl,
+        tp=tp,
+        rounding_gap_pct=gap,
+        reason=None,
+        diagnostics={
+            "asset_class": match.asset_class,
+            "resolver_source": match.source,
+            "specs": specs,
+            "target_lots": target_lots,
+            "quote_ccy": match.quote_ccy,
+        },
+    )
+
+
+# ----------------------------------------------------------------------
+# Audit DB (optionnel)
+# ----------------------------------------------------------------------
+
+def log_translation(order: TranslatedOrder, db_path: Optional[str] = None):
+    """Ecrit une ligne dans broker_mapping_audit pour tracer la decision."""
+    path = db_path or DB_PATH
+    try:
+        con = _nx_open_db(path)
+        cur = con.cursor()
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        cur.execute(
+            "INSERT INTO broker_mapping_audit(ts, action, thesium_ticker, "
+            "broker_symbol, payload_json, notes) VALUES(?, ?, ?, ?, ?, ?)",
+            (
+                ts,
+                "translate_" + ("accept" if order.accepted else "reject"),
+                order.thesium_ticker,
+                order.broker_symbol,
+                json.dumps(order.to_dict(), default=str)[:4000],
+                order.reason or "ok",
+            ),
+        )
+        con.commit()
+        con.close()
+    except Exception as e:
+        # Audit ne doit jamais bloquer l'ordre
+        print("[WARN] log_translation: " + str(e))
+
+
+# ----------------------------------------------------------------------
+# CLI smoke
+# ----------------------------------------------------------------------
+
+def _main_cli():
+    if len(sys.argv) < 4:
+        print("Usage: translator <thesium_ticker> <side buy|sell> <qty> [--asset X]")
+        sys.exit(1)
+    tkr = sys.argv[1]
+    side = sys.argv[2]
+    qty = float(sys.argv[3])
+    ac = None
+    if "--asset" in sys.argv:
+        i = sys.argv.index("--asset")
+        if i + 1 < len(sys.argv):
+            ac = sys.argv[i + 1]
+    res = translate(tkr, qty, side, asset_class=ac)
+    print(json.dumps(res.to_dict(), indent=2, default=str))
+
+
+if __name__ == "__main__":
+    _main_cli()

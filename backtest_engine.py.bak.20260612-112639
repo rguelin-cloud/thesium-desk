@@ -1,0 +1,360 @@
+"""
+backtest_engine.py — Portfolio backtester for Nextones Desk
+Uses Yahoo Finance for all assets (equities, ETFs, and crypto via TICKER-USD).
+Supports equal-weight and custom-weight portfolios over 12/24-month windows.
+"""
+import json
+import math
+import time
+import urllib.request
+from datetime import datetime, timedelta
+from typing import Optional
+
+# ---------------------------------------------------------------------------
+# Data fetching — Yahoo Finance for everything
+# ---------------------------------------------------------------------------
+
+def _fetch_yahoo(ticker: str, period: str = "1y") -> list[dict]:
+    """Fetch daily close prices from Yahoo Finance."""
+    try:
+        import yfinance as yf
+        df = yf.download(ticker, period=period, progress=False, auto_adjust=True)
+        if df.empty:
+            return []
+        records = []
+        for date, row in df.iterrows():
+            close_val = row["Close"]
+            if hasattr(close_val, "iloc"):
+                close_val = close_val.iloc[0]
+            records.append({
+                "date": date.strftime("%Y-%m-%d"),
+                "close": float(close_val),
+            })
+        return records
+    except Exception as e:
+        print(f"[backtest] Yahoo error for {ticker}: {e}")
+        return []
+
+
+# Yahoo Finance crypto tickers (TICKER-USD format)
+CRYPTO_YAHOO = {
+    'BTC': 'BTC-USD', 'ETH': 'ETH-USD', 'XRP': 'XRP-USD',
+    'BNB': 'BNB-USD', 'SOL': 'SOL-USD', 'DOGE': 'DOGE-USD',
+    'ADA': 'ADA-USD', 'TRX': 'TRX-USD', 'LINK': 'LINK-USD',
+    'AVAX': 'AVAX-USD', 'SUI': 'SUI20947-USD', 'XLM': 'XLM-USD',
+    'TON': 'TON11419-USD', 'SHIB': 'SHIB-USD', 'HBAR': 'HBAR-USD',
+    'DOT': 'DOT-USD', 'BCH': 'BCH-USD', 'LTC': 'LTC-USD',
+    'UNI': 'UNI7083-USD', 'NEAR': 'NEAR-USD', 'APT': 'APT21794-USD',
+    'ICP': 'ICP-USD', 'ATOM': 'ATOM-USD',
+    'RENDER': 'RENDER-USD',
+}
+
+
+def fetch_prices(ticker: str, asset_class: str, months: int = 12) -> list[dict]:
+    """Fetch daily close prices for a ticker via Yahoo Finance."""
+    if months <= 12:
+        period = "1y"
+    elif months <= 24:
+        period = "2y"
+    else:
+        period = "5y"
+    if asset_class == "crypto":
+        yf_ticker = CRYPTO_YAHOO.get(ticker, f"{ticker}-USD")
+        return _fetch_yahoo(yf_ticker, period=period)
+    else:
+        return _fetch_yahoo(ticker, period=period)
+
+
+# ---------------------------------------------------------------------------
+# Backtest engine
+# ---------------------------------------------------------------------------
+
+def _align_dates(all_prices: dict[str, list[dict]]) -> tuple[list[str], dict[str, dict[str, float]]]:
+    """
+    Align all tickers to common dates.
+    Returns (sorted_dates, {ticker: {date: close}}).
+    """
+    ticker_maps = {}
+    all_dates = set()
+    for ticker, records in all_prices.items():
+        m = {r["date"]: r["close"] for r in records}
+        ticker_maps[ticker] = m
+        all_dates.update(m.keys())
+
+    # Keep only dates where ALL tickers have data
+    common_dates = sorted(all_dates)
+    # Forward-fill: for each ticker, fill missing dates with previous close
+    filled_maps = {}
+    for ticker, m in ticker_maps.items():
+        filled = {}
+        last_val = None
+        for d in common_dates:
+            if d in m:
+                last_val = m[d]
+            if last_val is not None:
+                filled[d] = last_val
+        filled_maps[ticker] = filled
+
+    # Find dates where all tickers have values
+    valid_dates = [d for d in common_dates if all(d in filled_maps[t] for t in filled_maps)]
+    return valid_dates, filled_maps
+
+
+def run_backtest(
+    tickers: list[str],
+    asset_classes: dict[str, str],
+    weights: Optional[dict[str, float]] = None,
+    months: int = 12,
+    initial_capital: float = 100000.0,
+    benchmark: str = "SPY",
+) -> dict:
+    """
+    Run a portfolio backtest.
+
+    Args:
+        tickers: List of tickers to include
+        asset_classes: {ticker: asset_class} mapping
+        weights: {ticker: weight} — if None, uses equal weight
+        months: Lookback period (12, 24 or 60)
+        initial_capital: Starting capital
+        benchmark: Benchmark ticker for comparison
+
+    Returns:
+        {
+            portfolio_equity: [{date, value}],
+            benchmark_equity: [{date, value}],
+            stats: {total_return, annualized_return, volatility, sharpe, max_drawdown, ...},
+            benchmark_stats: {...},
+            per_asset: [{ticker, weight, return, contribution}],
+        }
+    """
+    if not tickers:
+        return {"error": "Aucun ticker fourni"}
+
+    # Default to equal weight
+    if weights is None:
+        w = 1.0 / len(tickers)
+        weights = {t: w for t in tickers}
+
+    # Normalize weights to sum to 1
+    total_w = sum(weights.values())
+    if total_w > 0:
+        weights = {t: w / total_w for t, w in weights.items()}
+
+    # Fetch all price data
+    all_prices = {}
+    for ticker in tickers:
+        ac = asset_classes.get(ticker, "equity")
+        data = fetch_prices(ticker, ac, months)
+        if data and len(data) >= 10:
+            all_prices[ticker] = data
+        else:
+            print(f"[backtest] Skipping {ticker}: insufficient data ({len(data)} records)")
+
+    if not all_prices:
+        return {"error": "Aucune donnée de prix disponible"}
+
+    # Fetch benchmark
+    bench_data = fetch_prices(benchmark, "etf", months)
+    if bench_data:
+        all_prices[f"__bench_{benchmark}"] = bench_data
+
+    # Align dates
+    dates, price_maps = _align_dates(all_prices)
+    if len(dates) < 10:
+        return {"error": f"Seulement {len(dates)} jours communs — données insuffisantes"}
+
+    # Recalculate weights for available tickers only
+    available = [t for t in tickers if t in price_maps]
+    if not available:
+        return {"error": "Aucun ticker disponible après alignement"}
+
+    avail_weights = {t: weights.get(t, 0) for t in available}
+    total_aw = sum(avail_weights.values())
+    if total_aw > 0:
+        avail_weights = {t: w / total_aw for t, w in avail_weights.items()}
+
+    # Calculate daily returns per ticker
+    daily_returns = {}
+    for ticker in available:
+        returns = []
+        pm = price_maps[ticker]
+        for i in range(1, len(dates)):
+            prev = pm[dates[i - 1]]
+            curr = pm[dates[i]]
+            if prev > 0:
+                returns.append((curr - prev) / prev)
+            else:
+                returns.append(0.0)
+        daily_returns[ticker] = returns
+
+    # Portfolio daily returns (weighted sum)
+    port_returns = []
+    for i in range(len(dates) - 1):
+        day_ret = sum(avail_weights[t] * daily_returns[t][i] for t in available)
+        port_returns.append(day_ret)
+
+    # Portfolio equity curve
+    port_equity = [{"date": dates[0], "value": initial_capital}]
+    value = initial_capital
+    for i, ret in enumerate(port_returns):
+        value *= (1 + ret)
+        port_equity.append({"date": dates[i + 1], "value": round(value, 2)})
+
+    # Benchmark equity curve
+    bench_key = f"__bench_{benchmark}"
+    bench_equity = []
+    bench_stats = {}
+    if bench_key in price_maps:
+        bm = price_maps[bench_key]
+        bench_start = bm[dates[0]]
+        bench_eq = []
+        for d in dates:
+            bv = (bm[d] / bench_start) * initial_capital if bench_start > 0 else initial_capital
+            bench_eq.append({"date": d, "value": round(bv, 2)})
+        bench_equity = bench_eq
+
+        # Benchmark returns
+        bench_returns = []
+        for i in range(1, len(dates)):
+            prev = bm[dates[i - 1]]
+            curr = bm[dates[i]]
+            if prev > 0:
+                bench_returns.append((curr - prev) / prev)
+            else:
+                bench_returns.append(0.0)
+        bench_stats = _compute_stats(bench_returns, initial_capital, bench_equity)
+
+    # Per-asset performance
+    per_asset = []
+    for t in available:
+        pm = price_maps[t]
+        start_p = pm[dates[0]]
+        end_p = pm[dates[-1]]
+        asset_ret = (end_p - start_p) / start_p if start_p > 0 else 0
+        contribution = asset_ret * avail_weights[t]
+        per_asset.append({
+            "ticker": t,
+            "weight": round(avail_weights[t] * 100, 1),
+            "return_pct": round(asset_ret * 100, 2),
+            "contribution_pct": round(contribution * 100, 2),
+        })
+    per_asset.sort(key=lambda x: x["return_pct"], reverse=True)
+
+    # Trade journal — daily log per asset
+    trade_journal = []
+    for t in available:
+        pm = price_maps[t]
+        weight = avail_weights[t]
+        position_value = initial_capital * weight
+        cumul_return = 0.0
+        for i, d in enumerate(dates):
+            price = pm[d]
+            if i == 0:
+                daily_ret = 0.0
+                cumul_return = 0.0
+                position_value = initial_capital * weight
+            else:
+                prev_price = pm[dates[i - 1]]
+                daily_ret = (price - prev_price) / prev_price if prev_price > 0 else 0.0
+                cumul_return = (price - pm[dates[0]]) / pm[dates[0]] if pm[dates[0]] > 0 else 0.0
+                position_value = initial_capital * weight * (1 + cumul_return)
+            trade_journal.append({
+                "date": d,
+                "ticker": t,
+                "poids_pct": round(weight * 100, 2),
+                "prix": round(price, 4),
+                "rendement_jour_pct": round(daily_ret * 100, 4),
+                "rendement_cumul_pct": round(cumul_return * 100, 4),
+                "valeur_position": round(position_value, 2),
+            })
+
+    # Portfolio stats
+    stats = _compute_stats(port_returns, initial_capital, port_equity)
+
+    return {
+        "portfolio_equity": port_equity,
+        "benchmark_equity": bench_equity,
+        "benchmark_ticker": benchmark,
+        "stats": stats,
+        "benchmark_stats": bench_stats,
+        "per_asset": per_asset,
+        "trade_journal": trade_journal,
+        "period_days": len(dates),
+        "start_date": dates[0],
+        "end_date": dates[-1],
+        "tickers_used": available,
+        "tickers_skipped": [t for t in tickers if t not in available],
+    }
+
+
+def _compute_stats(returns: list[float], initial_capital: float, equity: list[dict]) -> dict:
+    """Compute key portfolio statistics."""
+    if not returns:
+        return {}
+
+    n = len(returns)
+    total_return = 1
+    for r in returns:
+        total_return *= (1 + r)
+    total_return -= 1
+
+    # Annualized return
+    years = n / 252
+    ann_return = (1 + total_return) ** (1 / years) - 1 if years > 0 else 0
+
+    # Volatility (annualized)
+    mean_ret = sum(returns) / n
+    variance = sum((r - mean_ret) ** 2 for r in returns) / n
+    daily_vol = math.sqrt(variance)
+    ann_vol = daily_vol * math.sqrt(252)
+
+    # Sharpe (risk-free ~ 4.5% as of 2026)
+    rf = 0.045
+    sharpe = (ann_return - rf) / ann_vol if ann_vol > 0 else 0
+
+    # Sortino (downside deviation)
+    neg_returns = [r for r in returns if r < 0]
+    if neg_returns:
+        downside_var = sum(r ** 2 for r in neg_returns) / len(neg_returns)
+        downside_dev = math.sqrt(downside_var) * math.sqrt(252)
+        sortino = (ann_return - rf) / downside_dev if downside_dev > 0 else 0
+    else:
+        sortino = float("inf")
+
+    # Max drawdown
+    peak = 0
+    max_dd = 0
+    for e in equity:
+        v = e["value"]
+        if v > peak:
+            peak = v
+        dd = (peak - v) / peak if peak > 0 else 0
+        if dd > max_dd:
+            max_dd = dd
+
+    # Calmar ratio
+    calmar = ann_return / max_dd if max_dd > 0 else 0
+
+    # Win rate
+    wins = sum(1 for r in returns if r > 0)
+    win_rate = wins / n if n > 0 else 0
+
+    # Best / worst day
+    best_day = max(returns) if returns else 0
+    worst_day = min(returns) if returns else 0
+
+    return {
+        "total_return_pct": round(total_return * 100, 2),
+        "annualized_return_pct": round(ann_return * 100, 2),
+        "volatility_pct": round(ann_vol * 100, 2),
+        "sharpe": round(sharpe, 2),
+        "sortino": round(sortino, 2),
+        "max_drawdown_pct": round(max_dd * 100, 2),
+        "calmar": round(calmar, 2),
+        "win_rate_pct": round(win_rate * 100, 1),
+        "best_day_pct": round(best_day * 100, 2),
+        "worst_day_pct": round(worst_day * 100, 2),
+        "trading_days": n,
+        "final_value": round(equity[-1]["value"], 2) if equity else initial_capital,
+    }

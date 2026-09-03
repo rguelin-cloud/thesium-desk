@@ -1,0 +1,282 @@
+<!--
+=============================================================================
+PATCH UI — Panel "PORTFOLIO IDÉAL VS ACTUEL" (Jalon 2)
+=============================================================================
+
+OÙ COLLER CE CODE :
+  Dans ton fichier HTML principal (ou le template Jinja2 du serveur),
+  repère le bloc <div> ou <section> qui correspond au panel
+  "PORTFOLIO IDÉAL VS ACTUEL".
+  Remplace INTÉGRALEMENT ce bloc par le contenu ci-dessous.
+
+CLASSES CSS UTILISÉES :
+  - .panel            : conteneur de panneau (déjà utilisé dans l'app)
+  - .panel-title      : titre de section (déjà utilisé)
+  - .data-table       : tableau de données (déjà utilisé)
+  - .btn              : bouton standard (déjà utilisé)
+  - .badge-buy        : badge vert BUY (NOUVEAU — ajoute dans ton CSS global)
+  - .badge-sell       : badge rouge SELL (NOUVEAU)
+  - .badge-neutral    : badge gris NEUTRAL (NOUVEAU)
+  - .delta-positive   : texte vert delta positif (NOUVEAU)
+  - .delta-negative   : texte rouge delta négatif (NOUVEAU)
+  - .delta-neutral    : texte gris delta neutre (NOUVEAU)
+  - .loading-msg      : message de chargement inline (NOUVEAU)
+
+CSS ADDITIONNEL À AJOUTER DANS TON <style> GLOBAL :
+  (Colle ce bloc dans ton fichier CSS ou dans <style> dans <head>)
+
+  .badge-buy     { background: #16a34a; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
+  .badge-sell    { background: #dc2626; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
+  .badge-neutral { background: #6b7280; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
+  .delta-positive { color: #16a34a; font-weight: 600; }
+  .delta-negative { color: #dc2626; font-weight: 600; }
+  .delta-neutral  { color: #6b7280; }
+  .loading-msg    { font-size: 0.85rem; color: #9ca3af; margin: 8px 0; }
+  #construction-table-wrap { overflow-x: auto; }
+
+=============================================================================
+-->
+
+<!-- ===== PANEL PORTFOLIO IDÉAL VS ACTUEL ===== -->
+<div class="panel" id="panel-construction">
+
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+    <h2 class="panel-title" style="margin:0;">Portfolio idéal vs actuel</h2>
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <span id="construction-updated-at" class="loading-msg"></span>
+      <button class="btn" id="btn-recalculate" onclick="runConstruction()" title="Relance le PortfolioConstructionAgent Jalon 2">
+        Recalculer cibles
+      </button>
+    </div>
+  </div>
+
+  <!-- Barre de statut NAV -->
+  <div id="construction-nav-bar" style="font-size:0.85rem; color:#6b7280; margin-bottom:10px;"></div>
+
+  <!-- Message d'état (chargement / erreur) -->
+  <p id="construction-status" class="loading-msg">Chargement...</p>
+
+  <!-- Tableau principal -->
+  <div id="construction-table-wrap" style="display:none;">
+    <table class="data-table" id="construction-table" style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Ticker</th>
+          <th style="text-align:right;">Poids actuel</th>
+          <th style="text-align:right;">Poids cible</th>
+          <th style="text-align:right;">Delta</th>
+          <th style="text-align:center;">Action</th>
+          <th style="text-align:center;">Signal</th>
+          <th style="text-align:right;">Score</th>
+          <th style="text-align:left;">Source</th>
+        </tr>
+      </thead>
+      <tbody id="construction-tbody">
+        <!-- Lignes injectées par JS -->
+      </tbody>
+      <tfoot id="construction-tfoot">
+        <!-- Ligne cash injectée par JS -->
+      </tfoot>
+    </table>
+  </div>
+
+</div>
+<!-- ===== FIN PANEL ===== -->
+
+
+<script>
+// =============================================================================
+// construction_panel.js — Jalon 2 UI (inline, pas de dépendance externe)
+// =============================================================================
+// Charge /api/construction/targets toutes les 30 secondes.
+// Bouton "Recalculer cibles" appelle POST /api/construction/run puis reload.
+// =============================================================================
+
+(function () {
+  "use strict";
+
+  // ---- Configuration ----
+  var REFRESH_INTERVAL_MS = 30000;   // 30 secondes
+  var DELTA_THRESHOLD_PCT  = 0.30;   // seuil "neutre" (cohérent avec engine)
+
+  // ---- Références DOM ----
+  var elStatus     = document.getElementById("construction-status");
+  var elTableWrap  = document.getElementById("construction-table-wrap");
+  var elTbody      = document.getElementById("construction-tbody");
+  var elTfoot      = document.getElementById("construction-tfoot");
+  var elUpdatedAt  = document.getElementById("construction-updated-at");
+  var elNavBar     = document.getElementById("construction-nav-bar");
+  var elBtnRecalc  = document.getElementById("btn-recalculate");
+
+  // ---- Utilitaires ----
+  function fmtPct(v) {
+    if (v === null || v === undefined) return "—";
+    return parseFloat(v).toFixed(2) + " %";
+  }
+
+  function fmtDelta(v) {
+    if (v === null || v === undefined) return "—";
+    var n = parseFloat(v);
+    var cls = "delta-neutral";
+    var prefix = "";
+    if (n > DELTA_THRESHOLD_PCT)  { cls = "delta-positive"; prefix = "+"; }
+    if (n < -DELTA_THRESHOLD_PCT) { cls = "delta-negative"; }
+    return '<span class="' + cls + '">' + prefix + n.toFixed(2) + " %</span>";
+  }
+
+  function fmtSignal(signal) {
+    var badgeClass = {
+      "BUY":     "badge-buy",
+      "SELL":    "badge-sell",
+      "NEUTRAL": "badge-neutral"
+    }[signal] || "badge-neutral";
+    return '<span class="' + badgeClass + '">' + (signal || "?") + "</span>";
+  }
+
+  function fmtScore(v) {
+    if (v === null || v === undefined) return "—";
+    return parseFloat(v).toFixed(3);
+  }
+
+  function escHtml(s) {
+    if (!s) return "";
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function fmtDate(s) {
+    if (!s) return "";
+    // Affiche uniquement les 16 premiers caractères : "2026-05-24 15:40"
+    return String(s).substring(0, 16);
+  }
+
+  // ---- Rendu du tableau ----
+  function renderTable(data) {
+    var targets = data.targets || [];
+    var cash    = data.cash    || {};
+    var nav     = data.nav;
+
+    // Ligne NAV
+    if (nav) {
+      elNavBar.textContent = "NAV : " + parseFloat(nav).toLocaleString("fr-FR", {
+        style: "currency", currency: "USD", maximumFractionDigits: 0
+      });
+    }
+
+    // Mise à jour de l'horodatage
+    if (data.updated_at) {
+      elUpdatedAt.textContent = "Mis à jour : " + fmtDate(data.updated_at);
+    }
+
+    // Construction des lignes ticker
+    var rows = targets.map(function (t) {
+      return [
+        "<tr>",
+        "<td><strong>" + escHtml(t.ticker) + "</strong></td>",
+        "<td style='text-align:right;'>" + fmtPct(t.actual_weight_pct) + "</td>",
+        "<td style='text-align:right;'>" + fmtPct(t.target_weight_pct) + "</td>",
+        "<td style='text-align:right;'>" + fmtDelta(t.delta_pct) + "</td>",
+        "<td style='text-align:center;'>" + escHtml(t.action || "—") + "</td>",
+        "<td style='text-align:center;'>" + fmtSignal(t.signal) + "</td>",
+        "<td style='text-align:right;'>" + fmtScore(t.score) + "</td>",
+        "<td>" + escHtml(t.source || "—") + "</td>",
+        "</tr>",
+      ].join("");
+    });
+
+    elTbody.innerHTML = rows.join("");
+
+    // Ligne cash dans le pied de tableau
+    var cashDelta = cash.delta_pct;
+    elTfoot.innerHTML = [
+      "<tr style='border-top:2px solid #374151; font-style:italic; color:#9ca3af;'>",
+      "<td><em>Cash résiduel</em></td>",
+      "<td style='text-align:right;'>" + fmtPct(cash.actual_pct) + "</td>",
+      "<td style='text-align:right;'>" + fmtPct(cash.target_pct) + "</td>",
+      "<td style='text-align:right;'>" + fmtDelta(cashDelta) + "</td>",
+      "<td colspan='4'></td>",
+      "</tr>",
+    ].join("");
+
+    // Afficher le tableau, masquer le message de statut
+    elStatus.style.display = "none";
+    elTableWrap.style.display = "block";
+  }
+
+  // ---- Chargement des données ----
+  function loadTargets() {
+    fetch("/api/construction/targets")
+      .then(function (resp) {
+        if (!resp.ok) {
+          throw new Error("HTTP " + resp.status + " : " + resp.statusText);
+        }
+        return resp.json();
+      })
+      .then(function (data) {
+        if (data.status === "error") {
+          elStatus.textContent = "Erreur serveur : " + (data.detail || "inconnue");
+          elStatus.style.display = "block";
+          elTableWrap.style.display = "none";
+          return;
+        }
+        if (!data.targets || data.targets.length === 0) {
+          elStatus.textContent = "Aucune cible active. Cliquez sur 'Recalculer cibles'.";
+          elStatus.style.display = "block";
+          elTableWrap.style.display = "none";
+          return;
+        }
+        renderTable(data);
+      })
+      .catch(function (err) {
+        elStatus.textContent = "Impossible de charger les cibles : " + err.message;
+        elStatus.style.display = "block";
+        elTableWrap.style.display = "none";
+        console.error("[construction_panel] loadTargets error:", err);
+      });
+  }
+
+  // ---- Déclenchement manuel du recalcul ----
+  window.runConstruction = function () {
+    elBtnRecalc.disabled = true;
+    elBtnRecalc.textContent = "Calcul en cours...";
+    elStatus.textContent = "Recalcul en cours, veuillez patienter...";
+    elStatus.style.display = "block";
+
+    fetch("/api/construction/run", { method: "POST" })
+      .then(function (resp) {
+        if (!resp.ok) {
+          throw new Error("HTTP " + resp.status + " : " + resp.statusText);
+        }
+        return resp.json();
+      })
+      .then(function (data) {
+        if (data.status === "error") {
+          elStatus.textContent = "Erreur recalcul : " + (data.detail || "inconnue");
+          console.error("[construction_panel] run error:", data);
+        } else {
+          elStatus.textContent =
+            "Recalcul OK — snapshot " + (data.snapshot_id || "?") +
+            " — régime " + (data.regime || "?") +
+            " — " + (data.n_tickers_included || 0) + " tickers inclus.";
+          // Rechargement du tableau
+          loadTargets();
+        }
+      })
+      .catch(function (err) {
+        elStatus.textContent = "Erreur réseau lors du recalcul : " + err.message;
+        console.error("[construction_panel] runConstruction error:", err);
+      })
+      .finally(function () {
+        elBtnRecalc.disabled = false;
+        elBtnRecalc.textContent = "Recalculer cibles";
+      });
+  };
+
+  // ---- Initialisation ----
+  loadTargets();
+  setInterval(loadTargets, REFRESH_INTERVAL_MS);
+
+})();
+</script>

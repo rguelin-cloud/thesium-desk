@@ -1,0 +1,208 @@
+"""
+signals_calculator.py - Stock signals calcul maison depuis table prices.
+
+Remplace finvizfinance.ticker_fundament() qui ne fonctionne plus depuis
+Finviz HTML rewrite (T1 2026 approximatif).
+
+Chaque fonction retourne None si donnees insuffisantes (pas de crash).
+Toutes les fonctions attendent une liste de (date_str, close, volume) triee
+par date croissante (le plus recent en dernier).
+
+Marker : # [STOCK_SIGNALS_V2]
+"""
+import sqlite3
+import os
+from datetime import datetime, timedelta
+
+_DB = os.environ.get("THESIUM_DB", r"C:\Users\RichardGUELIN\Prod\ThesiumDesk\thesium.db")
+
+
+def _get_prices(conn, ticker, days=250):
+    """Retourne [(date, open, high, low, close, volume), ...] tries ASC. Vide si ticker inconnu."""
+    row = conn.execute("SELECT id FROM instruments WHERE ticker = ?", (ticker,)).fetchone()
+    if not row:
+        return []
+    iid = row[0] if not hasattr(row, "keys") else row["id"]
+    rows = conn.execute(
+        """SELECT date, open, high, low, close, volume FROM prices
+           WHERE instrument_id = ?
+           ORDER BY date ASC""",
+        (iid,),
+    ).fetchall()
+    if not rows:
+        return []
+    # Ne garder que les {days} derniers
+    if len(rows) > days:
+        rows = rows[-days:]
+    return [
+        (r[0], float(r[1] or 0), float(r[2] or 0), float(r[3] or 0),
+         float(r[4] or 0), float(r[5] or 0))
+        for r in rows
+    ]
+
+
+def _rsi14(closes):
+    """RSI(14) standard Wilder. Retourne None si <15 closes."""
+    if len(closes) < 15:
+        return None
+    gains = []
+    losses = []
+    for i in range(1, 15):
+        diff = closes[i] - closes[i - 1]
+        gains.append(max(diff, 0))
+        losses.append(abs(min(diff, 0)))
+    avg_gain = sum(gains) / 14
+    avg_loss = sum(losses) / 14
+    # Smoothing Wilder pour les points suivants
+    for i in range(15, len(closes)):
+        diff = closes[i] - closes[i - 1]
+        gain = max(diff, 0)
+        loss = abs(min(diff, 0))
+        avg_gain = (avg_gain * 13 + gain) / 14
+        avg_loss = (avg_loss * 13 + loss) / 14
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return round(100.0 - (100.0 / (1.0 + rs)), 2)
+
+
+def _sma_pct(closes, period):
+    """% du dernier close par rapport a la SMA(period). None si <period closes."""
+    if len(closes) < period:
+        return None
+    sma = sum(closes[-period:]) / period
+    if sma == 0:
+        return None
+    last = closes[-1]
+    return round((last / sma - 1.0) * 100.0, 2)
+
+
+def _perf_pct(rows, days_back):
+    """Perf% du dernier close vs close il y a N jours ouvres. rows = list de tuples (date, o, h, l, c, v)."""
+    if len(rows) < days_back + 1:
+        return None
+    last = rows[-1][4]
+    old = rows[-1 - days_back][4]
+    if old == 0:
+        return None
+    return round((last / old - 1.0) * 100.0, 2)
+
+
+def _perf_ytd(rows):
+    """Perf% YTD : dernier close vs close du 1er trading day de l'annee courante."""
+    if not rows:
+        return None
+    last_date = rows[-1][0]
+    try:
+        year = int(last_date[:4])
+    except Exception:
+        return None
+    # Cherche premier close de l'annee
+    ref = None
+    for r in rows:
+        if r[0][:4] == str(year):
+            ref = r[4]
+            break
+    if ref is None or ref == 0:
+        return None
+    last = rows[-1][4]
+    return round((last / ref - 1.0) * 100.0, 2)
+
+
+def _rel_volume(rows):
+    """Rel Volume : volume dernier jour / moyenne 30 derniers jours."""
+    if len(rows) < 31:
+        return None
+    last_vol = rows[-1][5]
+    avg_vol = sum(r[5] for r in rows[-31:-1]) / 30
+    if avg_vol == 0:
+        return None
+    return round(last_vol / avg_vol, 2)
+
+
+def _change_pct(rows):
+    """Change% du jour : (close - open) / open * 100."""
+    if not rows:
+        return None
+    o = rows[-1][1]
+    c = rows[-1][4]
+    if o == 0:
+        return None
+    return round((c / o - 1.0) * 100.0, 2)
+
+
+def _beta_vs_spy(closes, spy_closes, window=60):
+    """Beta = cov(r, r_spy) / var(r_spy) sur les <window> derniers jours."""
+    if len(closes) < window + 1 or len(spy_closes) < window + 1:
+        return None
+    # Aligne : on prend les window+1 derniers points de chaque
+    c = closes[-(window + 1):]
+    s = spy_closes[-(window + 1):]
+    if len(c) != len(s):
+        return None
+    # Returns
+    ra = [(c[i] - c[i - 1]) / c[i - 1] for i in range(1, len(c)) if c[i - 1]]
+    rs = [(s[i] - s[i - 1]) / s[i - 1] for i in range(1, len(s)) if s[i - 1]]
+    if len(ra) < 10 or len(rs) < 10:
+        return None
+    n = min(len(ra), len(rs))
+    ra, rs = ra[-n:], rs[-n:]
+    ma = sum(ra) / n
+    ms = sum(rs) / n
+    cov = sum((ra[i] - ma) * (rs[i] - ms) for i in range(n)) / n
+    var = sum((rs[i] - ms) ** 2 for i in range(n)) / n
+    if var == 0:
+        return None
+    return round(cov / var, 2)
+
+
+def compute_signals(tickers):
+    """Point d'entree principal. Retourne list[dict] compat fetch_stock_signals()."""
+    conn = sqlite3.connect(_DB, timeout=10.0)
+    conn.row_factory = sqlite3.Row
+
+    # Precharge SPY pour beta
+    spy_rows = _get_prices(conn, "SPY", days=250)
+    spy_closes = [r[4] for r in spy_rows]
+
+    results = []
+    for ticker in tickers:
+        rows = _get_prices(conn, ticker, days=250)
+        row = {"ticker": ticker}
+        if not rows:
+            for field in ("price", "change", "rsi", "sma20", "sma50", "sma200",
+                          "recom", "target", "short_float", "rel_volume", "beta",
+                          "perf_week", "perf_month", "perf_ytd", "sector"):
+                row[field] = None
+            results.append(row)
+            continue
+
+        closes = [r[4] for r in rows]
+
+        # Sector via instruments table
+        sr = conn.execute(
+            "SELECT sector FROM instruments WHERE ticker = ?", (ticker,)
+        ).fetchone()
+        sector = (sr["sector"] if sr and sr["sector"] else "") if sr else ""
+
+        row["price"]       = round(closes[-1], 2)
+        row["change"]      = _change_pct(rows)
+        row["rsi"]         = _rsi14(closes)
+        row["sma20"]       = _sma_pct(closes, 20)
+        row["sma50"]       = _sma_pct(closes, 50)
+        row["sma200"]      = _sma_pct(closes, 200)
+        row["perf_week"]   = _perf_pct(rows, 5)
+        row["perf_month"]  = _perf_pct(rows, 21)
+        row["perf_ytd"]    = _perf_ytd(rows)
+        row["rel_volume"]  = _rel_volume(rows)
+        row["beta"]        = _beta_vs_spy(closes, spy_closes, window=60)
+        row["sector"]      = sector
+        # Champs Finviz-only qu'on n'a pas encore : recom / target / short_float
+        row["recom"]       = None
+        row["target"]      = None
+        row["short_float"] = None
+
+        results.append(row)
+
+    conn.close()
+    return results
