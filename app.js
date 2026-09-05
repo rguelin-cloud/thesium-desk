@@ -2902,7 +2902,7 @@ function renderOrders(orders) {
         </td>
         <td class="num mono">${fmtQty(o.quantity ?? o.qty)}</td>
         <td class="text-muted">${esc(o.order_type ?? o.type ?? '')}</td>
-        <td class="num mono">${o.limit_price != null ? fmtUSD(o.limit_price) : 'â€”'}</td>
+        <td class="num mono">${o.limit_price != null ? fmtUSD(o.limit_price) : '-'}</td>
         <td>${statusDisplay}${rejectionNote}${validatedNote}</td>
         <td>${typeof riskResult === 'object' && riskResult !== null ? `<span class="badge ${riskResult.approved ? 'badge-green' : 'badge-red'}">${riskResult.approved ? 'PASS' : 'FAIL'}</span>` : riskResult ? `<span class="badge ${riskClass}">${esc(String(riskResult))}</span>` : 'â€”'}</td>
         <td class="mono text-muted" style="font-size:var(--text-xs)">${fmtDate(o.created_at)}</td>
@@ -2916,55 +2916,78 @@ function renderOrders(orders) {
    ===================================================== */
 
 async function loadFills() {
+  const tbody = document.getElementById('fillsBody');
+
   try {
     const data = await apiFetch('/api/fills');
-    state.fills = data.fills ?? data ?? [];
+    state.fills = Array.isArray(data?.fills) ? data.fills : [];
     renderFills(state.fills);
   } catch (err) {
-    document.getElementById('fillsBody').innerHTML = `
-      <tr><td colspan="8" class="inline-error">Failed to load fills: ${esc(err.message)}</td></tr>
-    `;
+    console.error('Could not load fills:', err);
+
+    if (tbody) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="10" class="empty-state">
+            Could not load executions: ${esc(err.message)}
+          </td>
+        </tr>
+      `;
+    }
   }
 }
 
 function renderFills(fills) {
   const tbody = document.getElementById('fillsBody');
-  if (!fills.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No recent fills</td></tr>';
+
+  if (!tbody) {
+    console.warn('Recent fills table body not found: #fillsBody');
     return;
   }
 
-  tbody.innerHTML = fills.map(f => {
-    const side = (f.side ?? '').toUpperCase();
-    const slippage = f.slippage ?? f.slippage_bps ?? null;
-    const fees = f.fees ?? f.commission ?? null;
-    const memoId = f.memo_id ?? f.ic_memo_id ?? null;
-    return `
+  if (!Array.isArray(fills) || fills.length === 0) {
+    tbody.innerHTML = `
       <tr>
-        <td><strong>${esc(f.ticker ?? f.instrument ?? f.symbol ?? '')}</strong></td>
+        <td colspan="10" class="empty-state">No paper executions yet.</td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = fills.map(fill => {
+    const side = String(fill.side || '').toLowerCase();
+    const sideClass = side === 'buy' ? 'badge-green' : 'badge-red';
+    const sideLabel = side ? side.toUpperCase() : '?';
+    const fillId = fill.id != null ? `#${fill.id}` : '?';
+    const executedAt = fill.filled_at ? fmtDatetime(fill.filled_at) : '?';
+
+    return `
+      <tr data-fill-id="${esc(fill.id ?? '')}">
+        <td class="mono" style="font-weight:700;">${esc(fillId)}</td>
+        <td><span class="badge" style="background:rgba(77,184,191,.16);color:#4db8bf;border:1px solid rgba(77,184,191,.35);">PAPER</span></td>
         <td>
-          ${side === 'BUY'
-            ? '<span class="badge badge-green">BUY</span>'
-            : '<span class="badge badge-red">SELL</span>'}
+          <strong>${esc(fill.ticker || '?')}</strong>
+          <div class="text-muted" style="font-size:11px;">
+            ${esc(fill.name || '')}
+          </div>
         </td>
-        <td class="num mono">${fmtQty(f.fill_quantity ?? f.quantity ?? f.qty)}</td>
-        <td class="num mono">${fmtUSD(f.fill_price ?? f.price)}</td>
-        <td class="num mono ${slippage != null && slippage > 0 ? 'text-negative' : ''}">${slippage != null ? fmtNum(slippage, 2) + ' bps' : 'â€”'}</td>
-        <td class="num mono">${fees != null ? fmtUSD(fees) : 'â€”'}</td>
+        <td><span class="badge ${sideClass}">${esc(sideLabel)}</span></td>
+        <td class="num mono">${fmtQty(fill.fill_quantity)}</td>
+        <td class="num mono">${fmtUSD(fill.fill_price)}</td>
+        <td class="num mono">${fmtUSD(fill.fees)}</td>
+        <td class="num mono">${fmtUSD(fill.slippage)}</td>
+        <td class="mono text-muted" style="font-size:var(--text-xs);">${esc(executedAt)}</td>
         <td>
-          ${memoId
-            ? `<button class="btn btn-ghost" style="font-size:var(--text-xs);height:24px;padding:0 var(--space-2)" onclick="viewMemoById('${esc(memoId)}')">View Memo</button>`
-            : '<span class="text-muted">â€”</span>'}
+          <button
+            class="pplx-memo-trigger"
+            title="Open linked memo when available"
+            onclick="openMemoForFill && openMemoForFill(${Number(fill.id) || 'null'})"
+          >Memo IA</button>
         </td>
-        <td class="mono text-muted" style="font-size:var(--text-xs)">${fmtDate(f.filled_at ?? f.fill_time ?? f.created_at)}</td>
       </tr>
     `;
   }).join('');
 }
-
-/* =====================================================
-   IC MEMOS TAB
-   ===================================================== */
 
 async function loadMemos() {
   try {
