@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
 <!--
@@ -1467,13 +1467,36 @@
         <!-- Pending Validation Panel (populated by JS) -->
         <div id="pendingValidationPanel"></div>
 
-        <!-- Open Orders -->
+        <!-- Order History -->
         <div>
           <div class="section-header" style="margin-bottom: var(--space-3)">
-            <span class="section-title">Open Orders</span>
+            <span class="section-title">Order History</span>
           </div>
           <div class="table-section">
             <div class="table-scroll">
+              <table id="fillsTable">
+                <thead>
+                  <tr>
+                    <th>Fill ID</th>
+                    <th>Mode</th>
+                    <th>Instrument</th>
+                    <th>Side</th>
+                    <th class="num">Qty</th>
+                    <th class="num">Fill Price</th>
+                    <th class="num">Fees</th>
+                    <th class="num">Slippage</th>
+                    <th>Executed at</th>
+                    <th>Memo</th>
+                  </tr>
+                </thead>
+                <tbody id="fillsBody">
+                  <tr><td colspan="10"><div class="skeleton skeleton-row"></div></td></tr>
+                  <tr><td colspan="10"><div class="skeleton skeleton-row"></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+
+<div class="table-scroll">
               <table id="ordersTable">
                 <thead>
                   <tr>
@@ -1488,35 +1511,6 @@
                   </tr>
                 </thead>
                 <tbody id="ordersBody">
-                  <tr><td colspan="8"><div class="skeleton skeleton-row"></div></td></tr>
-                  <tr><td colspan="8"><div class="skeleton skeleton-row"></div></td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <!-- Recent Fills -->
-        <div>
-          <div class="section-header" style="margin-bottom: var(--space-3)">
-            <span class="section-title">Recent Fills</span>
-          </div>
-          <div class="table-section">
-            <div class="table-scroll">
-              <table id="fillsTable">
-                <thead>
-                  <tr>
-                    <th>Instrument</th>
-                    <th>Side</th>
-                    <th class="num">Qty</th>
-                    <th class="num">Fill Price</th>
-                    <th class="num">Slippage</th>
-                    <th class="num">Fees</th>
-                    <th>Memo</th>
-                    <th>Filled</th>
-                  </tr>
-                </thead>
-                <tbody id="fillsBody">
                   <tr><td colspan="8"><div class="skeleton skeleton-row"></div></td></tr>
                   <tr><td colspan="8"><div class="skeleton skeleton-row"></div></td></tr>
                 </tbody>

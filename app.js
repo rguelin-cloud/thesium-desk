@@ -2613,7 +2613,7 @@ function _injectTVWidget(containerId, widgetType, config) {
 
 async function loadOrders() {
   try {
-    const data = await apiFetch('/api/orders');
+    const data = await apiFetch('/api/orders?limit=20');
     state.orders = data.orders ?? data ?? [];
     renderOrders(state.orders);
     // Load pending validation panel
