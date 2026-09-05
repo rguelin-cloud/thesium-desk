@@ -10,6 +10,107 @@ import urllib.request
 from datetime import datetime, timedelta
 from typing import Optional
 
+
+# [BACKTEST_MULTS_CONFIG_V1] Grille de multiplicateurs lue en base.
+#
+# Avant ce patch, MULTS etait code en dur (CALM 0.7/1.5) et le docstring
+# de _compute_regime_overlay affirmait "must match production
+# market_regime_v1". Depuis le patch REGIME_CAPS_CONFIG_V1 du 2026-09-03,
+# la production lit regime_multiplier_config : equity CALM 1.00/1.00,
+# crypto CALM 0.90/1.10. Le backtest divergeait donc de la production et
+# toute validation de strategie etait non transposable.
+#
+# LIMITE ASSUMEE : la grille COURANTE est appliquee a toute la periode
+# simulee. Un backtest sur juin 2026 utilisera les parametres de
+# septembre 2026. Utile pour comparer des strategies a parametres
+# constants, insuffisant pour rejouer l'historique reel des decisions.
+# Une version fidele exigerait d'exploiter created_at et engine_version.
+
+BT_MULTS_FALLBACK = {
+    'CALM':   {'buy': 0.7, 'sell': 1.5},
+    'NORMAL': {'buy': 1.0, 'sell': 1.0},
+    'STRESS': {'buy': 1.8, 'sell': 0.5},
+}
+
+
+def _bt_load_mults(conn=None):
+    """
+    Retourne (grille, source) ou grille vaut
+        {asset_class: {regime: {'buy': float, 'sell': float}}}
+    et source vaut 'regime_multiplier_config' ou 'fallback_*'.
+
+    Ne leve jamais : tout echec retombe sur BT_MULTS_FALLBACK.
+    """
+    import os as _os_bt
+    import sqlite3 as _sq_bt
+
+    _flat = {}
+    for _ac in ('equity', 'crypto'):
+        _flat[_ac] = {_k: dict(_v) for _k, _v in BT_MULTS_FALLBACK.items()}
+
+    if str(_os_bt.getenv('NEXTONES_BACKTEST_MULTS_DISABLE', '')).strip() == '1':
+        return _flat, 'fallback_disabled'
+
+    _own = False
+    _c = conn
+    try:
+        if _c is None:
+            _dbp = _os_bt.environ.get(
+                'THESIUM_DB',
+                _os_bt.path.join(
+                    _os_bt.path.dirname(_os_bt.path.abspath(__file__)),
+                    'thesium.db'))
+            _c = _sq_bt.connect(_dbp, timeout=10.0)
+            _own = True
+
+        _cols = [r[1] for r in _c.execute(
+            'PRAGMA table_info(regime_multiplier_config)')]
+        if not _cols:
+            return _flat, 'fallback_no_table'
+
+        _q = ('SELECT asset_class, regime, buy_mult, sell_mult'
+              ' FROM regime_multiplier_config')
+        if 'active' in _cols:
+            _q += ' WHERE active = 1'
+
+        _n = 0
+        for _r in _c.execute(_q):
+            _ac = str(_r[0] or '').lower()
+            _rg = str(_r[1] or '').upper()
+            if _ac not in ('equity', 'crypto') or not _rg:
+                continue
+            try:
+                _flat[_ac][_rg] = {'buy': float(_r[2]), 'sell': float(_r[3])}
+                _n += 1
+            except (TypeError, ValueError):
+                continue
+
+        if _n == 0:
+            return _flat, 'fallback_empty_table'
+        return _flat, 'regime_multiplier_config'
+    except Exception:
+        return _flat, 'fallback_error'
+    finally:
+        if _own and _c is not None:
+            try:
+                _c.close()
+            except Exception:
+                pass
+
+
+def _bt_mult(grille, asset_class, regime, side='buy'):
+    """Acces sans KeyError : ALERT ou regime inconnu -> repli NORMAL."""
+    _ac = 'crypto' if str(asset_class).lower() == 'crypto' else 'equity'
+    _rg = str(regime or 'NORMAL').upper()
+    _sub = grille.get(_ac) or grille.get('equity') or {}
+    _cell = _sub.get(_rg) or _sub.get('NORMAL') or {'buy': 1.0, 'sell': 1.0}
+    try:
+        return float(_cell.get(side, 1.0))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+
 # ---------------------------------------------------------------------------
 # Data fetching — Yahoo Finance for everything
 # ---------------------------------------------------------------------------
@@ -409,19 +510,18 @@ def _compute_regime_overlay(
     Crypto regime per day t based on first crypto ticker available:
       vol 20d (annualized), drawdown 5d. Same thresholds but vol 30%/20%.
 
-    Multipliers (must match production market_regime_v1):
-        equity:  CALM buy=0.7 sell=1.5 | NORMAL 1.0/1.0 | STRESS buy=1.8 sell=0.5
-        crypto:  CALM buy=0.7 sell=1.5 | NORMAL 1.0/1.0 | STRESS buy=1.8 sell=0.5
+    Multipliers : lus depuis regime_multiplier_config [BACKTEST_MULTS_CONFIG_V1].
+        equity / crypto : grille en base ; repli CALM 0.7/1.5 | NORMAL 1.0/1.0 | STRESS 1.8/0.5
+        LIMITE : grille courante appliquee a toute la periode simulee.
     Exposure tilt: each ticker weight is multiplied by buy_mult of its regime,
     capped at the base weight (no leverage in backtest), residual goes to cash@Rf.
     """
     import math
 
-    MULTS = {
-        'CALM':   {'buy': 0.7, 'sell': 1.5},
-        'NORMAL': {'buy': 1.0, 'sell': 1.0},
-        'STRESS': {'buy': 1.8, 'sell': 0.5},
-    }
+    # [BACKTEST_MULTS_CONFIG_V1] Grille lue en base, repli sur BT_MULTS_FALLBACK.
+    _BT_MULTS, _BT_MULTS_SOURCE = _bt_load_mults(
+        locals().get('conn') or globals().get('conn'))
+    MULTS = _BT_MULTS.get('equity', BT_MULTS_FALLBACK)
     RF_DAILY = (1.0 + 0.045) ** (1.0 / 252.0) - 1.0
 
     # Pick a proxy ticker for equity regime: prefer SPY benchmark, else first equity
@@ -573,8 +673,8 @@ def _compute_regime_overlay(
         # Use regime at day i (prior to return between i and i+1)
         eq_reg = eq_regimes[i]
         cr_reg = cr_regimes[i]
-        eq_mult = MULTS[eq_reg]['buy']
-        cr_mult = MULTS[cr_reg]['buy']
+        eq_mult = _bt_mult(_BT_MULTS, 'equity', eq_reg, 'buy')
+        cr_mult = _bt_mult(_BT_MULTS, 'crypto', cr_reg, 'buy')
         # Cap mult at 1.0 (no leverage in backtest)
         eq_expo = min(base_eq_w * eq_mult, base_eq_w + (1.0 - base_eq_w - base_cr_w))  # cap at 1.0 total
         cr_expo = min(base_cr_w * cr_mult, base_cr_w + (1.0 - base_eq_w - base_cr_w))

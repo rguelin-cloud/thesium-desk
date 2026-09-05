@@ -78,6 +78,117 @@ REGIME_CAPS = {
     },
 }
 
+
+# [REGIME_CAPS_CONFIG_V1] Source unique des multiplicateurs de regime.
+# Avant ce patch, REGIME_CAPS etait code en dur (CALM 0.7/1.5) et
+# alimentait market_regime_log, la justification des ordres, le memo IC
+# et le sizing. La grille revisee du 2026-09-03 vit desormais dans
+# regime_multiplier_config ; cette fonction en fait la seule source.
+#
+# Repli en cascade :
+#   1. regime_multiplier_config (asset_class, regime, active=1)
+#   2. REGIME_CAPS[regime]
+#   3. REGIME_CAPS["NORMAL"]
+#
+# Corrige aussi un KeyError latent : REGIME_CAPS n'a pas de cle ALERT
+# alors que les classifieurs et la config peuvent la produire.
+
+_REGIME_CAPS_CACHE = {}
+_REGIME_CAPS_CACHE_TS = 0.0
+_REGIME_CAPS_TTL_SEC = 60.0
+
+
+def _caps_fallback(regime):
+    """Repli sur la table codee en dur, sans jamais lever KeyError."""
+    return REGIME_CAPS.get(regime) or REGIME_CAPS.get("NORMAL") or {
+        "buy_mult": 1.0, "sell_mult": 1.0, "convergence_thresh": 0.60}
+
+
+def _caps_for(regime, asset_class="equity", conn=None):
+    """
+    Retourne {"buy_mult", "sell_mult", "convergence_thresh"} pour
+    (asset_class, regime), lu depuis regime_multiplier_config.
+
+    Ne leve jamais : tout echec retombe sur REGIME_CAPS.
+    """
+    import os as _os_c
+    import sqlite3 as _sq_c
+    import time as _tm_c
+
+    global _REGIME_CAPS_CACHE, _REGIME_CAPS_CACHE_TS
+
+    _reg = str(regime or "NORMAL").upper()
+    _ac = str(asset_class or "equity").lower()
+    if _ac in ("etf", "stock", "equities"):
+        _ac = "equity"
+    elif _ac not in ("crypto", "equity"):
+        _ac = "equity"
+
+    if str(_os_c.getenv("NEXTONES_REGIME_CONFIG_DISABLE", "")).strip() == "1":
+        return _caps_fallback(_reg)
+
+    _now = _tm_c.time()
+    if _now - _REGIME_CAPS_CACHE_TS > _REGIME_CAPS_TTL_SEC:
+        _REGIME_CAPS_CACHE = {}
+        _REGIME_CAPS_CACHE_TS = _now
+
+    _ck = (_ac, _reg)
+    if _ck in _REGIME_CAPS_CACHE:
+        return dict(_REGIME_CAPS_CACHE[_ck])
+
+    _own = False
+    _c = conn
+    try:
+        if _c is None:
+            _dbp = _os_c.environ.get(
+                "THESIUM_DB",
+                _os_c.path.join(
+                    _os_c.path.dirname(_os_c.path.abspath(__file__)),
+                    "thesium.db"))
+            _c = _sq_c.connect(_dbp, timeout=10.0)
+            _own = True
+
+        _cols = [r[1] for r in _c.execute(
+            "PRAGMA table_info(regime_multiplier_config)")]
+        if not _cols:
+            return _caps_fallback(_reg)
+
+        _has_conv = "conv_thresh" in _cols
+        _has_active = "active" in _cols
+
+        _sel = "buy_mult, sell_mult"
+        if _has_conv:
+            _sel += ", conv_thresh"
+        _q = ("SELECT " + _sel + " FROM regime_multiplier_config"
+              " WHERE asset_class = ? AND regime = ?")
+        if _has_active:
+            _q += " AND active = 1"
+        _q += " LIMIT 1"
+
+        _r = _c.execute(_q, (_ac, _reg)).fetchone()
+        if _r is None:
+            return _caps_fallback(_reg)
+
+        _fb = _caps_fallback(_reg)
+        _out = {
+            "buy_mult": float(_r[0]),
+            "sell_mult": float(_r[1]),
+            "convergence_thresh": (
+                float(_r[2]) if (_has_conv and _r[2] is not None)
+                else float(_fb.get("convergence_thresh", 0.60))),
+        }
+        _REGIME_CAPS_CACHE[_ck] = dict(_out)
+        return _out
+    except Exception:
+        return _caps_fallback(_reg)
+    finally:
+        if _own and _c is not None:
+            try:
+                _c.close()
+            except Exception:
+                pass
+
+
 # Tickers references
 EQUITY_BENCHMARK = "SPY"
 CRYPTO_BENCHMARK = "BTC"
@@ -324,7 +435,7 @@ def detect_market_regime(conn: sqlite3.Connection) -> Dict[str, Any]:
             dd = _compute_drawdown_pct(eq_closes, DD_WINDOW)
 
             regime, score, details = _classify_equity(vix, vol, dd)
-            caps = REGIME_CAPS[regime]
+            caps = _caps_for(regime, "equity", conn=conn)
             result["equity"] = {
                 "regime": regime,
                 "vix_value": vix,
@@ -350,7 +461,7 @@ def detect_market_regime(conn: sqlite3.Connection) -> Dict[str, Any]:
             dd = _compute_drawdown_pct(cr_closes, DD_WINDOW)
 
             regime, score, details = _classify_crypto(vol, dd)
-            caps = REGIME_CAPS[regime]
+            caps = _caps_for(regime, "crypto", conn=conn)
             result["crypto"] = {
                 "regime": regime,
                 "vix_value": None,
@@ -371,7 +482,7 @@ def detect_market_regime(conn: sqlite3.Connection) -> Dict[str, Any]:
 
 def _fallback_regime(asset_class: str, reason: str = "unknown") -> Dict[str, Any]:
     """Fallback NORMAL avec flag fallback=True."""
-    caps = REGIME_CAPS["NORMAL"]
+    caps = _caps_for("NORMAL", asset_class)
     return {
         "regime": "NORMAL",
         "vix_value": None,

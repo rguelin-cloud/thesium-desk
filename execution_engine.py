@@ -1,4 +1,4 @@
-"""
+﻿"""
 execution_engine.py — v6.5 — Paper-trading execution engine for Thesium.finance / Nextones Desk
 
 PATCH 2026-05-22 — Corrections critiques :
@@ -333,6 +333,65 @@ def apply_regime_to_proposals(conn, proposals, regime_info, target_weights=None)
             except Exception:
                 return 1.0
         return 1.0
+
+    # [REGIME_MULT_CONFIG_V1] Surcharge : lecture de regime_multiplier_config.
+    # Corrige l'inversion CALM/NORMAL relevee le 2026-09-03 :
+    # CALM appliquait buy 0.70 / sell 1.50 alors que NORMAL
+    # appliquait 1.00 / 1.00. Repli sur _market_info si la table
+    # est absente, pour ne jamais degrader le comportement.
+    _rmc_cache = {}
+
+    def _market_mult_for(asset_class, side):
+        if _market_caps_disabled or not asset_class:
+            return 1.0
+        _ac = (asset_class or '').lower()
+        if _ac in ('crypto',):
+            _key_ac = 'crypto'
+        elif _ac in ('equity', 'etf', 'stock'):
+            _key_ac = 'equity'
+        else:
+            return 1.0
+
+        _reg = None
+        try:
+            _bi = (_market_info or {}).get(_key_ac) or {}
+            _reg = _bi.get('regime')
+        except Exception:
+            _reg = None
+        if not _reg:
+            try:
+                _reg = (regime or 'NORMAL')
+            except Exception:
+                _reg = 'NORMAL'
+        _reg = str(_reg).upper()
+
+        _ck = (_key_ac, _reg, side)
+        if _ck in _rmc_cache:
+            return _rmc_cache[_ck]
+
+        _val = None
+        try:
+            _r = conn.execute(
+                'SELECT buy_mult, sell_mult FROM regime_multiplier_config'
+                ' WHERE asset_class = ? AND regime = ? AND active = 1',
+                (_key_ac, _reg),
+            ).fetchone()
+            if _r is not None:
+                _val = float(_r[0]) if side == 'buy' else float(_r[1])
+        except Exception:
+            _val = None
+
+        if _val is None:
+            _b = (_market_info or {}).get(_key_ac) or {}
+            _k = 'buy_mult' if side == 'buy' else 'sell_mult'
+            try:
+                _val = float(_b.get(_k, 1.0))
+            except Exception:
+                _val = 1.0
+
+        _rmc_cache[_ck] = _val
+        return _val
+
     target_weights = target_weights or {}
 
     # Cache des positions actuelles (qty + prix) pour le plafonnement SELL
@@ -1286,22 +1345,57 @@ def create_and_execute_order(conn, instrument_id, thesis_id, side, quantity,
                 risk_result.setdefault("warnings", [])
                 risk_result["risk_v2"] = _rv2
                 _rv2_blocked = _rv2.get("blocked_by")
-                if _rv2_blocked == "concentration":
-                    # BLOCK DUR concentration
-                    risk_result["approved"] = False
-                    risk_result["action"] = "rejected_concentration_v2"
-                    risk_result.setdefault("reasons", []).append(
-                        f"[RISK_V2] BLOCK concentration: new_pct={_rv2.get('details',{}).get('concentration',{}).get('new_pct')} cap=15%"
+                # [RISK_POLICY_CONFIG_V1] resolution en base, fail-closed
+                _rv2_passed = _rv2.get("passed")
+                if _rv2_blocked or _rv2_passed in (0, False):
+                    from risk_policy import resolve_policy as _rp_resolve
+                    # [RISK_POLICY_ENV_V2] live seulement si les deux verrous sont leves
+                    _pol_env = "paper"
+                    try:
+                        import bridge_config as _pol_bc
+                        if (bool(getattr(_pol_bc, "BROKER_LIVE_ENABLED", False))
+                                and not bool(getattr(_pol_bc, "LIVE_DRY_RUN", True))):
+                            _pol_env = "live"
+                    except Exception:
+                        _pol_env = "paper"
+                    _pol_motif = _rv2_blocked or "unknown"
+                    _pol_mode, _pol_src = _rp_resolve(
+                        conn, _pol_motif, mode_env=_pol_env
                     )
-                elif _rv2_blocked in ("var_budget", "var_marginal", "correlation"):
-                    # WARNING (mode hybride - ordre passe)
-                    risk_result["warnings"].append({
-                        "source": "[RISK_V2]",
-                        "code": _rv2_blocked,
-                        "details": _rv2.get("details", {}).get(
-                            "correlation" if _rv2_blocked == "correlation" else "var", {}
-                        ),
-                    })
+
+                    risk_result["risk_policy"] = {
+                        "blocked_by": _rv2_blocked,
+                        "motif": _pol_motif,
+                        "mode": _pol_mode,
+                        "source": _pol_src,
+                        "env": _pol_env,
+                        "marker": "[RISK_POLICY_CONFIG_V1]",
+                    }
+
+                    if _pol_mode == "block":
+                        risk_result["approved"] = False
+                        risk_result["action"] = "blocked_risk_" + _pol_motif
+                        risk_result.setdefault("reasons", []).append(
+                            "[RISK_POLICY] BLOCK " + _pol_motif
+                            + " (policy=" + _pol_src + ", env=" + _pol_env + ")"
+                        )
+                    elif _pol_mode == "warn":
+                        risk_result["warnings"].append({
+                            "source": "[RISK_POLICY]",
+                            "code": _pol_motif,
+                            "mode": "warn",
+                            "policy_source": _pol_src,
+                            "env": _pol_env,
+                            "details": _rv2.get("details", {}),
+                        })
+                    else:
+                        risk_result["warnings"].append({
+                            "source": "[RISK_POLICY]",
+                            "code": _pol_motif,
+                            "mode": "ignore",
+                            "policy_source": _pol_src,
+                            "env": _pol_env,
+                        })
     except Exception as _rv2_err:
         # Fail-safe : ne bloque pas la prod si le module risk_pretrade plante
         if isinstance(risk_result, dict):
@@ -1358,7 +1452,7 @@ def create_and_execute_order(conn, instrument_id, thesis_id, side, quantity,
                 status, risk_check_result, cycle_id)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (instrument_id, thesis_id, side, quantity, order_type, limit_price,
-         "approved" if risk_result["approved"] else "rejected",  # [FIX_STATUS_APPROVED_INLINE_V1]
+         "pending_validation" if risk_result["approved"] else "rejected",  # [V3_PAPER_PENDING_VALIDATION]
          json.dumps(risk_result), cycle_id)  # [FIX_CYCLE_ID_PAREN_V1]
     ).lastrowid
 
@@ -1389,6 +1483,32 @@ def create_and_execute_order(conn, instrument_id, thesis_id, side, quantity,
                 )
     except Exception:
         pass
+
+    # V3_PAPER_EXECUTION_GATE_BEGIN
+    # A risk-approved order is now awaiting explicit manager validation. The cycle
+    # must never call the router, a real broker, or shadow execution automatically.
+    try:
+        log_event(conn, "order_pending_validation", "order", order_id, {
+            "instrument_id": instrument_id,
+            "side": side,
+            "quantity": approved_qty,
+            "cycle_id": cycle_id,
+            "paper_mode": True,
+        }, agent="ExecutionEngineV3Paper")
+    except Exception:
+        pass
+    try:
+        conn.commit()
+    except Exception:
+        pass
+    return {
+        "success": True,
+        "order_id": order_id,
+        "status": "pending_validation",
+        "pending_approval": True,
+        "risk_check": risk_result,
+    }
+    # V3_PAPER_EXECUTION_GATE_END
 
     # [NEXTONES-BROKER-ROUTER-V1] - Phase 3C router (sandwich avant shadow_executor)
     # Decide route=shadow|live|reject avant que shadow_executor s'execute.

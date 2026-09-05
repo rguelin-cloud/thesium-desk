@@ -1,4 +1,4 @@
-"""
+﻿"""
 api_server.py - Main FastAPI server for Nextones.finance
 Runs on port 8000. All endpoints return proper JSON with ISO dates.
 """
@@ -257,7 +257,7 @@ def _update_portfolio_from_latest_prices():
         total_pnl_pct = (total_pnl / INITIAL_CAPITAL * 100) if INITIAL_CAPITAL > 0 else 0
         unrealized_pnl_pct = (unrealized_pnl / INITIAL_CAPITAL * 100) if INITIAL_CAPITAL > 0 else 0
 
-        # PATCH: Daily P&L = NAV courant - dernière clôture STRICTEMENT avant aujourd'hui
+        # PATCH: Daily P&L = NAV courant - derniÃ¨re clÃ´ture STRICTEMENT avant aujourd'hui
         today_str = datetime.now().strftime("%Y-%m-%d")
         prev_row = conn.execute(
             "SELECT total_value FROM portfolio_history WHERE date < ? "
@@ -365,7 +365,7 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
 app = FastAPI(
     title="Nextones.finance API",
-    description="Fund OS – Live theses, auditable trades.",
+    description="Fund OS â€“ Live theses, auditable trades.",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -432,6 +432,1311 @@ class BulkRejectRequest(BaseModel):
 # Dashboard & Portfolio
 # ---------------------------------------------------------------------------
 
+
+# MARKET_WIDGETS_API_V3_BEGIN
+# ---------------------------------------------------------------------------
+# Robust dashboard widgets. The project has legacy schema variations, so this
+# code discovers table/column names from SQLite before issuing data queries.
+# It cannot fail solely because a legacy table name differs.
+# ---------------------------------------------------------------------------
+
+def _mw_table_names(conn):
+    return {
+        r["name"].lower(): r["name"]
+        for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+
+
+def _mw_pick_table(tables, *candidates):
+    for candidate in candidates:
+        if candidate.lower() in tables:
+            return tables[candidate.lower()]
+    return None
+
+
+def _mw_columns(conn, table_name):
+    if not table_name:
+        return {}
+    return {
+        r["name"].lower(): r["name"]
+        for r in conn.execute('PRAGMA table_info("' + table_name + '")').fetchall()
+    }
+
+
+def _mw_pick_column(columns, *candidates):
+    for candidate in candidates:
+        if candidate.lower() in columns:
+            return columns[candidate.lower()]
+    return None
+
+
+def _mw_quote(identifier):
+    return '"' + str(identifier).replace('"', '""') + '"'
+
+
+def _mw_regime(score):
+    score = float(score or 50.0)
+    if score >= 75:
+        return "STRESS", "#DC2626"
+    if score >= 60:
+        return "RISK-OFF", "#EA580C"
+    if score >= 40:
+        return "NEUTRE", "#D97706"
+    if score >= 25:
+        return "RISK-ON", "#2563EB"
+    return "RISK-ON FORT", "#16A34A"
+
+
+@app.get("/api/regime/current")
+def get_current_regime():
+    equity_score = 50.0
+    crypto_score = 50.0
+    macro_score = None
+    vix = None
+    fear_greed = None
+    notes = []
+
+    try:
+        macro = data_macro.fetch_vulnerability_dashboard(force_refresh=False)
+        macro = macro if isinstance(macro, dict) else {}
+        macro_score = (
+            macro.get("global_score")
+            or macro.get("globalscore")
+            or macro.get("score")
+        )
+        if macro_score is not None:
+            macro_score = float(macro_score)
+            equity_score = max(0.0, min(100.0, macro_score * 10.0))
+            notes.append("Score macro intÃ©grÃ©")
+    except Exception as exc:
+        notes.append("Macro indisponible: " + str(exc)[:100])
+
+    try:
+        sentiment = data_sentiment.get_sentiment()
+        sentiment = sentiment if isinstance(sentiment, dict) else {}
+        vix = sentiment.get("vix")
+        fear_greed = sentiment.get("fear_greed") or sentiment.get("feargreed")
+        if vix is not None:
+            vix = float(vix)
+            vix_risk = max(0.0, min(100.0, (vix - 12.0) / 28.0 * 100.0))
+            equity_score = round(equity_score * 0.75 + vix_risk * 0.25, 1)
+        if fear_greed is not None:
+            fear_greed = float(fear_greed)
+            crypto_score = max(0.0, min(100.0, 100.0 - fear_greed))
+        notes.append("Sentiment intÃ©grÃ©")
+    except Exception as exc:
+        notes.append("Sentiment indisponible: " + str(exc)[:100])
+
+    equity_regime, equity_color = _mw_regime(equity_score)
+    crypto_regime, crypto_color = _mw_regime(crypto_score)
+    return {
+        "as_of": datetime.now().isoformat(),
+        "status": "available",
+        "equity": {
+            "regime": equity_regime,
+            "label": equity_regime,
+            "score": round(equity_score, 1),
+            "color": equity_color,
+            "confidence": "medium",
+            "drivers": {"macro_score": macro_score, "vix": vix},
+        },
+        "crypto": {
+            "regime": crypto_regime,
+            "label": crypto_regime,
+            "score": round(crypto_score, 1),
+            "color": crypto_color,
+            "confidence": "medium",
+            "drivers": {"fear_greed": fear_greed},
+        },
+        "notes": notes,
+    }
+
+
+@app.get("/api/construction/targets")
+def get_construction_targets():
+    """Allocation targets. Queries adapt automatically to legacy SQLite schema."""
+    conn = db()
+    try:
+        tables = _mw_table_names(conn)
+        state_table = _mw_pick_table(tables, "portfolio_state", "portfoliostate")
+        position_table = _mw_pick_table(
+            tables, "portfolio_positions", "portfoliopositions", "positions"
+        )
+        instrument_table = _mw_pick_table(tables, "instruments", "instrument")
+
+        cash = 0.0
+        total_value = 0.0
+        diagnostics = []
+
+        if state_table:
+            state_cols = _mw_columns(conn, state_table)
+            cash_col = _mw_pick_column(state_cols, "cash")
+            total_col = _mw_pick_column(state_cols, "totalvalue", "total_value")
+            selections = []
+            if cash_col:
+                selections.append(_mw_quote(cash_col) + " AS cash")
+            if total_col:
+                selections.append(_mw_quote(total_col) + " AS total_value")
+            if selections:
+                state_row = conn.execute(
+                    "SELECT " + ", ".join(selections) + " FROM " + _mw_quote(state_table) + " LIMIT 1"
+                ).fetchone()
+                if state_row:
+                    cash = float(state_row["cash"] or 0.0) if cash_col else 0.0
+                    total_value = float(state_row["total_value"] or 0.0) if total_col else 0.0
+        else:
+            diagnostics.append("Table portefeuille absente")
+
+        actual_values = {}
+        if position_table:
+            pos_cols = _mw_columns(conn, position_table)
+            qty_col = _mw_pick_column(pos_cols, "quantity", "qty")
+            price_col = _mw_pick_column(pos_cols, "currentprice", "current_price", "price")
+            pos_instrument_col = _mw_pick_column(pos_cols, "instrumentid", "instrument_id")
+
+            if qty_col and price_col:
+                if instrument_table and pos_instrument_col:
+                    ins_cols = _mw_columns(conn, instrument_table)
+                    ins_id_col = _mw_pick_column(ins_cols, "id", "instrumentid", "instrument_id")
+                    asset_col = _mw_pick_column(ins_cols, "assetclass", "asset_class")
+                    if ins_id_col and asset_col:
+                        sql = (
+                            "SELECT p." + _mw_quote(qty_col) + " AS quantity, "
+                            "p." + _mw_quote(price_col) + " AS current_price, "
+                            "i." + _mw_quote(asset_col) + " AS asset_class "
+                            "FROM " + _mw_quote(position_table) + " p "
+                            "JOIN " + _mw_quote(instrument_table) + " i ON "
+                            "i." + _mw_quote(ins_id_col) + " = p." + _mw_quote(pos_instrument_col)
+                        )
+                    else:
+                        sql = None
+                else:
+                    sql = None
+
+                if sql:
+                    for row in conn.execute(sql).fetchall():
+                        asset_class = str(row["asset_class"] or "other").lower()
+                        aliases = {
+                            "equities": "equity", "stock": "equity", "stocks": "equity",
+                            "cryptocurrency": "crypto", "digital_assets": "crypto",
+                            "bonds": "fixed_income", "fixed income": "fixed_income",
+                        }
+                        asset_class = aliases.get(asset_class, asset_class)
+                        market_value = float(row["quantity"] or 0.0) * float(row["current_price"] or 0.0)
+                        actual_values[asset_class] = actual_values.get(asset_class, 0.0) + market_value
+                else:
+                    diagnostics.append("Positions sans liaison instrument/classe d'actif")
+            else:
+                diagnostics.append("Colonnes quantitÃ©/prix positions absentes")
+        else:
+            diagnostics.append("Table positions absente")
+
+        if total_value <= 0:
+            total_value = cash + sum(actual_values.values())
+        actual_values["cash"] = cash
+
+        target_weights = {
+            "equity": 55.0,
+            "crypto": 10.0,
+            "fixed_income": 15.0,
+            "cash": 20.0,
+        }
+        targets = []
+        for asset_class, target_weight in target_weights.items():
+            actual_value = actual_values.get(asset_class, 0.0)
+            actual_weight = actual_value / total_value * 100.0 if total_value > 0 else 0.0
+            target_value = total_value * target_weight / 100.0
+            delta_value = target_value - actual_value
+            action = "increase" if delta_value > 1000 else "reduce" if delta_value < -1000 else "hold"
+            targets.append({
+                "asset_class": asset_class,
+                "target_weight_pct": target_weight,
+                "actual_weight_pct": round(actual_weight, 2),
+                "target_value": round(target_value, 2),
+                "actual_value": round(actual_value, 2),
+                "delta_value": round(delta_value, 2),
+                "action": action,
+            })
+
+        return {
+            "as_of": datetime.now().isoformat(),
+            "status": "available",
+            "portfolio_value": round(total_value, 2),
+            "targets": targets,
+            "policy": {"name": "Core diversified allocation v1", "source": "system_default"},
+            "diagnostics": diagnostics,
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/api/convergence/snapshot")
+def get_convergence_snapshot():
+    """Latest signal per agent; schema-tolerant event log query."""
+    conn = db()
+    try:
+        tables = _mw_table_names(conn)
+        event_table = _mw_pick_table(tables, "event_log", "eventlog", "events")
+        order_table = _mw_pick_table(tables, "orders", "order")
+        latest_by_agent = {}
+        diagnostics = []
+
+        if event_table:
+            event_cols = _mw_columns(conn, event_table)
+            agent_col = _mw_pick_column(event_cols, "agent")
+            type_col = _mw_pick_column(event_cols, "eventtype", "event_type", "type")
+            entity_type_col = _mw_pick_column(event_cols, "entitytype", "entity_type")
+            entity_id_col = _mw_pick_column(event_cols, "entityid", "entity_id")
+            details_col = _mw_pick_column(event_cols, "details", "payload", "data")
+            created_col = _mw_pick_column(event_cols, "createdat", "created_at", "timestamp")
+
+            if agent_col:
+                fields = [
+                    _mw_quote(agent_col) + " AS agent",
+                    (_mw_quote(type_col) if type_col else "NULL") + " AS event_type",
+                    (_mw_quote(entity_type_col) if entity_type_col else "NULL") + " AS entity_type",
+                    (_mw_quote(entity_id_col) if entity_id_col else "NULL") + " AS entity_id",
+                    (_mw_quote(details_col) if details_col else "NULL") + " AS details",
+                    (_mw_quote(created_col) if created_col else "NULL") + " AS created_at",
+                ]
+                order_expr = _mw_quote(created_col) + " DESC" if created_col else "rowid DESC"
+                sql = "SELECT " + ", ".join(fields) + " FROM " + _mw_quote(event_table) + " ORDER BY " + order_expr + " LIMIT 100"
+                for row in conn.execute(sql).fetchall():
+                    agent = row["agent"] or "System"
+                    if agent in latest_by_agent:
+                        continue
+                    details = row["details"]
+                    if isinstance(details, str):
+                        try:
+                            details = json.loads(details)
+                        except Exception:
+                            pass
+                    latest_by_agent[agent] = {
+                        "agent": agent,
+                        "event_type": row["event_type"],
+                        "entity_type": row["entity_type"],
+                        "entity_id": row["entity_id"],
+                        "details": details,
+                        "as_of": row["created_at"],
+                    }
+            else:
+                diagnostics.append("Colonne agent absente du journal")
+        else:
+            diagnostics.append("Journal d'Ã©vÃ©nements absent")
+
+        pending_orders = 0
+        if order_table:
+            order_cols = _mw_columns(conn, order_table)
+            status_col = _mw_pick_column(order_cols, "status")
+            if status_col:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS count FROM " + _mw_quote(order_table) + " WHERE " + _mw_quote(status_col) + " = ?",
+                    ("pending_validation",),
+                ).fetchone()
+                pending_orders = int(row["count"] or 0) if row else 0
+
+        return {
+            "as_of": datetime.now().isoformat(),
+            "status": "available",
+            "agents": list(latest_by_agent.values()),
+            "summary": {
+                "active_agents": len(latest_by_agent),
+                "pending_validation_orders": pending_orders,
+                "message": "Signaux disponibles" if latest_by_agent else "Aucun signal d'agent enregistrÃ© pour le moment",
+            },
+            "diagnostics": diagnostics,
+        }
+    finally:
+        conn.close()
+
+# MARKET_WIDGETS_API_V3_END
+# APPROVALS_STATUS_API_V1_BEGIN
+# ---------------------------------------------------------------------------
+# Pending approvals explainability. Read-only, schema tolerant, ASCII output.
+# ---------------------------------------------------------------------------
+
+def _as_table_names(conn):
+    return {
+        row["name"].lower(): row["name"]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+
+
+def _as_pick_table(tables, *candidates):
+    for candidate in candidates:
+        table_name = tables.get(candidate.lower())
+        if table_name:
+            return table_name
+    return None
+
+
+def _as_columns(conn, table_name):
+    if not table_name:
+        return {}
+    return {
+        row["name"].lower(): row["name"]
+        for row in conn.execute(
+            'PRAGMA table_info("' + str(table_name).replace('"', '""') + '")'
+        ).fetchall()
+    }
+
+
+def _as_pick_column(columns, *candidates):
+    for candidate in candidates:
+        column_name = columns.get(candidate.lower())
+        if column_name:
+            return column_name
+    return None
+
+
+def _as_quote(identifier):
+    return '"' + str(identifier).replace('"', '""') + '"'
+
+
+def _as_count_status(conn, table_name, status_column, accepted_statuses):
+    if not table_name or not status_column:
+        return 0
+    marks = ", ".join("?" for _ in accepted_statuses)
+    sql = (
+        "SELECT COUNT(*) AS count FROM " + _as_quote(table_name)
+        + " WHERE lower(" + _as_quote(status_column) + ") IN (" + marks + ")"
+    )
+    row = conn.execute(sql, tuple(accepted_statuses)).fetchone()
+    return int(row["count"] or 0) if row else 0
+
+
+@app.get("/api/approvals/status")
+def get_approvals_status():
+    """Explain why Pending Approvals is empty or contains proposals."""
+    conn = db()
+    try:
+        tables = _as_table_names(conn)
+        diagnostics = []
+
+        approval_table = _as_pick_table(
+            tables,
+            "paper_approvals",
+            "paperapprovals",
+            "approvals",
+            "approval_requests",
+            "approvalrequests",
+        )
+        order_table = _as_pick_table(tables, "orders", "order")
+        event_table = _as_pick_table(tables, "event_log", "eventlog", "events")
+
+        paper_approvals_pending = 0
+        paper_approvals_total = 0
+        approvals_blocked = 0
+        pending_validation_orders = 0
+        last_cycle_at = None
+        last_cycle_status = "never_run"
+        last_error = None
+        recent_reasons = []
+
+        if approval_table:
+            cols = _as_columns(conn, approval_table)
+            status_col = _as_pick_column(cols, "status", "state")
+            if status_col:
+                paper_approvals_pending = _as_count_status(
+                    conn,
+                    approval_table,
+                    status_col,
+                    ("pending", "pending_approval", "awaiting_approval", "open"),
+                )
+                approvals_blocked = _as_count_status(
+                    conn,
+                    approval_table,
+                    status_col,
+                    ("blocked", "rejected", "failed", "skipped"),
+                )
+                row = conn.execute(
+                    "SELECT COUNT(*) AS count FROM " + _as_quote(approval_table)
+                ).fetchone()
+                paper_approvals_total = int(row["count"] or 0) if row else 0
+            else:
+                diagnostics.append("Approval status column not found")
+        else:
+            diagnostics.append("Approval table not found")
+
+        if order_table:
+            cols = _as_columns(conn, order_table)
+            status_col = _as_pick_column(cols, "status", "state")
+            if status_col:
+                pending_validation_orders = _as_count_status(
+                    conn,
+                    order_table,
+                    status_col,
+                    ("pending_validation", "pending", "awaiting_validation"),
+                )
+            else:
+                diagnostics.append("Order status column not found")
+        else:
+            diagnostics.append("Orders table not found")
+
+        if event_table:
+            cols = _as_columns(conn, event_table)
+            type_col = _as_pick_column(cols, "eventtype", "event_type", "type")
+            details_col = _as_pick_column(cols, "details", "payload", "data", "message")
+            created_col = _as_pick_column(cols, "createdat", "created_at", "timestamp", "date")
+            agent_col = _as_pick_column(cols, "agent")
+
+            if type_col:
+                selected = [
+                    _as_quote(type_col) + " AS event_type",
+                    (_as_quote(details_col) if details_col else "NULL") + " AS details",
+                    (_as_quote(created_col) if created_col else "NULL") + " AS created_at",
+                    (_as_quote(agent_col) if agent_col else "NULL") + " AS agent",
+                ]
+                order_by = _as_quote(created_col) + " DESC" if created_col else "rowid DESC"
+                sql = (
+                    "SELECT " + ", ".join(selected)
+                    + " FROM " + _as_quote(event_table)
+                    + " ORDER BY " + order_by + " LIMIT 200"
+                )
+                rows = conn.execute(sql).fetchall()
+
+                for row in rows:
+                    event_type = str(row["event_type"] or "").lower()
+                    details_value = row["details"]
+                    details_text = ""
+                    details_json = None
+
+                    if isinstance(details_value, str):
+                        details_text = details_value
+                        try:
+                            details_json = json.loads(details_value)
+                        except Exception:
+                            details_json = None
+                    elif isinstance(details_value, dict):
+                        details_json = details_value
+                        details_text = json.dumps(details_value)
+
+                    is_cycle = (
+                        "cycle" in event_type
+                        or "decision" in event_type
+                        or "execution" in event_type
+                        or "cycle" in details_text.lower()
+                    )
+                    if is_cycle and last_cycle_at is None:
+                        last_cycle_at = row["created_at"]
+                        if "fail" in event_type or "error" in event_type:
+                            last_cycle_status = "failed"
+                        else:
+                            last_cycle_status = "success"
+
+                    is_block = (
+                        "block" in event_type
+                        or "reject" in event_type
+                        or "skip" in event_type
+                        or "risk" in event_type
+                    )
+                    if is_block and len(recent_reasons) < 5:
+                        reason = None
+                        if isinstance(details_json, dict):
+                            reason = (
+                                details_json.get("reason")
+                                or details_json.get("message")
+                                or details_json.get("detail")
+                                or details_json.get("error")
+                            )
+                        if not reason:
+                            reason = details_text[:220] if details_text else event_type
+                        if reason:
+                            recent_reasons.append(str(reason))
+
+                    if last_error is None and (
+                        "fail" in event_type or "error" in event_type
+                    ):
+                        if isinstance(details_json, dict):
+                            last_error = (
+                                details_json.get("error")
+                                or details_json.get("message")
+                                or details_json.get("detail")
+                            )
+                        if not last_error:
+                            last_error = details_text[:300] if details_text else event_type
+            else:
+                diagnostics.append("Event type column not found")
+        else:
+            diagnostics.append("Event log table not found")
+
+        if paper_approvals_pending > 0:
+            state = "pending_approval"
+            explanation = "Paper approvals are waiting for a manager decision."
+        elif pending_validation_orders > 0:
+            state = "orders_pending_validation"
+            explanation = "Orders exist but are waiting for validation before approval conversion."
+        elif paper_approvals_total > 0 and approvals_blocked > 0:
+            state = "no_pending_after_block"
+            explanation = "No paper approval is pending; existing proposals were blocked, rejected, or skipped."
+        elif last_cycle_status == "failed":
+            state = "cycle_failed"
+            explanation = "The latest decision cycle failed before creating a pending paper approval."
+        elif last_cycle_at:
+            state = "no_eligible_proposal"
+            explanation = "The latest cycle completed but did not create an eligible pending paper approval."
+        else:
+            state = "no_cycle_recorded"
+            explanation = "No completed decision cycle was found in the event log."
+
+        return {
+            "as_of": datetime.now().isoformat(),
+            "status": "available",
+            "state": state,
+            "explanation": explanation,
+            "last_cycle_at": last_cycle_at,
+            "last_cycle_status": last_cycle_status,
+            "orders_generated": pending_validation_orders,
+            "orders_pending_validation": pending_validation_orders,
+            "paper_approvals_created": paper_approvals_total,
+            "paper_approvals_pending": paper_approvals_pending,
+            "blocked_count": approvals_blocked,
+            "blocked_reasons": recent_reasons,
+            "last_error": last_error,
+            "diagnostics": diagnostics,
+        }
+    finally:
+        conn.close()
+
+# APPROVALS_STATUS_API_V1_END
+# PAPER_APPROVAL_V1_BEGIN
+# ---------------------------------------------------------------------------
+# Durable paper-only approval workflow. No broker execution is performed here.
+# ---------------------------------------------------------------------------
+
+class PaperApprovalRejectRequest(BaseModel):
+    reason: str
+
+
+class PaperApprovalTestCreateRequest(BaseModel):
+    ticker: str = "TEST"
+    side: str = "BUY"
+    quantity: float = 1.0
+    rationale: str = "Paper Approval V1 smoke test"
+
+
+def _pa_now():
+    return datetime.now().isoformat()
+
+
+def _pa_init_schema(conn):
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS paper_approvals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cycle_id TEXT,
+            order_id INTEGER,
+            instrument_id INTEGER,
+            ticker TEXT NOT NULL,
+            side TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            order_type TEXT NOT NULL DEFAULT 'market',
+            limit_price REAL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            rationale TEXT,
+            risk_snapshot TEXT,
+            source TEXT NOT NULL DEFAULT 'manual_test',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            decided_at TEXT,
+            decided_by TEXT,
+            rejection_reason TEXT,
+            paper_execution_status TEXT NOT NULL DEFAULT 'not_executed'
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_paper_approvals_status_created
+        ON paper_approvals(status, created_at DESC)
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_paper_approvals_order_active
+        ON paper_approvals(order_id)
+        WHERE order_id IS NOT NULL
+          AND status IN ('pending', 'approved')
+        """
+    )
+    conn.commit()
+
+
+def _pa_row_to_dict(row):
+    if not row:
+        return None
+    item = dict(row)
+    for key in ("risk_snapshot",):
+        value = item.get(key)
+        if isinstance(value, str) and value:
+            try:
+                item[key] = json.loads(value)
+            except Exception:
+                pass
+    return item
+
+
+def _pa_append_event(conn, event_type, approval_id, details):
+    tables = {
+        row["name"].lower(): row["name"]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    event_table = tables.get("eventlog") or tables.get("event_log")
+    if not event_table:
+        return
+
+    columns = {
+        row["name"].lower(): row["name"]
+        for row in conn.execute(
+            'PRAGMA table_info("' + event_table.replace('"', '""') + '")'
+        ).fetchall()
+    }
+
+    values = {}
+    candidates = {
+        "eventtype": event_type,
+        "event_type": event_type,
+        "entitytype": "paper_approval",
+        "entity_type": "paper_approval",
+        "entityid": approval_id,
+        "entity_id": approval_id,
+        "details": json.dumps(details),
+        "agent": "PaperApprovalV1",
+        "createdat": _pa_now(),
+        "created_at": _pa_now(),
+    }
+
+    for key, value in candidates.items():
+        actual = columns.get(key)
+        if actual:
+            values[actual] = value
+
+    if not values:
+        return
+
+    names = list(values.keys())
+    placeholders = ", ".join("?" for _ in names)
+    quoted = ", ".join('"' + name.replace('"', '""') + '"' for name in names)
+    sql = 'INSERT INTO "' + event_table.replace('"', '""') + '" (' + quoted + ') VALUES (' + placeholders + ')'
+    conn.execute(sql, tuple(values[name] for name in names))
+
+
+def _pa_get_actor(current_user):
+    if isinstance(current_user, dict):
+        return current_user.get("username") or current_user.get("email") or "manager"
+    return getattr(current_user, "username", None) or getattr(current_user, "email", None) or "manager"
+
+
+@app.get("/api/approvals/pending")
+def get_pending_paper_approvals():
+    conn = db()
+    try:
+        _pa_init_schema(conn)
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM paper_approvals
+            WHERE status = 'pending'
+            ORDER BY created_at DESC, id DESC
+            """
+        ).fetchall()
+        approvals = [_pa_row_to_dict(row) for row in rows]
+        return {
+            "status": "ok",
+            "count": len(approvals),
+            "approvals": approvals,
+        }
+    finally:
+        conn.close()
+
+
+# PAPER_APPROVAL_V3_1_ROUTES_BEGIN
+# These static routes must appear before /api/approvals/{approval_id} so FastAPI
+# does not try to parse "execution-mode" or "history" as an integer approval id.
+@app.get("/api/approvals/execution-mode")
+def get_paper_approval_execution_mode(current_user=Depends(require_manager)):
+    """Returns the exclusive execution mode for the approval UI."""
+    try:
+        import bridge_config
+        live_enabled = bool(getattr(bridge_config, "BROKER_LIVE_ENABLED", False))
+    except Exception:
+        live_enabled = False
+    return {
+        "status": "ok",
+        "mode": "live" if live_enabled else "paper",
+        "broker_live_enabled": live_enabled,
+        "label": "LIVE MODE - real broker execution" if live_enabled else "PAPER MODE - simulated portfolio",
+    }
+
+
+@app.get("/api/approvals/history")
+def get_paper_approval_history(
+    status: str = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    current_user=Depends(require_manager),
+):
+    """Lists paper approvals for the V3 Paper UI; no execution is performed."""
+    conn = db()
+    try:
+        _pa_init_schema(conn)
+        params = []
+        sql = "SELECT * FROM paper_approvals"
+        if status:
+            sql += " WHERE status = ?"
+            params.append(str(status).strip().lower())
+        sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, tuple(params)).fetchall()
+        approvals = [_pa_row_to_dict(row) for row in rows]
+        return {"status": "ok", "count": len(approvals), "approvals": approvals}
+    finally:
+        conn.close()
+
+
+@app.post("/api/approvals/{approval_id}/execute-paper")
+def execute_paper_approval(
+    approval_id: int,
+    current_user=Depends(require_manager),
+):
+    """Explicit simulated execution. Disabled whenever LIVE mode is enabled."""
+    try:
+        import bridge_config
+        if bool(getattr(bridge_config, "BROKER_LIVE_ENABLED", False)):
+            raise HTTPException(
+                status_code=409,
+                detail="Paper execution is disabled because BROKER_LIVE_ENABLED is True",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    conn = db()
+    try:
+        _pa_init_schema(conn)
+        row = conn.execute(
+            "SELECT * FROM paper_approvals WHERE id = ?",
+            (approval_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Paper approval not found")
+        if row["status"] != "approved":
+            raise HTTPException(status_code=409, detail="Paper approval must be approved before paper execution")
+        if row["paper_execution_status"] not in ("approved_not_executed", "not_executed"):
+            raise HTTPException(status_code=409, detail="Paper approval was already executed or is not executable")
+        if row["order_id"] is None:
+            raise HTTPException(status_code=422, detail="Test approval has no linked order and cannot execute a portfolio trade")
+
+        order = conn.execute(
+            "SELECT id, status FROM orders WHERE id = ?",
+            (row["order_id"],),
+        ).fetchone()
+        if not order:
+            raise HTTPException(status_code=404, detail="Linked order not found")
+        if order["status"] != "approved":
+            raise HTTPException(status_code=409, detail="Linked order is not approved for paper execution")
+
+        actor = _pa_get_actor(current_user)
+        # Existing local paper-fill function: fills + positions + paper cash/P&L.
+        # It does not use the automatic cycle router/shadow path disabled by V3.
+        from execution_engine import approve_and_fill_order
+        result = approve_and_fill_order(conn, int(row["order_id"]), validated_by=actor)
+        if not isinstance(result, dict) or not result.get("success"):
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            reason = result.get("reason") if isinstance(result, dict) else "paper_fill_failed"
+            raise HTTPException(status_code=409, detail="Paper execution failed: " + str(reason))
+
+        now = _pa_now()
+        conn.execute(
+            """
+            UPDATE paper_approvals
+            SET paper_execution_status = 'paper_executed', updated_at = ?
+            WHERE id = ? AND status = 'approved'
+              AND paper_execution_status IN ('approved_not_executed', 'not_executed')
+            """,
+            (now, approval_id),
+        )
+        _pa_append_event(
+            conn,
+            "paper_approval_paper_executed",
+            approval_id,
+            {
+                "approval_id": approval_id,
+                "order_id": row["order_id"],
+                "actor": actor,
+                "mode": "paper",
+                "fill_result": result,
+            },
+        )
+        conn.commit()
+        updated = conn.execute(
+            "SELECT * FROM paper_approvals WHERE id = ?",
+            (approval_id,),
+        ).fetchone()
+        return {
+            "status": "ok",
+            "mode": "paper",
+            "approval": _pa_row_to_dict(updated),
+            "execution": result,
+        }
+    finally:
+        conn.close()
+# PAPER_APPROVAL_V3_1_ROUTES_END
+# PAPER_APPROVAL_DIAGNOSTICS_V3_2_BEGIN
+# Read-only observability for the decision-to-approval pipeline.
+# This block never creates, approves, rejects, executes, or mutates orders.
+def _paper_approval_v3_2_cycle_diagnostics(conn, cycle_result=None):
+    result = cycle_result if isinstance(cycle_result, dict) else {}
+    agents = result.get("agent_results") if isinstance(result.get("agent_results"), dict) else {}
+    factor = int(agents.get("factor_theses") or 0)
+    micro = int(agents.get("micro_theses") or 0)
+    alt = int(agents.get("alt_theses") or 0)
+    orders = result.get("orders") if isinstance(result.get("orders"), list) else []
+    orders_pending = int(result.get("orders_pending") or 0)
+    paper = result.get("paper_approval_v2") if isinstance(result.get("paper_approval_v2"), dict) else {}
+    approvals_created = int(paper.get("created") or 0)
+
+    if orders or orders_pending:
+        primary_reason = "Orders were generated and are awaiting the next approval-stage outcome."
+        stage = "orders_generated"
+    elif (factor + micro + alt) > 0:
+        primary_reason = "No actionable thesis was forwarded to order creation."
+        stage = "no_actionable_thesis_forwarded"
+    else:
+        primary_reason = "No agent thesis was generated by the decision cycle."
+        stage = "no_theses_generated"
+
+    return {
+        "version": "v3.2",
+        "as_of": datetime.now().isoformat(),
+        "macro_stance": agents.get("macro_stance"),
+        "memo_id": result.get("memo_id"),
+        "theses": {
+            "factor": factor,
+            "micro": micro,
+            "alt": alt,
+            "total": factor + micro + alt,
+        },
+        "orders": {
+            "submitted_to_execution": len(orders),
+            "pending_validation": orders_pending,
+        },
+        "paper_approvals": {
+            "created": approvals_created,
+            "existing": int(paper.get("existing") or 0),
+            "skipped": int(paper.get("skipped") or 0),
+            "skip_reasons": paper.get("skip_reasons") if isinstance(paper.get("skip_reasons"), list) else [],
+            "source_status": paper.get("source_status"),
+        },
+        "stage": stage,
+        "primary_reason": primary_reason,
+        "read_only": True,
+    }
+
+@app.get("/api/approvals/last-cycle-diagnostic")
+def get_paper_approval_last_cycle_diagnostic():
+    """Returns the last in-memory execute-cycle diagnostic; no DB mutation."""
+    diagnostic = getattr(app.state, "paper_approval_v3_2_last_cycle_diagnostic", None)
+    if diagnostic:
+        return {"status": "ok", "diagnostic": diagnostic}
+    return {
+        "status": "ok",
+        "diagnostic": {
+            "version": "v3.2",
+            "as_of": None,
+            "stage": "no_cycle_captured_since_server_start",
+            "primary_reason": "Run a decision cycle to capture its diagnostic.",
+            "read_only": True,
+        },
+    }
+# PAPER_APPROVAL_DIAGNOSTICS_V3_2_END
+
+@app.get("/api/approvals/{approval_id}")
+def get_paper_approval(approval_id: int):
+    conn = db()
+    try:
+        _pa_init_schema(conn)
+        row = conn.execute(
+            "SELECT * FROM paper_approvals WHERE id = ?",
+            (approval_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Paper approval not found")
+        return {"status": "ok", "approval": _pa_row_to_dict(row)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/approvals/{approval_id}/approve")
+def approve_paper_approval(
+    approval_id: int,
+    current_user=Depends(require_manager),
+):
+    conn = db()
+    try:
+        _pa_init_schema(conn)
+        row = conn.execute(
+            "SELECT * FROM paper_approvals WHERE id = ?",
+            (approval_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Paper approval not found")
+        if row["status"] != "pending":
+            raise HTTPException(status_code=409, detail="Paper approval is not pending")
+
+        actor = _pa_get_actor(current_user)
+        now = _pa_now()
+        conn.execute(
+            """
+            UPDATE paper_approvals
+            SET status = 'approved',
+                updated_at = ?,
+                decided_at = ?,
+                decided_by = ?,
+                paper_execution_status = 'approved_not_executed'
+            WHERE id = ? AND status = 'pending'
+            """,
+            (now, now, actor, approval_id),
+        )
+        # V3 PAPER: approving a proposal approves its linked order but does not fill it.
+        if row["order_id"] is not None:
+            conn.execute(
+                """
+                UPDATE orders
+                SET status = 'approved', validated_by = ?, validated_at = ?
+                WHERE id = ? AND status = 'pending_validation'
+                """,
+                (actor, now, row["order_id"]),
+            )
+        _pa_append_event(
+            conn,
+            "paper_approval_approved",
+            approval_id,
+            {
+                "approval_id": approval_id,
+                "order_id": row["order_id"],
+                "actor": actor,
+                "paper_only": True,
+                "execution": "not_executed",
+            },
+        )
+        conn.commit()
+        updated = conn.execute(
+            "SELECT * FROM paper_approvals WHERE id = ?",
+            (approval_id,),
+        ).fetchone()
+        return {"status": "ok", "approval": _pa_row_to_dict(updated)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/approvals/{approval_id}/reject")
+def reject_paper_approval(
+    approval_id: int,
+    payload: PaperApprovalRejectRequest,
+    current_user=Depends(require_manager),
+):
+    reason = (payload.reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="Rejection reason is required")
+
+    conn = db()
+    try:
+        _pa_init_schema(conn)
+        row = conn.execute(
+            "SELECT * FROM paper_approvals WHERE id = ?",
+            (approval_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Paper approval not found")
+        if row["status"] != "pending":
+            raise HTTPException(status_code=409, detail="Paper approval is not pending")
+
+        actor = _pa_get_actor(current_user)
+        now = _pa_now()
+        conn.execute(
+            """
+            UPDATE paper_approvals
+            SET status = 'rejected',
+                updated_at = ?,
+                decided_at = ?,
+                decided_by = ?,
+                rejection_reason = ?,
+                paper_execution_status = 'not_executed'
+            WHERE id = ? AND status = 'pending'
+            """,
+            (now, now, actor, reason, approval_id),
+        )
+        # V3 PAPER: rejecting a proposal rejects its linked pending-validation order.
+        if row["order_id"] is not None:
+            conn.execute(
+                """
+                UPDATE orders
+                SET status = 'rejected', validated_by = ?, rejection_reason = ?, validated_at = ?
+                WHERE id = ? AND status = 'pending_validation'
+                """,
+                (actor, reason, now, row["order_id"]),
+            )
+        _pa_append_event(
+            conn,
+            "paper_approval_rejected",
+            approval_id,
+            {
+                "approval_id": approval_id,
+                "order_id": row["order_id"],
+                "actor": actor,
+                "reason": reason,
+                "paper_only": True,
+            },
+        )
+        conn.commit()
+        updated = conn.execute(
+            "SELECT * FROM paper_approvals WHERE id = ?",
+            (approval_id,),
+        ).fetchone()
+        return {"status": "ok", "approval": _pa_row_to_dict(updated)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/approvals/create-test")
+def create_test_paper_approval(
+    payload: PaperApprovalTestCreateRequest,
+    current_user=Depends(require_manager),
+):
+    """Creates a clearly marked test approval. This never creates an order."""
+    ticker = (payload.ticker or "TEST").strip().upper()
+    side = (payload.side or "BUY").strip().upper()
+    quantity = float(payload.quantity or 0)
+
+    if side not in ("BUY", "SELL"):
+        raise HTTPException(status_code=422, detail="Side must be BUY or SELL")
+    if quantity <= 0:
+        raise HTTPException(status_code=422, detail="Quantity must be greater than zero")
+
+    conn = db()
+    try:
+        _pa_init_schema(conn)
+        now = _pa_now()
+        actor = _pa_get_actor(current_user)
+        cursor = conn.execute(
+            """
+            INSERT INTO paper_approvals (
+                cycle_id, order_id, instrument_id, ticker, side, quantity,
+                order_type, limit_price, status, rationale, risk_snapshot,
+                source, created_at, updated_at, paper_execution_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "paper_approval_v1_smoke_test",
+                None,
+                None,
+                ticker,
+                side,
+                quantity,
+                "market",
+                None,
+                "pending",
+                payload.rationale or "Paper Approval V1 smoke test",
+                json.dumps({"mode": "test", "paper_only": True}),
+                "manual_test",
+                now,
+                now,
+                "not_executed",
+            ),
+        )
+        approval_id = int(cursor.lastrowid)
+        _pa_append_event(
+            conn,
+            "paper_approval_created",
+            approval_id,
+            {
+                "approval_id": approval_id,
+                "ticker": ticker,
+                "side": side,
+                "quantity": quantity,
+                "actor": actor,
+                "source": "manual_test",
+                "paper_only": True,
+            },
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM paper_approvals WHERE id = ?",
+            (approval_id,),
+        ).fetchone()
+        return {"status": "ok", "approval": _pa_row_to_dict(row)}
+    finally:
+        conn.close()
+
+# PAPER_APPROVAL_V1_END
+# PAPER_APPROVAL_CYCLE_ADAPTER_V2B_BEGIN
+# V2 B promotes existing pre-trade orders awaiting manager validation into durable,
+# paper-only approval records. It performs no fill, no position/cash mutation and no
+# broker call. Shadow-broker behavior remains owned by the existing execution engine.
+def _paper_approval_v2b_now():
+    return datetime.now().isoformat()
+
+
+def _paper_approval_v2b_json(value):
+    try:
+        return json.dumps(value if value is not None else {}, ensure_ascii=False, default=str)
+    except Exception:
+        return "{}"
+
+
+def _paper_approval_v2b_pending_from_db(conn):
+    summary = {
+        "created": 0,
+        "existing": 0,
+        "skipped": 0,
+        "skip_reasons": [],
+        "source_status": "pending_validation",
+    }
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                o.id AS order_id,
+                o.cycle_id AS cycle_id,
+                o.instrument_id AS instrument_id,
+                o.thesis_id AS thesis_id,
+                o.side AS side,
+                o.quantity AS quantity,
+                o.order_type AS order_type,
+                o.limit_price AS limit_price,
+                o.status AS order_status,
+                o.risk_check_result AS risk_check_result,
+                o.justification AS justification,
+                o.justification_memo AS justification_memo,
+                o.justification_generated_at AS justification_generated_at,
+                o.created_at AS order_created_at,
+                i.ticker AS ticker,
+                i.name AS instrument_name,
+                i.sector AS sector,
+                i.asset_class AS asset_class,
+                t.agent_type AS agent_type,
+                t.thesis_text AS thesis_text,
+                t.conviction_score AS conviction_score,
+                t.horizon AS horizon,
+                t.key_drivers AS key_drivers,
+                t.proposed_action AS proposed_action,
+                t.status AS thesis_status
+            FROM orders o
+            JOIN instruments i ON i.id = o.instrument_id
+            LEFT JOIN theses t ON t.id = o.thesis_id
+            WHERE LOWER(COALESCE(o.status, '')) = 'pending_validation'
+            ORDER BY o.created_at ASC, o.id ASC
+            """
+        ).fetchall()
+    except Exception as exc:
+        summary["skip_reasons"].append("query_exception:" + type(exc).__name__)
+        return summary
+
+    for row in rows:
+        data = dict(row)
+        order_id = data.get("order_id")
+        ticker = str(data.get("ticker") or "").upper().strip()
+        side = str(data.get("side") or "").upper().strip()
+        quantity = data.get("quantity")
+
+        try:
+            quantity_ok = float(quantity) > 0
+        except (TypeError, ValueError):
+            quantity_ok = False
+
+        if not order_id:
+            summary["skipped"] += 1
+            summary["skip_reasons"].append("missing_order_id")
+            continue
+        if not ticker or side not in {"BUY", "SELL"} or not quantity_ok:
+            summary["skipped"] += 1
+            summary["skip_reasons"].append("missing_ticker_side_or_positive_quantity")
+            continue
+
+        existing = conn.execute(
+            "SELECT id FROM paper_approvals WHERE order_id = ? LIMIT 1",
+            (order_id,),
+        ).fetchone()
+        if existing is not None:
+            summary["existing"] += 1
+            continue
+
+        rationale_parts = []
+        if data.get("thesis_text"):
+            rationale_parts.append(str(data["thesis_text"]).strip())
+        if data.get("justification"):
+            rationale_parts.append("Pre-trade justification: " + str(data["justification"]).strip())
+        if data.get("justification_memo"):
+            rationale_parts.append("Memo: " + str(data["justification_memo"]).strip())
+        rationale = "\n\n".join(part for part in rationale_parts if part) or "Pending manager validation generated by decision cycle."
+
+        risk_snapshot = {
+            "source_order_status": "pending_validation",
+            "order_id": order_id,
+            "cycle_id": data.get("cycle_id"),
+            "thesis_id": data.get("thesis_id"),
+            "risk_check_result": data.get("risk_check_result"),
+            "justification": data.get("justification"),
+            "justification_memo": data.get("justification_memo"),
+            "justification_generated_at": data.get("justification_generated_at"),
+            "order_created_at": data.get("order_created_at"),
+            "instrument_name": data.get("instrument_name"),
+            "sector": data.get("sector"),
+            "asset_class": data.get("asset_class"),
+            "agent_type": data.get("agent_type"),
+            "thesis_text": data.get("thesis_text"),
+            "conviction_score": data.get("conviction_score"),
+            "horizon": data.get("horizon"),
+            "key_drivers": data.get("key_drivers"),
+            "proposed_action": data.get("proposed_action"),
+            "thesis_status": data.get("thesis_status"),
+            "paper_only": True,
+            "broker_live_enabled": False,
+        }
+
+        now = _paper_approval_v2b_now()
+        cursor = conn.execute(
+            """
+            INSERT INTO paper_approvals (
+                cycle_id, order_id, instrument_id, ticker, side, quantity,
+                order_type, limit_price, status, rationale, risk_snapshot,
+                source, created_at, updated_at, paper_execution_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 'not_executed')
+            """,
+            (
+                data.get("cycle_id"),
+                order_id,
+                data.get("instrument_id"),
+                ticker,
+                side,
+                quantity,
+                data.get("order_type") or "market",
+                data.get("limit_price"),
+                rationale,
+                _paper_approval_v2b_json(risk_snapshot),
+                "cycle_adapter_v2b",
+                now,
+                now,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("paper_approval_v2b_insert_failed")
+        conn.commit()
+        summary["created"] += 1
+
+    summary["skip_reasons"] = list(dict.fromkeys(summary["skip_reasons"]))
+    return summary
+# PAPER_APPROVAL_CYCLE_ADAPTER_V2B_END
 @app.get("/api/dashboard")
 def get_dashboard():
     """Portfolio summary: total value, cash, P&L, risk metrics, positions, recent events."""
@@ -837,7 +2142,7 @@ def list_fills(limit: int = Query(50)):
 @app.post("/api/orders/execute-cycle")
 @limiter.limit("5/minute")
 def execute_cycle(request: Request, user: dict = Depends(require_manager)):
-    """Trigger a full decision cycle: agents → risk → execution → memo."""
+    """Trigger a full decision cycle: agents â†’ risk â†’ execution â†’ memo."""
     conn = db()
     try:
         from execution_engine import run_decision_cycle
@@ -908,7 +2213,204 @@ def execute_cycle(request: Request, user: dict = Depends(require_manager)):
         except Exception as _e_sh_v1:
             print(f"[SHADOW_HOOK_V1] outer error: {_e_sh_v1}")
         # ===== [SHADOW_HOOK_V1] END =====
-        return {"success": True, "cycle_result": result}
+# LEGACY_CYCLE_ADAPTER_API_V4_BEGIN
+# V2A_DISABLED: Legacy cycle adapter V4 was superseded by PAPER_APPROVAL_V1 plus PAPER_APPROVAL_CYCLE_ADAPTER_V2A.
+# The original bounded block is retained below as comments for audit and rollback.
+#
+#
+# V2A_DISABLED         # LEGACY_CYCLE_ADAPTER_API_V4_BEGIN
+# V2A_DISABLED         # Pont read-only vers ApprovalService :
+# V2A_DISABLED         # 1. adapte un cycle si run_decision_cycle retourne un cycle_id ;
+# V2A_DISABLED         # 2. sinon adapte le premier BUY approuvÃ© de result["orders"] ;
+# V2A_DISABLED         # 3. n'adapte jamais un ordre rejetÃ© ou une vente ;
+# V2A_DISABLED         # 4. ne doit jamais interrompre le cycle historique.
+# V2A_DISABLED         try:
+# V2A_DISABLED             from legacy_cycle_adapter import LegacyCycleAdapter
+#
+# V2A_DISABLED             _legacy_adapter = LegacyCycleAdapter(
+# V2A_DISABLED                 str(Path(__file__).resolve().parent / "thesium.db")
+# V2A_DISABLED             )
+#
+# V2A_DISABLED             _legacy_cycle_id = None
+# V2A_DISABLED             _legacy_order_id = None
+# V2A_DISABLED             _legacy_source = None
+#
+# V2A_DISABLED             if isinstance(result, dict):
+# V2A_DISABLED                 # A. Identifiant cycle direct.
+# V2A_DISABLED                 for _legacy_key in (
+# V2A_DISABLED                     "cycleid",
+# V2A_DISABLED                     "cycle_id",
+# V2A_DISABLED                     "decision_cycle_id",
+# V2A_DISABLED                     "run_id",
+# V2A_DISABLED                 ):
+# V2A_DISABLED                     _legacy_value = result.get(_legacy_key)
+# V2A_DISABLED                     if _legacy_value:
+# V2A_DISABLED                         _legacy_cycle_id = _legacy_value
+# V2A_DISABLED                         _legacy_source = "result." + _legacy_key
+# V2A_DISABLED                         break
+#
+# V2A_DISABLED                 # B. Cycle encapsulÃ©.
+# V2A_DISABLED                 if not _legacy_cycle_id:
+# V2A_DISABLED                     _legacy_cycle = result.get("cycle")
+# V2A_DISABLED                     if isinstance(_legacy_cycle, dict):
+# V2A_DISABLED                         for _legacy_key in (
+# V2A_DISABLED                             "cycleid",
+# V2A_DISABLED                             "cycle_id",
+# V2A_DISABLED                             "decision_cycle_id",
+# V2A_DISABLED                             "run_id",
+# V2A_DISABLED                             "id",
+# V2A_DISABLED                         ):
+# V2A_DISABLED                             _legacy_value = _legacy_cycle.get(_legacy_key)
+# V2A_DISABLED                             if _legacy_value:
+# V2A_DISABLED                                 _legacy_cycle_id = _legacy_value
+# V2A_DISABLED                                 _legacy_source = (
+# V2A_DISABLED                                     "result.cycle." + _legacy_key
+# V2A_DISABLED                                 )
+# V2A_DISABLED                                 break
+#
+# V2A_DISABLED                 # C. Fallback order_id direct.
+# V2A_DISABLED                 for _legacy_key in (
+# V2A_DISABLED                     "order_id",
+# V2A_DISABLED                     "orderid",
+# V2A_DISABLED                     "created_order_id",
+# V2A_DISABLED                 ):
+# V2A_DISABLED                     _legacy_value = result.get(_legacy_key)
+# V2A_DISABLED                     if _legacy_value:
+# V2A_DISABLED                         _legacy_order_id = _legacy_value
+# V2A_DISABLED                         _legacy_source = "result." + _legacy_key
+# V2A_DISABLED                         break
+#
+# V2A_DISABLED                 # D. Structure rÃ©elle du moteur :
+# V2A_DISABLED                 # result["orders"] = [{ticker, side, status, order_id, result}, ...]
+# V2A_DISABLED                 #
+# V2A_DISABLED                 # Ne conserve que le premier BUY approuvÃ© et proposÃ© pour
+# V2A_DISABLED                 # validation. Les rejected et SELL ne peuvent jamais devenir
+# V2A_DISABLED                 # des demandes Paper Approvals.
+# V2A_DISABLED                 if not _legacy_order_id:
+# V2A_DISABLED                     _legacy_orders = result.get("orders")
+#
+# V2A_DISABLED                     if isinstance(_legacy_orders, list):
+# V2A_DISABLED                         for _legacy_order in _legacy_orders:
+# V2A_DISABLED                             if not isinstance(_legacy_order, dict):
+# V2A_DISABLED                                 continue
+#
+# V2A_DISABLED                             _legacy_side = str(
+# V2A_DISABLED                                 _legacy_order.get("side") or ""
+# V2A_DISABLED                             ).upper()
+#
+# V2A_DISABLED                             _legacy_status = str(
+# V2A_DISABLED                                 _legacy_order.get("status") or ""
+# V2A_DISABLED                             ).lower()
+#
+# V2A_DISABLED                             _legacy_result = _legacy_order.get("result")
+# V2A_DISABLED                             if not isinstance(_legacy_result, dict):
+# V2A_DISABLED                                 _legacy_result = {}
+#
+# V2A_DISABLED                             _legacy_is_approved = (
+# V2A_DISABLED                                 _legacy_status == "approved"
+# V2A_DISABLED                                 or _legacy_result.get("status") == "approved"
+# V2A_DISABLED                                 or _legacy_result.get("pending_approval") is True
+# V2A_DISABLED                             )
+#
+# V2A_DISABLED                             _legacy_is_pending_approval = (
+# V2A_DISABLED                                 _legacy_order.get("pending_approval") is True
+# V2A_DISABLED                                 or _legacy_result.get("pending_approval") is True
+# V2A_DISABLED                             )
+#
+# V2A_DISABLED                             if _legacy_side != "BUY":
+# V2A_DISABLED                                 continue
+#
+# V2A_DISABLED                             if not _legacy_is_approved:
+# V2A_DISABLED                                 continue
+#
+# V2A_DISABLED                             if not _legacy_is_pending_approval:
+# V2A_DISABLED                                 continue
+#
+# V2A_DISABLED                             _legacy_value = (
+# V2A_DISABLED                                 _legacy_order.get("order_id")
+# V2A_DISABLED                                 or _legacy_order.get("id")
+# V2A_DISABLED                                 or _legacy_result.get("order_id")
+# V2A_DISABLED                             )
+#
+# V2A_DISABLED                             if _legacy_value:
+# V2A_DISABLED                                 _legacy_order_id = _legacy_value
+# V2A_DISABLED                                 _legacy_source = "result.orders.approved_buy"
+# V2A_DISABLED                                 break
+#
+# V2A_DISABLED             # E. ExÃ©cute l'adaptateur, toujours en paper-only.
+# V2A_DISABLED             if _legacy_cycle_id:
+# V2A_DISABLED                 _legacy_adapter_result = _legacy_adapter.adapt_cycle(
+# V2A_DISABLED                     str(_legacy_cycle_id),
+# V2A_DISABLED                     dry_run=False,
+# V2A_DISABLED                 )
+#
+# V2A_DISABLED                 _legacy_adapter_payload = _legacy_adapter_result.to_dict()
+# V2A_DISABLED                 _legacy_adapter_payload["source"] = "cycle"
+# V2A_DISABLED                 _legacy_adapter_payload["cycle_id"] = str(
+# V2A_DISABLED                     _legacy_cycle_id
+# V2A_DISABLED                 )
+# V2A_DISABLED                 _legacy_adapter_payload["cycle_id_source"] = (
+# V2A_DISABLED                     _legacy_source
+# V2A_DISABLED                 )
+#
+# V2A_DISABLED             elif _legacy_order_id:
+# V2A_DISABLED                 _legacy_adapter_result = _legacy_adapter.adapt_order(
+# V2A_DISABLED                     int(_legacy_order_id),
+# V2A_DISABLED                     dry_run=False,
+# V2A_DISABLED                 )
+#
+# V2A_DISABLED                 _legacy_adapter_payload = _legacy_adapter_result.to_dict()
+# V2A_DISABLED                 _legacy_adapter_payload["source"] = "order"
+# V2A_DISABLED                 _legacy_adapter_payload["order_id"] = int(
+# V2A_DISABLED                     _legacy_order_id
+# V2A_DISABLED                 )
+# V2A_DISABLED                 _legacy_adapter_payload["order_id_source"] = (
+# V2A_DISABLED                     _legacy_source
+# V2A_DISABLED                 )
+#
+# V2A_DISABLED             else:
+# V2A_DISABLED                 _legacy_adapter_payload = {
+# V2A_DISABLED                     "warning": "NO_CYCLE_ID_AND_NO_APPROVED_BUY_ORDER",
+# V2A_DISABLED                     "orders_seen": (
+# V2A_DISABLED                         len(result.get("orders") or [])
+# V2A_DISABLED                         if isinstance(result, dict)
+# V2A_DISABLED                         else 0
+# V2A_DISABLED                     ),
+# V2A_DISABLED                 }
+#
+# V2A_DISABLED             print(
+# V2A_DISABLED                 "[LEGACY_CYCLE_ADAPTER] "
+# V2A_DISABLED                 f"payload={_legacy_adapter_payload}"
+# V2A_DISABLED             )
+#
+# V2A_DISABLED             if isinstance(result, dict):
+# V2A_DISABLED                 result["paper_approvals_adapter"] = (
+# V2A_DISABLED                     _legacy_adapter_payload
+# V2A_DISABLED                 )
+#
+# V2A_DISABLED         except Exception as _legacy_adapter_exc:
+# V2A_DISABLED             print("[LEGACY_CYCLE_ADAPTER] warning:", _legacy_adapter_exc)
+#
+# V2A_DISABLED             if isinstance(result, dict):
+# V2A_DISABLED                 result["paper_approvals_adapter"] = {
+# V2A_DISABLED                     "warning": str(_legacy_adapter_exc),
+# V2A_DISABLED                     "exception_type": type(_legacy_adapter_exc).__name__,
+# V2A_DISABLED                 }
+# V2A_DISABLED         # LEGACY_CYCLE_ADAPTER_API_V4_END
+# LEGACY_CYCLE_ADAPTER_API_V4_END
+        paper_approval_v2 = _paper_approval_v2b_pending_from_db(conn)
+        if isinstance(result, dict):
+            result["paper_approval_v2"] = paper_approval_v2
+        pipeline_diagnostics = _paper_approval_v3_2_cycle_diagnostics(conn, result)
+        app.state.paper_approval_v3_2_last_cycle_diagnostic = pipeline_diagnostics
+        if isinstance(result, dict):
+            result["pipeline_diagnostics"] = pipeline_diagnostics
+        return {
+            "success": True,
+            "cycle_result": result,
+            "paper_approval_v2": paper_approval_v2,
+            "pipeline_diagnostics": pipeline_diagnostics,
+        }
     except Exception as e:
         conn.rollback()
         # === [EXECUTE_CYCLE_TRACE_V1] BEGIN ===
@@ -1809,7 +3311,7 @@ def get_memo_pdf(memo_id: int):
         canvas.drawString(15*mm, H - 14*mm, "NEXTONES.FINANCE")
         canvas.setFillColor(white)
         canvas.setFont("Helvetica", 8)
-        canvas.drawRightString(W - 15*mm, H - 10*mm, f"IC Memo — {memo.get('date', '')}")
+        canvas.drawRightString(W - 15*mm, H - 10*mm, f"IC Memo â€” {memo.get('date', '')}")
         canvas.drawRightString(W - 15*mm, H - 15*mm, "Paper Trading | Not Investment Advice")
         # Accent line below header
         canvas.setStrokeColor(MUTED_TEAL)
@@ -1818,7 +3320,7 @@ def get_memo_pdf(memo_id: int):
         # Footer
         canvas.setFillColor(OFFBLACK)
         canvas.setFont("Helvetica", 7)
-        canvas.drawString(15*mm, 10*mm, "Nextones Desk — AI-native fund operating system")
+        canvas.drawString(15*mm, 10*mm, "Nextones Desk â€” AI-native fund operating system")
         canvas.drawRightString(W - 15*mm, 10*mm, f"Page {doc.page}")
         canvas.restoreState()
 
@@ -2032,7 +3534,7 @@ def get_memo_pdf(memo_id: int):
             story.append(Paragraph(txt, sSmall))
             continue
 
-        # Normal paragraph — convert inline bold
+        # Normal paragraph â€” convert inline bold
         txt = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', stripped)
         story.append(Paragraph(txt, sBody))
 
@@ -2071,10 +3573,10 @@ def get_memo_pdf(memo_id: int):
             table_data = [["Ticker", "Agent", "Conviction", "Action"]]
             for ts in thesis_summaries:
                 table_data.append([
-                    Paragraph(f"<b>{ts.get('ticker', '—')}</b>", sBody),
-                    Paragraph(str(ts.get('agent', '—')), sSmall),
-                    Paragraph(f"{ts.get('conviction', '—')}/10", sBody),
-                    Paragraph(str(ts.get('action', '—')), sBody),
+                    Paragraph(f"<b>{ts.get('ticker', 'â€”')}</b>", sBody),
+                    Paragraph(str(ts.get('agent', 'â€”')), sSmall),
+                    Paragraph(f"{ts.get('conviction', 'â€”')}/10", sBody),
+                    Paragraph(str(ts.get('action', 'â€”')), sBody),
                 ])
 
             t = Table(table_data, colWidths=[55, 85, 55, None])
@@ -2100,13 +3602,13 @@ def get_memo_pdf(memo_id: int):
             story.append(Paragraph("Proposed Changes", sH2))
             table_data = [["Ticker", "Side", "Qty", "Status"]]
             for pc in proposed_changes:
-                side_str = str(pc.get('side', '—')).upper()
+                side_str = str(pc.get('side', 'â€”')).upper()
                 side_color = GREEN_OK if side_str == 'BUY' else TERRA
                 table_data.append([
-                    Paragraph(f"<b>{pc.get('ticker', '—')}</b>", sBody),
+                    Paragraph(f"<b>{pc.get('ticker', 'â€”')}</b>", sBody),
                     Paragraph(f'<font color="{side_color}">{side_str}</font>', sBody),
-                    Paragraph(str(pc.get('quantity', '—')), sBody),
-                    Paragraph(str(pc.get('status', '—')).upper(), sSmall),
+                    Paragraph(str(pc.get('quantity', 'â€”')), sBody),
+                    Paragraph(str(pc.get('status', 'â€”')).upper(), sSmall),
                 ])
 
             t = Table(table_data, colWidths=[70, 60, 60, None])
@@ -2228,7 +3730,7 @@ def _sanitize_for_json(obj):
 
 @app.get("/api/macro/vulnerability")
 def get_macro_vulnerability():
-    """US Systemic Vulnerability Dashboard — scores, signals, correlations."""
+    """US Systemic Vulnerability Dashboard â€” scores, signals, correlations."""
     try:
         data = data_macro.fetch_vulnerability_dashboard()
         clean = _sanitize_for_json(data)
@@ -2321,7 +3823,7 @@ def _geo_background_fetch():
             if not missing:
                 print("[GEO-BG] All theaters complete!")
                 return
-            print(f"[GEO-BG] Missing theaters: {', '.join(missing)} — retry {attempt}/{MAX_RETRIES} in 45s...")
+            print(f"[GEO-BG] Missing theaters: {', '.join(missing)} â€” retry {attempt}/{MAX_RETRIES} in 45s...")
             _t.sleep(45)
             data = data_geopolitical.fetch_geopolitical_risk()
             if data:
@@ -2574,8 +4076,164 @@ def get_instrument_prices(ticker: str, days: int = Query(30)):
         return {"ticker": ticker.upper(), "prices": prices}
     finally:
         conn.close()
-
-
+# PAPER_APPROVALS_API_V1_BEGIN
+# V2A_DISABLED: Duplicate legacy Paper Approvals API V1 was superseded by PAPER_APPROVAL_V1 plus PAPER_APPROVAL_CYCLE_ADAPTER_V2A.
+# The original bounded block is retained below as comments for audit and rollback.
+#
+#
+#
+#
+# V2A_DISABLED # PAPER_APPROVALS_API_V1_BEGIN
+# V2A_DISABLED # Service d'intentions paper-only isolÃ© du flux historique d'ordres.
+# V2A_DISABLED class PaperApprovalDecisionRequest(BaseModel):
+# V2A_DISABLED     note: str
+#
+#
+# V2A_DISABLED def _paper_approval_service():
+# V2A_DISABLED     from pathlib import Path as _PaperApprovalsPath
+# V2A_DISABLED     from approval_service import ApprovalService
+#
+# V2A_DISABLED     db_path = globals().get("DB_PATH") or globals().get("DB") or globals().get("DATABASE_PATH")
+# V2A_DISABLED     if not isinstance(db_path, str) or not db_path:
+# V2A_DISABLED         db_path = str(_PaperApprovalsPath(__file__).resolve().parent / "thesium.db")
+# V2A_DISABLED     service = ApprovalService(db_path)
+# V2A_DISABLED     service.initialize()
+# V2A_DISABLED     return service
+#
+#
+# V2A_DISABLED @app.get("/api/approvals/pending")
+# V2A_DISABLED def paper_approvals_pending(
+# V2A_DISABLED     limit: int = Query(100, ge=1, le=1000),
+# V2A_DISABLED     user: dict = Depends(require_manager),
+# V2A_DISABLED ):
+# V2A_DISABLED     """Liste les intentions BUY paper-only en attente d'approbation humaine."""
+# V2A_DISABLED     try:
+# V2A_DISABLED         service = _paper_approval_service()
+# V2A_DISABLED         approvals = [item.to_dict() for item in service.list_pending(limit=limit)]
+# V2A_DISABLED         return {
+# V2A_DISABLED             "approvals": approvals,
+# V2A_DISABLED             "total": len(approvals),
+# V2A_DISABLED             "execution_mode": "NONE_PAPER_ONLY",
+# V2A_DISABLED         }
+# V2A_DISABLED     except Exception as exc:
+# V2A_DISABLED         raise HTTPException(status_code=500, detail="Paper approvals pending error: %s" % exc)
+#
+#
+# V2A_DISABLED @app.get("/api/approvals/history")
+# V2A_DISABLED def paper_approvals_history(
+# V2A_DISABLED     status: str = Query(None),
+# V2A_DISABLED     limit: int = Query(100, ge=1, le=1000),
+# V2A_DISABLED     user: dict = Depends(require_manager),
+# V2A_DISABLED ):
+# V2A_DISABLED     """Historique des dÃ©cisions paper-only; aucune donnÃ©e d'ordre externe."""
+# V2A_DISABLED     try:
+# V2A_DISABLED         service = _paper_approval_service()
+# V2A_DISABLED         approvals = [item.to_dict() for item in service.list_history(status=status, limit=limit)]
+# V2A_DISABLED         return {
+# V2A_DISABLED             "approvals": approvals,
+# V2A_DISABLED             "total": len(approvals),
+# V2A_DISABLED             "execution_mode": "NONE_PAPER_ONLY",
+# V2A_DISABLED         }
+# V2A_DISABLED     except Exception as exc:
+# V2A_DISABLED         raise HTTPException(status_code=500, detail="Paper approvals history error: %s" % exc)
+#
+#
+# V2A_DISABLED @app.get("/api/approvals/audit/verify")
+# V2A_DISABLED def paper_approvals_audit_verify(user: dict = Depends(require_manager)):
+# V2A_DISABLED     """VÃ©rifie les hashes des Ã©vÃ©nements d'approbation paper-only."""
+# V2A_DISABLED     try:
+# V2A_DISABLED         return _paper_approval_service().verify_audit_chain()
+# V2A_DISABLED     except Exception as exc:
+# V2A_DISABLED         raise HTTPException(status_code=500, detail="Paper approvals audit error: %s" % exc)
+#
+#
+# V2A_DISABLED @app.get("/api/approvals/{approval_id}")
+# V2A_DISABLED def paper_approval_detail(approval_id: str, user: dict = Depends(require_manager)):
+# V2A_DISABLED     try:
+# V2A_DISABLED         return _paper_approval_service().get(approval_id).to_dict()
+# V2A_DISABLED     except Exception as exc:
+# V2A_DISABLED         if exc.__class__.__name__ == "ApprovalNotFoundError":
+# V2A_DISABLED             raise HTTPException(status_code=404, detail=str(exc))
+# V2A_DISABLED         raise HTTPException(status_code=500, detail="Paper approval detail error: %s" % exc)
+#
+#
+# V2A_DISABLED @app.post("/api/approvals/{approval_id}/approve")
+# V2A_DISABLED def paper_approval_approve(
+# V2A_DISABLED     approval_id: str,
+# V2A_DISABLED     body: PaperApprovalDecisionRequest,
+# V2A_DISABLED     user: dict = Depends(require_manager),
+# V2A_DISABLED ):
+# V2A_DISABLED     """Approuve une intention paper-only; aucune action de marchÃ© n'est dÃ©clenchÃ©e."""
+# V2A_DISABLED     note = (body.note or "").strip()
+# V2A_DISABLED     if not note:
+# V2A_DISABLED         raise HTTPException(status_code=400, detail="Le motif d'approbation est obligatoire")
+# V2A_DISABLED     try:
+# V2A_DISABLED         username = str(user.get("username") or user.get("email") or "unknown")
+# V2A_DISABLED         approval = _paper_approval_service().approve(approval_id, username, note)
+# V2A_DISABLED         return {
+# V2A_DISABLED             "success": True,
+# V2A_DISABLED             "approval": approval.to_dict(),
+# V2A_DISABLED             "message": "Intention paper-only approuvÃ©e. Aucun ordre broker crÃ©Ã©.",
+# V2A_DISABLED             "execution_mode": "NONE_PAPER_ONLY",
+# V2A_DISABLED         }
+# V2A_DISABLED     except Exception as exc:
+# V2A_DISABLED         if exc.__class__.__name__ == "ApprovalNotFoundError":
+# V2A_DISABLED             raise HTTPException(status_code=404, detail=str(exc))
+# V2A_DISABLED         raise HTTPException(status_code=400, detail="Paper approval approve error: %s" % exc)
+#
+#
+# V2A_DISABLED @app.post("/api/approvals/{approval_id}/reject")
+# V2A_DISABLED def paper_approval_reject(
+# V2A_DISABLED     approval_id: str,
+# V2A_DISABLED     body: PaperApprovalDecisionRequest,
+# V2A_DISABLED     user: dict = Depends(require_manager),
+# V2A_DISABLED ):
+# V2A_DISABLED     """Refuse une intention paper-only; un motif est obligatoire."""
+# V2A_DISABLED     note = (body.note or "").strip()
+# V2A_DISABLED     if not note:
+# V2A_DISABLED         raise HTTPException(status_code=400, detail="Le motif de rejet est obligatoire")
+# V2A_DISABLED     try:
+# V2A_DISABLED         username = str(user.get("username") or user.get("email") or "unknown")
+# V2A_DISABLED         approval = _paper_approval_service().reject(approval_id, username, note)
+# V2A_DISABLED         return {
+# V2A_DISABLED             "success": True,
+# V2A_DISABLED             "approval": approval.to_dict(),
+# V2A_DISABLED             "message": "Intention paper-only refusÃ©e. Aucun ordre broker crÃ©Ã©.",
+# V2A_DISABLED             "execution_mode": "NONE_PAPER_ONLY",
+# V2A_DISABLED         }
+# V2A_DISABLED     except Exception as exc:
+# V2A_DISABLED         if exc.__class__.__name__ == "ApprovalNotFoundError":
+# V2A_DISABLED             raise HTTPException(status_code=404, detail=str(exc))
+# V2A_DISABLED         raise HTTPException(status_code=400, detail="Paper approval reject error: %s" % exc)
+#
+#
+# V2A_DISABLED @app.post("/api/approvals/{approval_id}/cancel")
+# V2A_DISABLED def paper_approval_cancel(
+# V2A_DISABLED     approval_id: str,
+# V2A_DISABLED     body: PaperApprovalDecisionRequest,
+# V2A_DISABLED     user: dict = Depends(require_manager),
+# V2A_DISABLED ):
+# V2A_DISABLED     """Annule une intention PENDING paper-only; aucune action de marchÃ© n'est dÃ©clenchÃ©e."""
+# V2A_DISABLED     note = (body.note or "").strip()
+# V2A_DISABLED     if not note:
+# V2A_DISABLED         raise HTTPException(status_code=400, detail="Le motif d'annulation est obligatoire")
+# V2A_DISABLED     try:
+# V2A_DISABLED         username = str(user.get("username") or user.get("email") or "unknown")
+# V2A_DISABLED         approval = _paper_approval_service().cancel(approval_id, username, note)
+# V2A_DISABLED         return {
+# V2A_DISABLED             "success": True,
+# V2A_DISABLED             "approval": approval.to_dict(),
+# V2A_DISABLED             "message": "Intention paper-only annulÃ©e. Aucun ordre broker crÃ©Ã©.",
+# V2A_DISABLED             "execution_mode": "NONE_PAPER_ONLY",
+# V2A_DISABLED         }
+# V2A_DISABLED     except Exception as exc:
+# V2A_DISABLED         if exc.__class__.__name__ == "ApprovalNotFoundError":
+# V2A_DISABLED             raise HTTPException(status_code=404, detail=str(exc))
+# V2A_DISABLED         raise HTTPException(status_code=400, detail="Paper approval cancel error: %s" % exc)
+# V2A_DISABLED # PAPER_APPROVALS_API_V1_END
+#
+#
+# PAPER_APPROVALS_API_V1_END
 @app.get("/api/health")
 def health_check():
     """Health check endpoint."""
@@ -2591,6 +4249,182 @@ def health_check():
         raise HTTPException(status_code=503, detail=str(e))
     finally:
         conn.close()
+
+
+
+import time
+
+
+# ---------------------------------------------------------------------------
+# [API_VERSION_ENDPOINT_V1] GET /api/version
+#
+# Repond a la question qui a coute trois diagnostics le 2026-09-03 :
+# "le patch que je viens d'appliquer est-il reellement charge ?"
+#
+# Python n'importe un module qu'une fois par processus. Un fichier
+# modifie apres le demarrage reste inactif jusqu'au redemarrage.
+# Le champ "stale" de chaque module signale ce cas.
+#
+# Non protege, comme /api/health : diagnostiquer ne doit pas exiger
+# de token. N'expose ni donnee de portefeuille, ni secret, ni chemin
+# absolu (basename uniquement).
+# ---------------------------------------------------------------------------
+
+_NX_PROC_START = time.time()
+
+_NX_TRACKED_MODULES = (
+    "market_regime_v1",
+    "execution_engine",
+    "memo_generator",
+    "backtest_engine",
+    "risk_pretrade",
+    "risk_pretrade_v2",
+    "shadow_engine",
+    "justification_builder",
+    "models",
+    "api_server",
+    "api_server_with_static",
+)
+
+_NX_MARKER_RE = __import__("re").compile(r"\[([A-Z][A-Z0-9_]*V\d+)\]")
+
+
+def _nx_module_report():
+    """Marqueurs et fraicheur des modules metier CHARGES en memoire."""
+    import os as _os
+    import sys as _sys
+
+    out = []
+    for _name in _NX_TRACKED_MODULES:
+        _mod = _sys.modules.get(_name)
+        if _mod is None:
+            out.append({
+                "module": _name,
+                "loaded": False,
+                "markers": [],
+                "stale": False,
+            })
+            continue
+        _f = getattr(_mod, "__file__", None)
+        _entry = {
+            "module": _name,
+            "loaded": True,
+            "file": _os.path.basename(_f) if _f else None,
+            "markers": [],
+            "marker_count": 0,
+            "mtime": None,
+            "stale": False,
+        }
+        if _f and _os.path.exists(_f):
+            try:
+                _mt = _os.path.getmtime(_f)
+                _entry["mtime"] = time.strftime(
+                    "%Y-%m-%dT%H:%M:%S", time.localtime(_mt))
+                _entry["stale"] = bool(_mt > _NX_PROC_START)
+                _src = open(_f, "rb").read().decode(
+                    "utf-8-sig", errors="replace")
+                _mk = sorted(set(_NX_MARKER_RE.findall(_src)))
+                _entry["markers"] = _mk
+                _entry["marker_count"] = len(_mk)
+            except Exception as _e:
+                _entry["error"] = str(_e)[:120]
+        out.append(_entry)
+    return out
+
+
+def _nx_db_report():
+    """Etat de la base : taille, dernier cycle, source de la grille."""
+    import os as _os
+    import sqlite3 as _sq
+
+    _rep = {"path": None, "size_mb": None, "last_cycle": None,
+            "regime_grid_source": None, "regime_grid_rows": None}
+    try:
+        _dbp = None
+        for _cand in ("DB_PATH", "DB", "DATABASE_PATH"):
+            _v = globals().get(_cand)
+            if isinstance(_v, str) and _v:
+                _dbp = _v
+                break
+        if _dbp is None:
+            _dbp = _os.environ.get("THESIUM_DB") or _os.path.join(
+                _os.path.dirname(_os.path.abspath(__file__)), "thesium.db")
+        _rep["path"] = _os.path.basename(_dbp)
+        if _os.path.exists(_dbp):
+            _rep["size_mb"] = round(_os.path.getsize(_dbp) / 1048576.0, 1)
+        _c = _sq.connect("file:%s?mode=ro" % _dbp, uri=True, timeout=5.0)
+        try:
+            _r = _c.execute(
+                "SELECT cycle_id, asset_class, regime, buy_mult, sell_mult,"
+                " created_at FROM market_regime_log ORDER BY id DESC LIMIT 2"
+            ).fetchall()
+            if _r:
+                _rep["last_cycle"] = {
+                    "cycle_id": _r[0][0],
+                    "created_at": _r[0][5],
+                    "regimes": [
+                        {"asset_class": _x[1], "regime": _x[2],
+                         "buy_mult": _x[3], "sell_mult": _x[4]}
+                        for _x in _r
+                    ],
+                }
+            _n = _c.execute(
+                "SELECT COUNT(1) FROM regime_multiplier_config"
+                " WHERE active = 1").fetchone()
+            _rep["regime_grid_rows"] = int(_n[0]) if _n else 0
+            _rep["regime_grid_source"] = (
+                "regime_multiplier_config" if _rep["regime_grid_rows"]
+                else "fallback_hardcoded")
+        finally:
+            _c.close()
+    except Exception as _e:
+        _rep["error"] = str(_e)[:120]
+    return _rep
+
+
+@app.get("/api/version")
+def get_version():
+    """
+    Version, identite du processus et fraicheur des modules charges.
+
+    Champ cle : stale_modules. S'il est non vide, un fichier a ete
+    modifie apres le demarrage du processus et le correctif n'est PAS
+    actif -> redemarrer le serveur.
+    """
+    import os as _os
+    import sys as _sys
+
+    _mods = _nx_module_report()
+    _stale = [m["module"] for m in _mods if m.get("stale")]
+    _entry = "unknown"
+    if "api_server_with_static" in _sys.modules:
+        _entry = "api_server_with_static"
+    elif "api_server" in _sys.modules:
+        _entry = "api_server"
+
+    _total = sum(m.get("marker_count", 0) for m in _mods)
+
+    return {
+        "service": "Nextones.finance API",
+        "api_version": getattr(app, "version", None),
+        "marker": "API_VERSION_ENDPOINT_V1",
+        "process": {
+            "pid": _os.getpid(),
+            "started_at": time.strftime(
+                "%Y-%m-%dT%H:%M:%S", time.localtime(_NX_PROC_START)),
+            "uptime_seconds": int(time.time() - _NX_PROC_START),
+            "python": _sys.version.split()[0],
+            "entrypoint": _entry,
+        },
+        "timestamp_local": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "timestamp_utc": datetime.utcnow().isoformat(),
+        "modules": _mods,
+        "marker_total": _total,
+        "stale_modules": _stale,
+        "restart_required": bool(_stale),
+        "db": _nx_db_report(),
+    }
+# Fin [API_VERSION_ENDPOINT_V1] ------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -2622,7 +4456,7 @@ def get_me(user: dict = Depends(get_current_user)):
 
 
 # ---------------------------------------------------------------------------
-# Admin — User management (admin-only)
+# Admin â€” User management (admin-only)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/admin/users")
@@ -2709,7 +4543,7 @@ def scheduler_status():
     """Return scheduler job status."""
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
-        # Access the scheduler through the lifespan — we store it on app.state
+        # Access the scheduler through the lifespan â€” we store it on app.state
         sched = getattr(app.state, '_scheduler', None)
         if not sched:
             return {"status": "no_scheduler", "jobs": []}
@@ -3475,6 +5309,36 @@ def risk_pretrade_recent(limit: int = 20):
     return {"items": items, "count": len(items),
             "marker": "[RISK_CONTROLS_API_V1]"}
 
+
+
+# STATIC_FRONTEND_V1_BEGIN
+# Sert le dashboard local et ses assets sans intercepter les routes /api/*.
+from pathlib import Path as _StaticFrontendPath
+from fastapi.responses import FileResponse as _StaticFrontendFileResponse
+from fastapi.staticfiles import StaticFiles as _StaticFrontendStaticFiles
+
+_STATIC_FRONTEND_ROOT = _StaticFrontendPath(__file__).resolve().parent
+
+
+@app.get("/", include_in_schema=False)
+def static_frontend_home():
+    index_path = _STATIC_FRONTEND_ROOT / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(
+            status_code=500,
+            detail="Frontend index.html introuvable",
+        )
+    return _StaticFrontendFileResponse(index_path)
+
+
+app.mount(
+    "/static",
+    _StaticFrontendStaticFiles(directory=str(_STATIC_FRONTEND_ROOT)),
+    name="thesium-static-assets",
+)
+# STATIC_FRONTEND_V1_END
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
@@ -3857,3 +5721,10 @@ def universe_scan(
         import traceback; traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 # [API_UNIVERSE_V2_END]
+
+
+
+
+
+
+

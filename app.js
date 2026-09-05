@@ -1,5 +1,5 @@
-/**
- * app.js — Nextones Desk frontend application
+﻿/**
+ * app.js â€” Nextones Desk frontend application
  * Vanilla JS, no frameworks. Tab routing, API calls, chart rendering.
  */
 
@@ -137,7 +137,7 @@ window.fetch = async function(url, opts) {
     orders.forEach(o => {
       if (o.status === 'pending_validation') {
         o.status = 'rejected';
-        o.reject_reason = body.reason || 'Rejeté en masse';
+        o.reject_reason = body.reason || 'RejetÃ© en masse';
         count++;
       }
     });
@@ -172,7 +172,7 @@ window.fetch = async function(url, opts) {
     const order = orders.find(o => o.id === orderId);
     if (order) {
       order.status = 'rejected';
-      order.reject_reason = body.reason || 'Rejeté';
+      order.reject_reason = body.reason || 'RejetÃ©';
     }
     window.MOCK_API_DATA['/api/orders'] = {orders};
     return _mockResp({status: 'ok', order_id: orderId, new_status: 'rejected'});
@@ -185,12 +185,12 @@ window.fetch = async function(url, opts) {
     return _mockResp({orders: pending});
   }
 
-  // ---------- ADMIN USERS (PUT — change role / toggle active) ----------
+  // ---------- ADMIN USERS (PUT â€” change role / toggle active) ----------
   if (path.match(/\/api\/admin\/users\/\d+$/) && method === 'PUT') {
-    return _mockResp({status: 'ok', message: 'Utilisateur mis à jour'});
+    return _mockResp({status: 'ok', message: 'Utilisateur mis Ã  jour'});
   }
 
-  // ---------- ADMIN USERS (POST — create user) ----------
+  // ---------- ADMIN USERS (POST â€” create user) ----------
   if (path === '/api/admin/users' && method === 'POST') {
     const body = opts && opts.body ? JSON.parse(opts.body) : {};
     return _mockResp({status: 'ok', user: {id: 99, username: body.username, role: body.role, is_active: 1}});
@@ -226,17 +226,17 @@ window.fetch = async function(url, opts) {
       global_score: 5.8,
       previous_score: 5.5,
       regime: "Surveillance active",
-      regime_detail: "Hausse modérée du score — conditions de marché sous tension",
+      regime_detail: "Hausse modÃ©rÃ©e du score â€” conditions de marchÃ© sous tension",
       sub_scores: [
         { name: "DebtScore", value: 6.2, previous: 5.8, weight: 0.30, description: "Spread HY + leverage corporate + dette souveraine" },
-        { name: "PriceFXScore", value: 5.5, previous: 5.3, weight: 0.25, description: "CPI + PPI + DXY + taux réels" },
-        { name: "JobsScore", value: 5.0, previous: 5.1, weight: 0.25, description: "NFP + chômage + demandes initiales" },
+        { name: "PriceFXScore", value: 5.5, previous: 5.3, weight: 0.25, description: "CPI + PPI + DXY + taux rÃ©els" },
+        { name: "JobsScore", value: 5.0, previous: 5.1, weight: 0.25, description: "NFP + chÃ´mage + demandes initiales" },
         { name: "IAScore", value: 6.5, previous: 6.0, weight: 0.20, description: "ISM PMI + confiance consommateur + leading indicators" }
       ],
       alerts: [
-        { severity: "warning", message: "DebtScore en hausse sur 3 mois consécutifs (+0.4pt)", date: "2026-03-01" },
-        { severity: "info", message: "HY Spread à 385 bps — seuil d'alerte 400 bps", date: "2026-03-03" },
-        { severity: "warning", message: "PriceFXScore accélération détectée : +0.2pt en 1 mois", date: "2026-03-01" }
+        { severity: "warning", message: "DebtScore en hausse sur 3 mois consÃ©cutifs (+0.4pt)", date: "2026-03-01" },
+        { severity: "info", message: "HY Spread Ã  385 bps â€” seuil d'alerte 400 bps", date: "2026-03-03" },
+        { severity: "warning", message: "PriceFXScore accÃ©lÃ©ration dÃ©tectÃ©e : +0.2pt en 1 mois", date: "2026-03-01" }
       ],
       correlation_summary: {
         corr_btc_24m: 0.342,
@@ -293,8 +293,8 @@ window.fetch = async function(url, opts) {
         hy_delta_30d: 12,
         thresholds: {
           risk_on: "< 300 bps",
-          neutral: "300–400 bps",
-          risk_off: "400–500 bps",
+          neutral: "300â€“400 bps",
+          risk_off: "400â€“500 bps",
           stress: "> 500 bps"
         },
         ccc_oas: 882,
@@ -303,10 +303,10 @@ window.fetch = async function(url, opts) {
         ccc_color: "#F4B942",
         ccc_thresholds: {
           sain: "< 700 bps",
-          attention: "700–868 bps",
-          stress_naissant: "868–944 bps",
-          stress_modere: "944–1050 bps",
-          risk_off_total: "1050–1100 bps",
+          attention: "700â€“868 bps",
+          stress_naissant: "868â€“944 bps",
+          stress_modere: "944â€“1050 bps",
+          risk_off_total: "1050â€“1100 bps",
           crise: "> 1100 bps"
         }
       },
@@ -327,13 +327,13 @@ window.fetch = async function(url, opts) {
     });
   }
 
-  // ── IC Memos ──
+  // â”€â”€ IC Memos â”€â”€
     if (path.startsWith('/api/memos') && method === 'GET') {
       const memosData = [
         { id: 1, title: "IC Memo \u2014 Rotation sectorielle Q1 2026", author: "R. Gu\u00e9lin", date: "2026-03-01", status: "published",
           summary: "Rotation d\u00e9fensive en cours. Surpond\u00e9rer Financials/Energy, sous-pond\u00e9rer Tech growth. GlobalScore 5.8, DebtScore 6.2.",
           tags: ["rotation", "macro", "Q1-2026"],
-          body: "## Synth\u00e8se Ex\u00e9cutive\n\nLe score macro global en hausse \u00e0 **5.8** (+0.3 vs mois pr\u00e9c\u00e9dent) sugg\u00e8re un environnement de stress mod\u00e9r\u00e9 mais croissant. Les spreads HY s\u2019\u00e9largissent significativement (+45bps sur 1M), signal historiquement pr\u00e9curseur d\u2019une rotation d\u00e9fensive. L\u2019analyse cross-asset confirme une d\u00e9corr\u00e9lation croissante entre les secteurs cycliques et d\u00e9fensifs.\n\n**Conviction : FORTE** \u2014 Horizon 3-6 mois\n\n## Tableau de bord macro\n\n| Indicateur | Valeur | Variation 1M | Signal |\n|---|---|---|---|\n| GlobalScore | 5.8 | +0.3 | ⚠\ufe0f Stress mod\u00e9r\u00e9 |\n| DebtScore | 6.2 | +0.5 | \ud83d\udfe1 Seuil d\u2019alerte |\n| FXScore | 4.1 | -0.2 | \ud83d\udfe2 Neutre |\n| VolatilityScore | 5.5 | +0.8 | ⚠\ufe0f En hausse |\n| LiquidityScore | 4.8 | +0.1 | \ud83d\udfe2 Stable |\n| PriceFXScore | 3.9 | -0.1 | \ud83d\udfe2 Neutre |\n\n## Analyse sectorielle d\u00e9taill\u00e9e\n\n### Secteurs \u00e0 surpond\u00e9rer\n- **Financials (XLF)** : Spread bancaire en expansion, JPM/GS b\u00e9n\u00e9ficient de la courbe des taux. P/E attractif \u00e0 11.8x vs 18.5x historique.\n- **Energy (XLE)** : Crude \u00e0 $78, support technique solide. XOM offre un yield de 3.2% avec un FCF yield de 8.5%.\n- **Healthcare (XLV)** : Caract\u00e8re d\u00e9fensif confirm\u00e9, beta 0.72 en p\u00e9riode de stress.\n\n### Secteurs \u00e0 sous-pond\u00e9rer\n- **Tech Growth (NDX)** : P/E forward \u00e0 32x, taux r\u00e9els en hausse. Duration longue vuln\u00e9rable.\n- **Consumer Discretionary (XLY)** : TSLA poids lourd en faiblesse (-13% unrealized), confiance consommateur en baisse.\n\n## Matrice de risque\n\n| Sc\u00e9nario | Probabilit\u00e9 | Impact PnL | Action |\n|---|---|---|---|\n| Soft landing | 45% | +3-5% | Maintenir allocation |\n| R\u00e9cession mod\u00e9r\u00e9e | 30% | -8-12% | Activer hedging |\n| Hard landing | 15% | -15-20% | Couper 50% equity |\n| Rebond rapide | 10% | +8-12% | Renforcer growth |\n\n## Plan d\u2019action d\u00e9taill\u00e9\n\n1. **R\u00e9duire QQQ** de 20% (actuellement 15% du PF \u2192 12%)\n2. **Renforcer JPM** de +5% (PE 11.8x, yield 2.3%)\n3. **Renforcer XOM** de +3% (FCF yield 8.5%, support $72)\n4. **Stop-loss TSLA** \u00e0 -8% ($230 \u2014 ATR 2x)\n5. **Initier position XLV** \u00e0 3% du PF\n6. **R\u00e9viser** dans 2 semaines ou si GlobalScore > 6.5\n\n## Risques identifi\u00e9s\n- Fed dot plot plus hawkish que pr\u00e9vu (FOMC 19 mars)\n- G\u00e9opolitique : escalade Mo-Orient (impact Energy)\n- Earnings NVDA le 26 f\u00e9v pourraient invalider la th\u00e8se anti-tech" },
+          body: "## Synth\u00e8se Ex\u00e9cutive\n\nLe score macro global en hausse \u00e0 **5.8** (+0.3 vs mois pr\u00e9c\u00e9dent) sugg\u00e8re un environnement de stress mod\u00e9r\u00e9 mais croissant. Les spreads HY s\u2019\u00e9largissent significativement (+45bps sur 1M), signal historiquement pr\u00e9curseur d\u2019une rotation d\u00e9fensive. L\u2019analyse cross-asset confirme une d\u00e9corr\u00e9lation croissante entre les secteurs cycliques et d\u00e9fensifs.\n\n**Conviction : FORTE** \u2014 Horizon 3-6 mois\n\n## Tableau de bord macro\n\n| Indicateur | Valeur | Variation 1M | Signal |\n|---|---|---|---|\n| GlobalScore | 5.8 | +0.3 | âš \ufe0f Stress mod\u00e9r\u00e9 |\n| DebtScore | 6.2 | +0.5 | \ud83d\udfe1 Seuil d\u2019alerte |\n| FXScore | 4.1 | -0.2 | \ud83d\udfe2 Neutre |\n| VolatilityScore | 5.5 | +0.8 | âš \ufe0f En hausse |\n| LiquidityScore | 4.8 | +0.1 | \ud83d\udfe2 Stable |\n| PriceFXScore | 3.9 | -0.1 | \ud83d\udfe2 Neutre |\n\n## Analyse sectorielle d\u00e9taill\u00e9e\n\n### Secteurs \u00e0 surpond\u00e9rer\n- **Financials (XLF)** : Spread bancaire en expansion, JPM/GS b\u00e9n\u00e9ficient de la courbe des taux. P/E attractif \u00e0 11.8x vs 18.5x historique.\n- **Energy (XLE)** : Crude \u00e0 $78, support technique solide. XOM offre un yield de 3.2% avec un FCF yield de 8.5%.\n- **Healthcare (XLV)** : Caract\u00e8re d\u00e9fensif confirm\u00e9, beta 0.72 en p\u00e9riode de stress.\n\n### Secteurs \u00e0 sous-pond\u00e9rer\n- **Tech Growth (NDX)** : P/E forward \u00e0 32x, taux r\u00e9els en hausse. Duration longue vuln\u00e9rable.\n- **Consumer Discretionary (XLY)** : TSLA poids lourd en faiblesse (-13% unrealized), confiance consommateur en baisse.\n\n## Matrice de risque\n\n| Sc\u00e9nario | Probabilit\u00e9 | Impact PnL | Action |\n|---|---|---|---|\n| Soft landing | 45% | +3-5% | Maintenir allocation |\n| R\u00e9cession mod\u00e9r\u00e9e | 30% | -8-12% | Activer hedging |\n| Hard landing | 15% | -15-20% | Couper 50% equity |\n| Rebond rapide | 10% | +8-12% | Renforcer growth |\n\n## Plan d\u2019action d\u00e9taill\u00e9\n\n1. **R\u00e9duire QQQ** de 20% (actuellement 15% du PF \u2192 12%)\n2. **Renforcer JPM** de +5% (PE 11.8x, yield 2.3%)\n3. **Renforcer XOM** de +3% (FCF yield 8.5%, support $72)\n4. **Stop-loss TSLA** \u00e0 -8% ($230 \u2014 ATR 2x)\n5. **Initier position XLV** \u00e0 3% du PF\n6. **R\u00e9viser** dans 2 semaines ou si GlobalScore > 6.5\n\n## Risques identifi\u00e9s\n- Fed dot plot plus hawkish que pr\u00e9vu (FOMC 19 mars)\n- G\u00e9opolitique : escalade Mo-Orient (impact Energy)\n- Earnings NVDA le 26 f\u00e9v pourraient invalider la th\u00e8se anti-tech" },
         { id: 2, title: "IC Memo \u2014 BTC Corr\u00e9lation Signal", author: "R. Gu\u00e9lin", date: "2026-02-20", status: "published",
           summary: "Signal front-run BTC activ\u00e9. Corr\u00e9lation 24M devenue n\u00e9gative (-0.15). Historiquement 6/7 pr\u00e9curseur de mouvement majeur.",
           tags: ["crypto", "front-run", "BTC"],
@@ -349,7 +349,7 @@ window.fetch = async function(url, opts) {
         { id: 5, title: "IC Memo \u2014 Revue Hebdo S9", author: "R. Gu\u00e9lin", date: "2026-03-03", status: "published",
           summary: "PnL hebdo -990.55$ (-0.085%). Spreads HY +12bps. Financials surperforment. NFP vendredi prochain.",
           tags: ["weekly", "review", "S9"],
-          body: "## Performance hebdomadaire \u2014 Semaine 9\n\n### R\u00e9sum\u00e9 PnL\n\n| M\u00e9trique | Valeur |\n|---|---|\n| PnL hebdo | **-990.55$** (-0.085%) |\n| PnL MTD | -1,250.30$ (-0.108%) |\n| PnL YTD | +12,450.00$ (+1.07%) |\n| Sharpe annualis\u00e9 | 0.82 |\n| Max drawdown YTD | -2.3% |\n\n### Performance par position\n\n| Ticker | PnL hebdo | Poids PF | Contribution |\n|---|---|---|---|\n| JPM | +$2,150 (+5.2%) | 8.5% | +0.185% |\n| NVDA | +$1,800 (+2.1%) | 12.0% | +0.155% |\n| MSFT | +$420 (+0.5%) | 10.2% | +0.036% |\n| GOOGL | -$180 (-0.3%) | 7.8% | -0.015% |\n| AMZN | -$650 (-1.2%) | 6.5% | -0.056% |\n| META | -$980 (-2.1%) | 5.2% | -0.084% |\n| TSLA | -$2,550 (-5.0%) | 5.0% | -0.219% |\n| BTC (IBIT) | -$1,000 (-1.5%) | 6.4% | -0.086% |\n\n## Analyse march\u00e9\n\n### Points cl\u00e9s de la semaine\n- **Spreads HY** en hausse (+12bps) \u2014 3\u00e8me semaine cons\u00e9cutive d\u2019\u00e9largissement\n- **VIX** stable \u00e0 18.5 mais term structure en backwardation (stress court terme)\n- **USD/EUR** : 1.082, dollar renforc\u00e9 par anticipations Fed\n- **10Y UST** : 4.38%, +8bps sur la semaine\n\n### Flux sectoriels\n- Entr\u00e9es : Financials (+$2.1B), Energy (+$800M), Utilities (+$450M)\n- Sorties : Tech (-$3.5B), Consumer Disc. (-$1.2B)\n- ETF equity global : sorties nettes -$1.8B (2\u00e8me semaine)\n\n## Signaux actifs\n\n| Signal | Statut | Niveau | D\u00e9clench\u00e9 le |\n|---|---|---|---|\n| GlobalScore > 5.5 | \ud83d\udfe1 ACTIF | 5.8 | 2026-02-18 |\n| BTC Front-run | \ud83d\udfe0 ACTIF | -0.15 | 2026-02-20 |\n| TSLA Factor < 2.0 | \ud83d\udd34 ACTIF | 1.5 | 2026-02-12 |\n| HY Spread > +40bps/M | ⚠\ufe0f ACTIF | +45bps | 2026-02-25 |\n\n## Actions pour la semaine 10\n\n1. **Maintenir** la discipline de stops (TSLA $230, BTC $76K)\n2. **Surveiller NFP** vendredi 07/03 \u2014 consensus +185K, taux ch\u00f4mage 4.0%\n3. **Ex\u00e9cuter** la rotation Financials si JPM confirme au-dessus de $200\n4. **Pr\u00e9parer** le book options Q1 (cf. IC Memo #4)\n5. **Recalibrer** le macro dashboard lundi apr\u00e8s les donn\u00e9es FRED\n\n## Calendrier \u00e9conomique S10\n\n| Date | Heure | \u00c9v\u00e9nement | Impact attendu |\n|---|---|---|---|\n| Lun 04/03 | 16:00 | ISM Services | Mod\u00e9r\u00e9 |\n| Mar 05/03 | 14:30 | Trade Balance | Faible |\n| Mer 06/03 | 14:15 | ADP Employment | Mod\u00e9r\u00e9 |\n| Jeu 07/03 | 14:30 | Jobless Claims | Mod\u00e9r\u00e9 |\n| Ven 08/03 | 14:30 | **NFP + Unemployment** | **\u00c9lev\u00e9** |" }
+          body: "## Performance hebdomadaire \u2014 Semaine 9\n\n### R\u00e9sum\u00e9 PnL\n\n| M\u00e9trique | Valeur |\n|---|---|\n| PnL hebdo | **-990.55$** (-0.085%) |\n| PnL MTD | -1,250.30$ (-0.108%) |\n| PnL YTD | +12,450.00$ (+1.07%) |\n| Sharpe annualis\u00e9 | 0.82 |\n| Max drawdown YTD | -2.3% |\n\n### Performance par position\n\n| Ticker | PnL hebdo | Poids PF | Contribution |\n|---|---|---|---|\n| JPM | +$2,150 (+5.2%) | 8.5% | +0.185% |\n| NVDA | +$1,800 (+2.1%) | 12.0% | +0.155% |\n| MSFT | +$420 (+0.5%) | 10.2% | +0.036% |\n| GOOGL | -$180 (-0.3%) | 7.8% | -0.015% |\n| AMZN | -$650 (-1.2%) | 6.5% | -0.056% |\n| META | -$980 (-2.1%) | 5.2% | -0.084% |\n| TSLA | -$2,550 (-5.0%) | 5.0% | -0.219% |\n| BTC (IBIT) | -$1,000 (-1.5%) | 6.4% | -0.086% |\n\n## Analyse march\u00e9\n\n### Points cl\u00e9s de la semaine\n- **Spreads HY** en hausse (+12bps) \u2014 3\u00e8me semaine cons\u00e9cutive d\u2019\u00e9largissement\n- **VIX** stable \u00e0 18.5 mais term structure en backwardation (stress court terme)\n- **USD/EUR** : 1.082, dollar renforc\u00e9 par anticipations Fed\n- **10Y UST** : 4.38%, +8bps sur la semaine\n\n### Flux sectoriels\n- Entr\u00e9es : Financials (+$2.1B), Energy (+$800M), Utilities (+$450M)\n- Sorties : Tech (-$3.5B), Consumer Disc. (-$1.2B)\n- ETF equity global : sorties nettes -$1.8B (2\u00e8me semaine)\n\n## Signaux actifs\n\n| Signal | Statut | Niveau | D\u00e9clench\u00e9 le |\n|---|---|---|---|\n| GlobalScore > 5.5 | \ud83d\udfe1 ACTIF | 5.8 | 2026-02-18 |\n| BTC Front-run | \ud83d\udfe0 ACTIF | -0.15 | 2026-02-20 |\n| TSLA Factor < 2.0 | \ud83d\udd34 ACTIF | 1.5 | 2026-02-12 |\n| HY Spread > +40bps/M | âš \ufe0f ACTIF | +45bps | 2026-02-25 |\n\n## Actions pour la semaine 10\n\n1. **Maintenir** la discipline de stops (TSLA $230, BTC $76K)\n2. **Surveiller NFP** vendredi 07/03 \u2014 consensus +185K, taux ch\u00f4mage 4.0%\n3. **Ex\u00e9cuter** la rotation Financials si JPM confirme au-dessus de $200\n4. **Pr\u00e9parer** le book options Q1 (cf. IC Memo #4)\n5. **Recalibrer** le macro dashboard lundi apr\u00e8s les donn\u00e9es FRED\n\n## Calendrier \u00e9conomique S10\n\n| Date | Heure | \u00c9v\u00e9nement | Impact attendu |\n|---|---|---|---|\n| Lun 04/03 | 16:00 | ISM Services | Mod\u00e9r\u00e9 |\n| Mar 05/03 | 14:30 | Trade Balance | Faible |\n| Mer 06/03 | 14:15 | ADP Employment | Mod\u00e9r\u00e9 |\n| Jeu 07/03 | 14:30 | Jobless Claims | Mod\u00e9r\u00e9 |\n| Ven 08/03 | 14:30 | **NFP + Unemployment** | **\u00c9lev\u00e9** |" }
       ];
       // Single memo request: /api/memos/{id}
       const memoIdMatch = path.match(/\/api\/memos\/(\d+)/);
@@ -396,35 +396,35 @@ window.fetch = async function(url, opts) {
   if (path.includes('/api/geopolitical/risk') && method === 'GET') {
     return _mockResp({
       composite_score: 62,
-      regime: "Risque Élevé",
+      regime: "Risque Ã‰levÃ©",
       sub_scores: [
         { name: "Conflits actifs", score: 72, previous: 68, weight: 0.35, color: "#C00000",
           kpis: [{label:"Conflits majeurs",value:"4"},{label:"Escalade 30j",value:"+2"},{label:"Zones critiques",value:"3"}] },
         { name: "Supply Chain", score: 55, previous: 52, weight: 0.25, color: "#F4B942",
-          kpis: [{label:"Détroits à risque",value:"2"},{label:"Perturbation fret",value:"+8%"},{label:"Délais moyens",value:"+3j"}] },
-        { name: "Théâtres opérationnels", score: 65, previous: 61, weight: 0.25, color: "#E67E22",
-          kpis: [{label:"Théâtres actifs",value:"5"},{label:"Niveau alerte",value:"Orange"},{label:"Déploiements",value:"+12%"}] },
+          kpis: [{label:"DÃ©troits Ã  risque",value:"2"},{label:"Perturbation fret",value:"+8%"},{label:"DÃ©lais moyens",value:"+3j"}] },
+        { name: "ThÃ©Ã¢tres opÃ©rationnels", score: 65, previous: 61, weight: 0.25, color: "#E67E22",
+          kpis: [{label:"ThÃ©Ã¢tres actifs",value:"5"},{label:"Niveau alerte",value:"Orange"},{label:"DÃ©ploiements",value:"+12%"}] },
         { name: "Infrastructure critique", score: 48, previous: 50, weight: 0.15, color: "#9DC3E6",
-          kpis: [{label:"Incidents cyber",value:"3"},{label:"Câbles sous-marins",value:"OK"},{label:"Énergie",value:"Stable"}] }
+          kpis: [{label:"Incidents cyber",value:"3"},{label:"CÃ¢bles sous-marins",value:"OK"},{label:"Ã‰nergie",value:"Stable"}] }
       ],
       chokepoints: [
-        { name: "Détroit d'Ormuz", risk: 75, flow_pct: 21, commodity: "Pétrole" },
-        { name: "Détroit de Malacca", risk: 45, flow_pct: 25, commodity: "Commerce global" },
+        { name: "DÃ©troit d'Ormuz", risk: 75, flow_pct: 21, commodity: "PÃ©trole" },
+        { name: "DÃ©troit de Malacca", risk: 45, flow_pct: 25, commodity: "Commerce global" },
         { name: "Canal de Suez", risk: 68, flow_pct: 12, commodity: "Conteneurs" },
-        { name: "Détroit de Taïwan", risk: 58, flow_pct: 8, commodity: "Semi-conducteurs" },
+        { name: "DÃ©troit de TaÃ¯wan", risk: 58, flow_pct: 8, commodity: "Semi-conducteurs" },
         { name: "Canal de Panama", risk: 35, flow_pct: 5, commodity: "Vrac" }
       ],
       theaters: [
-        { name: "Moyen-Orient", score: 78, status: "Critique", detail: "Escalade régionale, risque pétrolier" },
-        { name: "Mer de Chine", score: 62, status: "Élevé", detail: "Tensions navales, exercices militaires" },
+        { name: "Moyen-Orient", score: 78, status: "Critique", detail: "Escalade rÃ©gionale, risque pÃ©trolier" },
+        { name: "Mer de Chine", score: 62, status: "Ã‰levÃ©", detail: "Tensions navales, exercices militaires" },
         { name: "Europe de l'Est", score: 71, status: "Critique", detail: "Conflit actif, sanctions" },
-        { name: "Afrique sub-saharienne", score: 55, status: "Modéré", detail: "Instabilité politique, coups d'État" },
-        { name: "Péninsule coréenne", score: 45, status: "Surveillance", detail: "Tests balistiques, rhétorique" }
+        { name: "Afrique sub-saharienne", score: 55, status: "ModÃ©rÃ©", detail: "InstabilitÃ© politique, coups d'Ã‰tat" },
+        { name: "PÃ©ninsule corÃ©enne", score: 45, status: "Surveillance", detail: "Tests balistiques, rhÃ©torique" }
       ],
       alerts: [
-        { severity: "critical", message: "Escalade Détroit d'Ormuz — transit pétrolier perturbé", date: "2026-03-04" },
-        { severity: "warning", message: "Exercices militaires mer de Chine du Sud — 72h", date: "2026-03-03" },
-        { severity: "info", message: "Sanctions additionnelles UE — impact modéré sur flux énergétiques", date: "2026-03-01" }
+        { severity: "critical", message: "Escalade DÃ©troit d'Ormuz â€” transit pÃ©trolier perturbÃ©", date: "2026-03-04" },
+        { severity: "warning", message: "Exercices militaires mer de Chine du Sud â€” 72h", date: "2026-03-03" },
+        { severity: "info", message: "Sanctions additionnelles UE â€” impact modÃ©rÃ© sur flux Ã©nergÃ©tiques", date: "2026-03-01" }
       ],
       score_history: [
         { date: "2025-03", composite: 38, conflicts: 42, supply_chain: 35, theaters: 40, infrastructure: 30 },
@@ -443,7 +443,7 @@ window.fetch = async function(url, opts) {
     });
   }
 
-  // ---------- GENERIC GET — match MOCK_API_DATA keys ----------
+  // ---------- GENERIC GET â€” match MOCK_API_DATA keys ----------
   if (method === 'GET') {
     if (window.MOCK_API_DATA[path] !== undefined) {
       return _mockResp(window.MOCK_API_DATA[path]);
@@ -557,7 +557,7 @@ window.fetch = async function(url, opts) {
   // ---------- CATCH-ALL for any remaining /api/ POST/PUT ----------
   // Prevents 401 from the static proxy
   if (path.startsWith('/api/') && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
-    console.warn('[MOCK] Unhandled', method, path, '— returning generic OK');
+    console.warn('[MOCK] Unhandled', method, path, 'â€” returning generic OK');
     return _mockResp({status: 'ok', message: 'Mock response'});
   }
 
@@ -590,7 +590,7 @@ const state = {
 
 /** Format a number as USD currency */
 function fmtUSD(n) {
-  if (n == null || isNaN(n)) return '—';
+  if (n == null || isNaN(n)) return 'â€”';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -601,7 +601,7 @@ function fmtUSD(n) {
 
 /** Format a large USD number with K/M/B suffix */
 function fmtUSDCompact(n) {
-  if (n == null || isNaN(n)) return '—';
+  if (n == null || isNaN(n)) return 'â€”';
   const abs = Math.abs(n);
   const sign = n < 0 ? '-' : '';
   if (abs >= 1e9) return sign + '$' + (abs / 1e9).toFixed(2) + 'B';
@@ -612,14 +612,14 @@ function fmtUSDCompact(n) {
 
 /** Format a percentage */
 function fmtPct(n, decimals = 2) {
-  if (n == null || isNaN(n)) return '—';
+  if (n == null || isNaN(n)) return 'â€”';
   const sign = n > 0 ? '+' : '';
   return sign + Number(n).toFixed(decimals) + '%';
 }
 
 /** Format a number with commas */
 function fmtNum(n, decimals = 0) {
-  if (n == null || isNaN(n)) return '—';
+  if (n == null || isNaN(n)) return 'â€”';
   return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
@@ -628,7 +628,7 @@ function fmtNum(n, decimals = 0) {
 
 /** Smart quantity format: uses up to 4 decimals for fractional quantities (crypto) */
 function fmtQty(n) {
-  if (n == null || isNaN(n)) return '—';
+  if (n == null || isNaN(n)) return 'â€”';
   const abs = Math.abs(n);
   const dec = abs < 1 ? 4 : abs < 100 ? 2 : 0;
   return new Intl.NumberFormat('en-US', {
@@ -639,7 +639,7 @@ function fmtQty(n) {
 
 /** Format a date string to readable format */
 function fmtDate(dateStr) {
-  if (!dateStr) return '—';
+  if (!dateStr) return 'â€”';
   const d = new Date(dateStr);
   if (isNaN(d)) return dateStr;
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -647,7 +647,7 @@ function fmtDate(dateStr) {
 
 /** Format datetime for activity feed */
 function fmtDatetime(dateStr) {
-  if (!dateStr) return '—';
+  if (!dateStr) return 'â€”';
   const d = new Date(dateStr);
   if (isNaN(d)) return dateStr;
   const now = new Date();
@@ -678,7 +678,7 @@ function esc(str) {
     .replace(/"/g, '&quot;');
 }
 
-/** Minimal Markdown → HTML renderer */
+/** Minimal Markdown â†’ HTML renderer */
 function renderMarkdown(md) {
   if (!md) return '<div class="empty-state">No content.</div>';
 
@@ -1004,7 +1004,7 @@ async function refreshAll() {
 }
 
 /* =====================================================
-   TODAY TAB — Dashboard + KPIs
+   TODAY TAB â€” Dashboard + KPIs
    ===================================================== */
 
 async function loadDashboard() {
@@ -1153,7 +1153,7 @@ function renderPositions(positions) {
         <td class="num mono">${fmtUSD(p.current_price)}</td>
         <td class="num mono ${colorClass(pnl)}">${fmtUSD(pnl)}</td>
         <td class="num mono ${colorClass(pnlPct)}">${fmtPct(pnlPct)}</td>
-        <td class="num mono">${weight != null ? fmtPct(weight, 1) : '—'}</td>
+        <td class="num mono">${weight != null ? fmtPct(weight, 1) : 'â€”'}</td>
       </tr>
     `;
   }).join('');
@@ -1476,7 +1476,7 @@ function resetPortfolio() {
 }
 
 /* =====================================================
-   PORTFOLIO IDÉAL — Target vs Actual weights
+   PORTFOLIO IDÃ‰AL â€” Target vs Actual weights
    Computes target portfolio from FactorAgent tilts
    ===================================================== */
 
@@ -1533,22 +1533,22 @@ function renderPortfolioIdeal() {
     const tiltInfo = tiltMap[ticker];
     let targetWeight = actualWeight; // default: same as actual
     let tiltLabel = 'Neutre';
-    let action = '—';
+    let action = 'â€”';
     let signal = 'neutral';
 
     if (tiltInfo) {
       if (tiltInfo.tilt === 'overweight') {
         targetWeight = actualWeight + 2.5;
-        tiltLabel = '▲ Surpondérer';
+        tiltLabel = 'â–² SurpondÃ©rer';
         action = 'Augmenter';
         signal = 'overweight';
       } else if (tiltInfo.tilt === 'underweight') {
         targetWeight = Math.max(0, actualWeight - 2.5);
-        tiltLabel = '▼ Sous-pondérer';
-        action = 'Réduire';
+        tiltLabel = 'â–¼ Sous-pondÃ©rer';
+        action = 'RÃ©duire';
         signal = 'underweight';
       } else {
-        tiltLabel = '— Neutre';
+        tiltLabel = 'â€” Neutre';
         action = 'Maintenir';
         signal = 'neutral';
       }
@@ -1558,7 +1558,7 @@ function renderPortfolioIdeal() {
     return { ticker, actualWeight, targetWeight, delta, tiltLabel, action, signal };
   });
 
-  // Sort by abs(delta) descending — biggest moves first
+  // Sort by abs(delta) descending â€” biggest moves first
   rows.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
 
   // Also add cash row
@@ -1597,7 +1597,7 @@ function renderPortfolioIdeal() {
       <td class="num mono">${cashWeight.toFixed(1)}%</td>
       <td class="num mono" style="font-weight:600">${cashTarget.toFixed(1)}%</td>
       <td class="num mono">${(cashTarget - cashWeight) > 0 ? '+' : ''}${(cashTarget - cashWeight).toFixed(1)}%</td>
-      <td style="font-size:var(--text-xs)">—</td>
+      <td style="font-size:var(--text-xs)">â€”</td>
       <td><span class="badge" style="background:var(--color-surface-alt,rgba(255,255,255,0.06));color:var(--color-text-muted)">BUFFER</span></td>
     </tr>
   `;
@@ -1655,7 +1655,7 @@ function renderActivityFeed(events) {
 }
 
 /* =====================================================
-   TODAY TAB — Portfolio History Chart
+   TODAY TAB â€” Portfolio History Chart
    ===================================================== */
 
 function getChartColors() {
@@ -1906,7 +1906,7 @@ async function loadTheses() {
 }
 
 function agentBadge(agent) {
-  if (!agent) return '<span class="badge badge-gray">—</span>';
+  if (!agent) return '<span class="badge badge-gray">â€”</span>';
   const lower = agent.toLowerCase();
   let cls = 'badge-gray';
   if (lower.includes('macro')) cls = 'badge-blue';
@@ -1941,7 +1941,7 @@ function convictionBar(score) {
       <div class="conviction-bar-track">
         <div class="conviction-bar-fill" style="width:${pct}%"></div>
       </div>
-      <span class="conviction-number mono">${score ?? '—'}</span>
+      <span class="conviction-number mono">${score ?? 'â€”'}</span>
     </div>
   `;
 }
@@ -1971,7 +1971,7 @@ function renderTheses(theses) {
     return `
       <tr class="clickable" data-thesis-id="${esc(t.id ?? '')}" tabindex="0" role="button" aria-label="View thesis for ${esc(t.ticker ?? '')}">
         <td>
-          <strong>${(t.asset_class === 'crypto' ? '₿ ' : '')}${esc(t.ticker ?? t.symbol ?? '')}</strong>
+          <strong>${(t.asset_class === 'crypto' ? 'â‚¿ ' : '')}${esc(t.ticker ?? t.symbol ?? '')}</strong>
           ${t.name ? `<div class="text-muted" style="font-size:var(--text-xs)">${esc(t.name)}</div>` : ''}
         </td>
         <td>${agentBadge(agentType)}</td>
@@ -2009,7 +2009,7 @@ async function openThesisDetail(id) {
 
   overlay.classList.add('open');
   panel.classList.add('open');
-  body.innerHTML = '<div class="empty-state">Loading…</div>';
+  body.innerHTML = '<div class="empty-state">Loadingâ€¦</div>';
   title.textContent = 'Thesis Detail';
 
   try {
@@ -2024,12 +2024,12 @@ function renderThesisDetail(t) {
   const title = document.getElementById('detailTitle');
   const body = document.getElementById('detailBody');
 
-  title.textContent = `${t.ticker ?? t.symbol ?? ''} — Thesis`;
+  title.textContent = `${t.ticker ?? t.symbol ?? ''} â€” Thesis`;
 
   const drivers = t.key_drivers ?? t.drivers ?? [];
   const orders = t.linked_orders ?? t.orders ?? [];
   const timeline = t.timeline ?? t.changes ?? [];
-  const conviction = t.conviction_score ?? t.conviction ?? '—';
+  const conviction = t.conviction_score ?? t.conviction ?? 'â€”';
   const agentType = t.agent_type ?? t.agent ?? '';
 
   body.innerHTML = `
@@ -2045,8 +2045,8 @@ function renderThesisDetail(t) {
         ${statusBadge(t.status)}
         <span class="badge badge-gray">Conviction: ${conviction}/10</span>
       </div>
-      <div class="meta-row"><span class="meta-key">Instrument</span><span class="meta-val mono">${esc(t.ticker ?? t.symbol ?? '—')}</span></div>
-      <div class="meta-row" style="margin-top:var(--space-2)"><span class="meta-key">Proposed Action</span><span class="meta-val">${esc(t.proposed_action ?? t.action ?? '—')}</span></div>
+      <div class="meta-row"><span class="meta-key">Instrument</span><span class="meta-val mono">${esc(t.ticker ?? t.symbol ?? 'â€”')}</span></div>
+      <div class="meta-row" style="margin-top:var(--space-2)"><span class="meta-key">Proposed Action</span><span class="meta-val">${esc(t.proposed_action ?? t.action ?? 'â€”')}</span></div>
       <div class="meta-row" style="margin-top:var(--space-2)"><span class="meta-key">Last Updated</span><span class="meta-val mono">${fmtDate(t.updated_at ?? t.last_updated)}</span></div>
     </div>
 
@@ -2135,7 +2135,7 @@ function openTickerDetail(ticker) {
   const wFin  = `tv-wf-${uid}`;
   const wProf = `tv-wp-${uid}`;
 
-  title.textContent = `${ticker} — Données Financières`;
+  title.textContent = `${ticker} â€” DonnÃ©es FinanciÃ¨res`;
 
   body.innerHTML = `
     <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4)">
@@ -2149,7 +2149,7 @@ function openTickerDetail(ticker) {
     <!-- Expandable sections -->
     <div class="tv-expand-section" style="margin-bottom:var(--space-3)">
       <button onclick="_tvLoadSection(this,'${wChart}','advanced-chart','${esc(tvSymbol)}')" class="tv-expand-btn" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:var(--space-3) var(--space-4);background:var(--color-surface-alt,rgba(255,255,255,0.04));border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer;font-size:var(--text-sm);font-weight:600;transition:background .18s ease">
-        <span style="display:flex;align-items:center;gap:var(--space-2)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Graphique Avancé</span>
+        <span style="display:flex;align-items:center;gap:var(--space-2)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Graphique AvancÃ©</span>
         <svg class="tv-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div id="${wChart}" class="tv-widget-wrap" style="height:0;overflow:hidden;transition:height .3s ease;border-radius:0 0 var(--radius-md) var(--radius-md);border:0 solid var(--color-border);border-top:none;background:var(--color-surface-alt,#1e222d)"></div>
@@ -2157,7 +2157,7 @@ function openTickerDetail(ticker) {
 
     <div class="tv-expand-section" style="margin-bottom:var(--space-3)">
       <button onclick="_tvLoadSection(this,'${wFin}','financials','${esc(tvSymbol)}')" class="tv-expand-btn" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:var(--space-3) var(--space-4);background:var(--color-surface-alt,rgba(255,255,255,0.04));border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer;font-size:var(--text-sm);font-weight:600;transition:background .18s ease">
-        <span style="display:flex;align-items:center;gap:var(--space-2)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="12" y1="3" x2="12" y2="21"/></svg> Données Fondamentales</span>
+        <span style="display:flex;align-items:center;gap:var(--space-2)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="12" y1="3" x2="12" y2="21"/></svg> DonnÃ©es Fondamentales</span>
         <svg class="tv-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div id="${wFin}" class="tv-widget-wrap" style="height:0;overflow:hidden;transition:height .3s ease;border-radius:0 0 var(--radius-md) var(--radius-md);border:0 solid var(--color-border);border-top:none;background:var(--color-surface-alt,#1e222d)"></div>
@@ -2165,7 +2165,7 @@ function openTickerDetail(ticker) {
 
     <div class="tv-expand-section" style="margin-bottom:var(--space-3)">
       <button onclick="_tvLoadSection(this,'${wProf}','symbol-profile','${esc(tvSymbol)}')" class="tv-expand-btn" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:var(--space-3) var(--space-4);background:var(--color-surface-alt,rgba(255,255,255,0.04));border:1px solid var(--color-border);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer;font-size:var(--text-sm);font-weight:600;transition:background .18s ease">
-        <span style="display:flex;align-items:center;gap:var(--space-2)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a8.38 8.38 0 0 1 13 0"/></svg> Profil Société</span>
+        <span style="display:flex;align-items:center;gap:var(--space-2)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a8.38 8.38 0 0 1 13 0"/></svg> Profil SociÃ©tÃ©</span>
         <svg class="tv-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div id="${wProf}" class="tv-widget-wrap" style="height:0;overflow:hidden;transition:height .3s ease;border-radius:0 0 var(--radius-md) var(--radius-md);border:0 solid var(--color-border);border-top:none;background:var(--color-surface-alt,#1e222d)"></div>
@@ -2194,7 +2194,7 @@ function openTickerDetail(ticker) {
           <div style="width:36px;height:36px;border-radius:var(--radius-sm);background:var(--color-accent,#3b82f6);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:14px;flex-shrink:0">${ticker.charAt(0)}</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:var(--text-sm);font-weight:700;color:${txtMain};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(d.name)}</div>
-            <div style="font-size:10px;color:${txtMuted}">${esc(ticker)} · ${esc(exchange)}</div>
+            <div style="font-size:10px;color:${txtMuted}">${esc(ticker)} Â· ${esc(exchange)}</div>
           </div>
           <div style="text-align:right;flex-shrink:0">
             <div style="font-size:var(--text-sm);font-weight:700;color:${txtMain}">$${d.price.toFixed(2)}</div>
@@ -2216,43 +2216,43 @@ function openTickerDetail(ticker) {
 /* ---- Mock financial data for custom chart/financials display ---- */
 const _mockFinancials = {
   AAPL: { name:'Apple Inc.', price:189.84, change:'+1.23%', cap:'2.95T', pe:31.2, eps:6.08, div:'0.52%', rev:'385.1B', net:'97.0B', margin:'25.2%', debt:'111.1B', cash:'162.1B', beta:1.24,
-    sector:'Technologie électronique', industry:'Équipements de télécommunications', employees:'166 K', country:'États-Unis', ceo:'Tim Cook', founded:'1976', hq:'Cupertino, CA',
-    description:"Apple, Inc. se consacre à la conception, à la fabrication et à la vente de smartphones, d'ordinateurs personnels, de tablettes, de produits portables et d'accessoires, ainsi que d'autres services connexes. Elle exerce ses activités dans les segments géographiques suivants : Amériques, Europe, Grande Chine, Japon et Reste de l'Asie-Pacifique. Le segment des Amériques comprend l'Amérique du Nord et l'Amérique du Sud. Le segment Europe comprend les pays européens, l'Inde, le Moyen-Orient et l'Afrique.",
+    sector:'Technologie Ã©lectronique', industry:'Ã‰quipements de tÃ©lÃ©communications', employees:'166 K', country:'Ã‰tats-Unis', ceo:'Tim Cook', founded:'1976', hq:'Cupertino, CA',
+    description:"Apple, Inc. se consacre Ã  la conception, Ã  la fabrication et Ã  la vente de smartphones, d'ordinateurs personnels, de tablettes, de produits portables et d'accessoires, ainsi que d'autres services connexes. Elle exerce ses activitÃ©s dans les segments gÃ©ographiques suivants : AmÃ©riques, Europe, Grande Chine, Japon et Reste de l'Asie-Pacifique. Le segment des AmÃ©riques comprend l'AmÃ©rique du Nord et l'AmÃ©rique du Sud. Le segment Europe comprend les pays europÃ©ens, l'Inde, le Moyen-Orient et l'Afrique.",
     quarterly:[{q:'Q1 2026',rev:'119.6B',eps:'2.18',surp:'+4.3%'},{q:'Q4 2025',rev:'94.9B',eps:'1.64',surp:'+2.1%'},{q:'Q3 2025',rev:'85.8B',eps:'1.40',surp:'+1.8%'},{q:'Q2 2025',rev:'84.3B',eps:'1.53',surp:'+5.2%'}],
     chart:[178,181,176,179,183,186,182,185,188,184,187,190,186,189,192,188,185,183,187,190,193,189,186,184,188,191,189,187,190,189] },
   MSFT: { name:'Microsoft Corp.', price:415.20, change:'+0.87%', cap:'3.08T', pe:36.5, eps:11.37, div:'0.72%', rev:'236.6B', net:'86.2B', margin:'36.4%', debt:'47.0B', cash:'80.0B', beta:0.89,
-    sector:'Technologie', industry:'Logiciels — Infrastructure', employees:'228 K', country:'États-Unis', ceo:'Satya Nadella', founded:'1975', hq:'Redmond, WA',
-    description:"Microsoft Corporation développe et prend en charge des logiciels, des services, des appareils et des solutions. Ses segments comprennent Productivity and Business Processes, Intelligent Cloud et More Personal Computing. L'entreprise propose Office, Exchange, SharePoint, Microsoft Teams, Office 365, Dynamics 365, LinkedIn, ainsi que la plateforme cloud Azure.",
+    sector:'Technologie', industry:'Logiciels â€” Infrastructure', employees:'228 K', country:'Ã‰tats-Unis', ceo:'Satya Nadella', founded:'1975', hq:'Redmond, WA',
+    description:"Microsoft Corporation dÃ©veloppe et prend en charge des logiciels, des services, des appareils et des solutions. Ses segments comprennent Productivity and Business Processes, Intelligent Cloud et More Personal Computing. L'entreprise propose Office, Exchange, SharePoint, Microsoft Teams, Office 365, Dynamics 365, LinkedIn, ainsi que la plateforme cloud Azure.",
     quarterly:[{q:'Q1 2026',rev:'65.6B',eps:'3.23',surp:'+3.1%'},{q:'Q4 2025',rev:'64.7B',eps:'3.30',surp:'+2.5%'},{q:'Q3 2025',rev:'56.2B',eps:'2.94',surp:'+4.0%'},{q:'Q2 2025',rev:'61.9B',eps:'2.99',surp:'+1.6%'}],
     chart:[395,398,402,399,405,408,403,410,407,412,415,410,408,413,418,415,412,409,413,416,420,417,414,411,415,418,416,413,415,415] },
   GOOGL: { name:'Alphabet Inc.', price:171.50, change:'+1.45%', cap:'2.12T', pe:24.8, eps:6.91, div:'0.45%', rev:'340.0B', net:'86.4B', margin:'25.4%', debt:'28.5B', cash:'100.7B', beta:1.05,
-    sector:'Services de communication', industry:'Internet — Contenu & Information', employees:'182 K', country:'États-Unis', ceo:'Sundar Pichai', founded:'1998', hq:'Mountain View, CA',
-    description:"Alphabet Inc. est la société mère de Google et de plusieurs autres entreprises. Les segments comprennent Google Services (Search, YouTube, Android, Chrome, Google Play, Maps, Gmail), Google Cloud (infrastructure et plateforme cloud, solutions d'IA), et Other Bets (investissements technologiques à long terme comme Waymo et Verily).",
+    sector:'Services de communication', industry:'Internet â€” Contenu & Information', employees:'182 K', country:'Ã‰tats-Unis', ceo:'Sundar Pichai', founded:'1998', hq:'Mountain View, CA',
+    description:"Alphabet Inc. est la sociÃ©tÃ© mÃ¨re de Google et de plusieurs autres entreprises. Les segments comprennent Google Services (Search, YouTube, Android, Chrome, Google Play, Maps, Gmail), Google Cloud (infrastructure et plateforme cloud, solutions d'IA), et Other Bets (investissements technologiques Ã  long terme comme Waymo et Verily).",
     quarterly:[{q:'Q1 2026',rev:'92.3B',eps:'2.14',surp:'+6.2%'},{q:'Q4 2025',rev:'96.5B',eps:'2.12',surp:'+4.8%'},{q:'Q3 2025',rev:'88.3B',eps:'1.89',surp:'+3.5%'},{q:'Q2 2025',rev:'84.7B',eps:'1.89',surp:'+2.1%'}],
     chart:[158,161,164,162,166,169,165,168,172,170,167,170,173,169,166,169,172,175,171,168,171,174,170,167,170,173,171,169,171,171] },
   NVDA: { name:'NVIDIA Corp.', price:875.30, change:'+2.31%', cap:'2.15T', pe:65.3, eps:13.40, div:'0.02%', rev:'79.8B', net:'42.6B', margin:'53.4%', debt:'11.1B', cash:'26.0B', beta:1.68,
-    sector:'Technologie', industry:'Semiconducteurs', employees:'32 K', country:'États-Unis', ceo:'Jensen Huang', founded:'1993', hq:'Santa Clara, CA',
-    description:"NVIDIA Corporation fournit des solutions de calcul visuel et accéléré. La société conçoit des GPU (processeurs graphiques) pour les marchés du gaming, des centres de données, de l'automobile et de la visualisation professionnelle. Son architecture CUDA et ses plateformes d'IA (DGX, Drive, Omniverse) en font un leader de l'intelligence artificielle.",
+    sector:'Technologie', industry:'Semiconducteurs', employees:'32 K', country:'Ã‰tats-Unis', ceo:'Jensen Huang', founded:'1993', hq:'Santa Clara, CA',
+    description:"NVIDIA Corporation fournit des solutions de calcul visuel et accÃ©lÃ©rÃ©. La sociÃ©tÃ© conÃ§oit des GPU (processeurs graphiques) pour les marchÃ©s du gaming, des centres de donnÃ©es, de l'automobile et de la visualisation professionnelle. Son architecture CUDA et ses plateformes d'IA (DGX, Drive, Omniverse) en font un leader de l'intelligence artificielle.",
     quarterly:[{q:'Q1 2026',rev:'26.0B',eps:'5.98',surp:'+8.1%'},{q:'Q4 2025',rev:'22.1B',eps:'5.16',surp:'+11.4%'},{q:'Q3 2025',rev:'18.1B',eps:'4.02',surp:'+9.8%'},{q:'Q2 2025',rev:'13.5B',eps:'2.70',surp:'+6.5%'}],
     chart:[810,825,840,835,850,860,845,855,870,865,850,860,875,870,855,865,880,875,860,870,885,880,865,870,885,875,870,875,880,875] },
-  TSLA: { name:'Tesla Inc.', price:248.50, change:'-1.82%', cap:'791B', pe:72.1, eps:3.45, div:'—', rev:'96.8B', net:'10.8B', margin:'11.2%', debt:'5.6B', cash:'29.1B', beta:2.04,
-    sector:'Biens de consommation cycliques', industry:'Constructeurs automobiles', employees:'140 K', country:'États-Unis', ceo:'Elon Musk', founded:'2003', hq:'Austin, TX',
-    description:"Tesla, Inc. conçoit, développe, fabrique, loue et vend des véhicules électriques et des systèmes de stockage d'énergie. L'entreprise opère dans deux segments : Automotive et Energy Generation & Storage. Elle produit les Model S, Model 3, Model X, Model Y, Cybertruck, ainsi que des panneaux solaires, des batteries Powerwall et Megapack.",
+  TSLA: { name:'Tesla Inc.', price:248.50, change:'-1.82%', cap:'791B', pe:72.1, eps:3.45, div:'â€”', rev:'96.8B', net:'10.8B', margin:'11.2%', debt:'5.6B', cash:'29.1B', beta:2.04,
+    sector:'Biens de consommation cycliques', industry:'Constructeurs automobiles', employees:'140 K', country:'Ã‰tats-Unis', ceo:'Elon Musk', founded:'2003', hq:'Austin, TX',
+    description:"Tesla, Inc. conÃ§oit, dÃ©veloppe, fabrique, loue et vend des vÃ©hicules Ã©lectriques et des systÃ¨mes de stockage d'Ã©nergie. L'entreprise opÃ¨re dans deux segments : Automotive et Energy Generation & Storage. Elle produit les Model S, Model 3, Model X, Model Y, Cybertruck, ainsi que des panneaux solaires, des batteries Powerwall et Megapack.",
     quarterly:[{q:'Q1 2026',rev:'25.2B',eps:'0.85',surp:'-2.1%'},{q:'Q4 2025',rev:'25.7B',eps:'0.73',surp:'-5.4%'},{q:'Q3 2025',rev:'25.2B',eps:'0.72',surp:'+1.2%'},{q:'Q2 2025',rev:'24.9B',eps:'0.52',surp:'-8.3%'}],
     chart:[270,265,260,255,262,258,252,248,255,250,245,250,258,253,248,252,260,255,250,248,245,250,255,248,242,248,252,250,248,248] },
-  AMZN: { name:'Amazon.com Inc.', price:186.40, change:'+0.95%', cap:'1.94T', pe:42.8, eps:4.36, div:'—', rev:'620.0B', net:'37.7B', margin:'6.1%', debt:'67.2B', cash:'73.4B', beta:1.15,
-    sector:'Biens de consommation cycliques', industry:'Commerce en ligne', employees:'1.52 M', country:'États-Unis', ceo:'Andy Jassy', founded:'1994', hq:'Seattle, WA',
-    description:"Amazon.com, Inc. se consacre au commerce électronique, au cloud computing (AWS), au streaming numérique et à l'intelligence artificielle. Ses segments comprennent North America, International et Amazon Web Services (AWS). L'entreprise vend des produits et services via ses sites web, ses applications et Alexa, et propose Prime, un programme d'adhésion offrant la livraison gratuite.",
+  AMZN: { name:'Amazon.com Inc.', price:186.40, change:'+0.95%', cap:'1.94T', pe:42.8, eps:4.36, div:'â€”', rev:'620.0B', net:'37.7B', margin:'6.1%', debt:'67.2B', cash:'73.4B', beta:1.15,
+    sector:'Biens de consommation cycliques', industry:'Commerce en ligne', employees:'1.52 M', country:'Ã‰tats-Unis', ceo:'Andy Jassy', founded:'1994', hq:'Seattle, WA',
+    description:"Amazon.com, Inc. se consacre au commerce Ã©lectronique, au cloud computing (AWS), au streaming numÃ©rique et Ã  l'intelligence artificielle. Ses segments comprennent North America, International et Amazon Web Services (AWS). L'entreprise vend des produits et services via ses sites web, ses applications et Alexa, et propose Prime, un programme d'adhÃ©sion offrant la livraison gratuite.",
     quarterly:[{q:'Q1 2026',rev:'170.0B',eps:'1.36',surp:'+5.5%'},{q:'Q4 2025',rev:'187.8B',eps:'1.48',surp:'+4.2%'},{q:'Q3 2025',rev:'158.9B',eps:'1.43',surp:'+3.8%'},{q:'Q2 2025',rev:'148.0B',eps:'1.26',surp:'+7.1%'}],
     chart:[175,178,180,177,182,185,181,184,186,183,180,183,186,184,181,183,186,188,185,183,185,187,184,182,185,187,185,184,186,186] },
   META: { name:'Meta Platforms Inc.', price:502.10, change:'+1.12%', cap:'1.28T', pe:27.4, eps:18.32, div:'0.40%', rev:'156.2B', net:'46.6B', margin:'29.8%', debt:'37.2B', cash:'58.3B', beta:1.22,
-    sector:'Services de communication', industry:'Internet — Contenu & Information', employees:'72 K', country:'États-Unis', ceo:'Mark Zuckerberg', founded:'2004', hq:'Menlo Park, CA',
-    description:"Meta Platforms, Inc. développe des produits permettant aux gens de se connecter et de partager via des appareils mobiles, des ordinateurs personnels et la réalité virtuelle. L'entreprise opère les plateformes Facebook, Instagram, Messenger, WhatsApp et Threads, ainsi que le segment Reality Labs (casques Quest, lunettes Ray-Ban Meta, horizon Worlds).",
+    sector:'Services de communication', industry:'Internet â€” Contenu & Information', employees:'72 K', country:'Ã‰tats-Unis', ceo:'Mark Zuckerberg', founded:'2004', hq:'Menlo Park, CA',
+    description:"Meta Platforms, Inc. dÃ©veloppe des produits permettant aux gens de se connecter et de partager via des appareils mobiles, des ordinateurs personnels et la rÃ©alitÃ© virtuelle. L'entreprise opÃ¨re les plateformes Facebook, Instagram, Messenger, WhatsApp et Threads, ainsi que le segment Reality Labs (casques Quest, lunettes Ray-Ban Meta, horizon Worlds).",
     quarterly:[{q:'Q1 2026',rev:'42.3B',eps:'5.28',surp:'+3.9%'},{q:'Q4 2025',rev:'46.7B',eps:'6.03',surp:'+6.1%'},{q:'Q3 2025',rev:'40.6B',eps:'6.03',surp:'+4.7%'},{q:'Q2 2025',rev:'39.1B',eps:'5.16',surp:'+2.3%'}],
     chart:[480,485,490,488,495,498,492,496,500,497,493,497,502,498,495,498,503,500,496,498,505,502,498,496,500,503,500,498,502,502] },
-  JPM: { name:'JPMorgan Chase & Co.', price:198.75, change:'+0.65%', cap:'571B', pe:11.8, eps:16.84, div:'2.25%', rev:'177.6B', net:'49.6B', margin:'27.9%', debt:'—', cash:'—', beta:1.08,
-    sector:'Services financiers', industry:'Banques diversifiées', employees:'309 K', country:'États-Unis', ceo:'Jamie Dimon', founded:'2000', hq:'New York, NY',
-    description:"JPMorgan Chase & Co. est un holding de services financiers. L'entreprise fournit des services bancaires d'investissement, des services financiers aux consommateurs et petites entreprises, le commerce de titres, la gestion d'actifs et la banque privée. Ses segments incluent Consumer & Community Banking, Corporate & Investment Bank, Commercial Banking et Asset & Wealth Management.",
+  JPM: { name:'JPMorgan Chase & Co.', price:198.75, change:'+0.65%', cap:'571B', pe:11.8, eps:16.84, div:'2.25%', rev:'177.6B', net:'49.6B', margin:'27.9%', debt:'â€”', cash:'â€”', beta:1.08,
+    sector:'Services financiers', industry:'Banques diversifiÃ©es', employees:'309 K', country:'Ã‰tats-Unis', ceo:'Jamie Dimon', founded:'2000', hq:'New York, NY',
+    description:"JPMorgan Chase & Co. est un holding de services financiers. L'entreprise fournit des services bancaires d'investissement, des services financiers aux consommateurs et petites entreprises, le commerce de titres, la gestion d'actifs et la banque privÃ©e. Ses segments incluent Consumer & Community Banking, Corporate & Investment Bank, Commercial Banking et Asset & Wealth Management.",
     quarterly:[{q:'Q1 2026',rev:'44.2B',eps:'4.44',surp:'+2.8%'},{q:'Q4 2025',rev:'42.8B',eps:'4.81',surp:'+4.1%'},{q:'Q3 2025',rev:'42.4B',eps:'4.37',surp:'+3.2%'},{q:'Q2 2025',rev:'41.3B',eps:'4.40',surp:'+5.0%'}],
     chart:[185,188,190,187,192,195,191,194,196,193,190,193,196,194,191,193,196,198,195,193,196,198,195,193,196,198,196,195,198,198] },
 };
@@ -2265,9 +2265,9 @@ function _getTickerFinancials(ticker) {
   const chart = [];
   let p = basePrice;
   for (let i = 0; i < 30; i++) { p += (Math.sin(seed + i) * 3); chart.push(Math.round(p*100)/100); }
-  return { name: ticker, price: basePrice, change: '+0.50%', cap: '—', pe: 18.5, eps: (basePrice/18.5).toFixed(2), div: '1.0%', rev:'—', net:'—', margin:'—', debt:'—', cash:'—', beta: 1.0,
-    sector:'—', industry:'—', employees:'—', country:'—', ceo:'—', founded:'—', hq:'—', description:'',
-    quarterly: [{q:'Q1 2026',rev:'—',eps:'—',surp:'—'},{q:'Q4 2025',rev:'—',eps:'—',surp:'—'}],
+  return { name: ticker, price: basePrice, change: '+0.50%', cap: 'â€”', pe: 18.5, eps: (basePrice/18.5).toFixed(2), div: '1.0%', rev:'â€”', net:'â€”', margin:'â€”', debt:'â€”', cash:'â€”', beta: 1.0,
+    sector:'â€”', industry:'â€”', employees:'â€”', country:'â€”', ceo:'â€”', founded:'â€”', hq:'â€”', description:'',
+    quarterly: [{q:'Q1 2026',rev:'â€”',eps:'â€”',surp:'â€”'},{q:'Q4 2025',rev:'â€”',eps:'â€”',surp:'â€”'}],
     chart: chart };
 }
 
@@ -2385,21 +2385,21 @@ function _renderCustomFinancials(containerId, ticker) {
       <table style="width:100%;border-collapse:collapse;margin-bottom:var(--space-4)">
         <thead>
           <tr style="border-bottom:1px solid var(--color-border)">
-            <th style="text-align:left;padding:var(--space-2);color:${txtMuted};font-weight:500">Métrique</th>
+            <th style="text-align:left;padding:var(--space-2);color:${txtMuted};font-weight:500">MÃ©trique</th>
             <th style="text-align:right;padding:var(--space-2);color:${txtMuted};font-weight:500">Valeur</th>
           </tr>
         </thead>
         <tbody>
           <tr><td style="padding:var(--space-2);color:${txtMain}">Capitalisation</td><td style="text-align:right;padding:var(--space-2);color:${txtMain};font-weight:600;font-variant-numeric:tabular-nums">${d.cap}</td></tr>
           <tr style="background:${bgAlt}"><td style="padding:var(--space-2);color:${txtMain}">Chiffre d'affaires (TTM)</td><td style="text-align:right;padding:var(--space-2);color:${txtMain};font-weight:600;font-variant-numeric:tabular-nums">${d.rev}</td></tr>
-          <tr><td style="padding:var(--space-2);color:${txtMain}">Résultat net (TTM)</td><td style="text-align:right;padding:var(--space-2);color:${txtMain};font-weight:600;font-variant-numeric:tabular-nums">${d.net}</td></tr>
+          <tr><td style="padding:var(--space-2);color:${txtMain}">RÃ©sultat net (TTM)</td><td style="text-align:right;padding:var(--space-2);color:${txtMain};font-weight:600;font-variant-numeric:tabular-nums">${d.net}</td></tr>
           <tr style="background:${bgAlt}"><td style="padding:var(--space-2);color:${txtMain}">Marge nette</td><td style="text-align:right;padding:var(--space-2);color:${txtMain};font-weight:600">${d.margin}</td></tr>
           <tr><td style="padding:var(--space-2);color:${txtMain}">Dette totale</td><td style="text-align:right;padding:var(--space-2);color:${txtMain};font-weight:600;font-variant-numeric:tabular-nums">${d.debt}</td></tr>
-          <tr style="background:${bgAlt}"><td style="padding:var(--space-2);color:${txtMain}">Trésorerie</td><td style="text-align:right;padding:var(--space-2);color:${txtMain};font-weight:600;font-variant-numeric:tabular-nums">${d.cash}</td></tr>
+          <tr style="background:${bgAlt}"><td style="padding:var(--space-2);color:${txtMain}">TrÃ©sorerie</td><td style="text-align:right;padding:var(--space-2);color:${txtMain};font-weight:600;font-variant-numeric:tabular-nums">${d.cash}</td></tr>
         </tbody>
       </table>
 
-      <div style="font-size:var(--text-sm);font-weight:600;color:${txtMain};margin-bottom:var(--space-2)">Résultats trimestriels</div>
+      <div style="font-size:var(--text-sm);font-weight:600;color:${txtMain};margin-bottom:var(--space-2)">RÃ©sultats trimestriels</div>
       <table style="width:100%;border-collapse:collapse">
         <thead>
           <tr style="border-bottom:1px solid var(--color-border)">
@@ -2420,7 +2420,7 @@ function _renderCustomFinancials(containerId, ticker) {
           }).join('')}
         </tbody>
       </table>
-      <div style="text-align:center;margin-top:var(--space-3);color:${txtMuted};font-size:10px">Données simulées — à titre indicatif</div>
+      <div style="text-align:center;margin-top:var(--space-3);color:${txtMuted};font-size:10px">DonnÃ©es simulÃ©es â€” Ã  titre indicatif</div>
     </div>
   `;
 }
@@ -2450,22 +2450,22 @@ function _renderCustomChart(containerId, ticker) {
           <span style="font-size:var(--text-lg);font-weight:700;color:${txtMain}">$${last.toFixed(2)}</span>
           <span style="font-size:var(--text-sm);color:${chgColor};margin-left:var(--space-2);font-weight:600">${chgSign}${chg}%</span>
         </div>
-        <span style="font-size:10px;color:${txtMuted}">30 derniers jours (simulé)</span>
+        <span style="font-size:10px;color:${txtMuted}">30 derniers jours (simulÃ©)</span>
       </div>
       <div style="flex:1;min-height:0;background:${bgSurface};border-radius:var(--radius-sm);position:relative">
         <canvas id="${canvasId}" style="width:100%;height:100%;display:block"></canvas>
       </div>
-      <div style="text-align:center;margin-top:var(--space-2);color:${txtMuted};font-size:10px">Données simulées — <a href="https://www.tradingview.com/symbols/${ticker}/" target="_blank" rel="noopener noreferrer" style="color:var(--color-accent,#3b82f6);text-decoration:none">Voir sur TradingView</a></div>
+      <div style="text-align:center;margin-top:var(--space-2);color:${txtMuted};font-size:10px">DonnÃ©es simulÃ©es â€” <a href="https://www.tradingview.com/symbols/${ticker}/" target="_blank" rel="noopener noreferrer" style="color:var(--color-accent,#3b82f6);text-decoration:none">Voir sur TradingView</a></div>
     </div>
   `;
 
-  // Defer canvas rendering — use double rAF to ensure accordion transition
+  // Defer canvas rendering â€” use double rAF to ensure accordion transition
   // has started and the container has non-zero dimensions
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       const cvs = document.getElementById(canvasId);
       if (cvs && (cvs.clientWidth === 0 || cvs.clientHeight === 0)) {
-        // Accordion not yet expanded — retry after transition completes
+        // Accordion not yet expanded â€” retry after transition completes
         setTimeout(() => _renderMiniChart(canvasId, pts, ticker), 350);
       } else {
         _renderMiniChart(canvasId, pts, ticker);
@@ -2487,13 +2487,13 @@ function _renderCustomProfile(containerId, ticker) {
   const borderColor = 'var(--color-border)';
 
   const infoRows = [
-    { label: 'Secteur', value: d.sector || '—' },
-    { label: 'Industrie', value: d.industry || '—' },
-    { label: 'PDG', value: d.ceo || '—' },
-    { label: 'Employés', value: d.employees || '—' },
-    { label: 'Siège social', value: d.hq || '—' },
-    { label: 'Pays', value: d.country || '—' },
-    { label: 'Fondation', value: d.founded || '—' },
+    { label: 'Secteur', value: d.sector || 'â€”' },
+    { label: 'Industrie', value: d.industry || 'â€”' },
+    { label: 'PDG', value: d.ceo || 'â€”' },
+    { label: 'EmployÃ©s', value: d.employees || 'â€”' },
+    { label: 'SiÃ¨ge social', value: d.hq || 'â€”' },
+    { label: 'Pays', value: d.country || 'â€”' },
+    { label: 'Fondation', value: d.founded || 'â€”' },
   ];
 
   container.innerHTML = `
@@ -2502,7 +2502,7 @@ function _renderCustomProfile(containerId, ticker) {
         <div style="width:40px;height:40px;border-radius:var(--radius-sm);background:${accent};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:var(--text-base)">${ticker.charAt(0)}</div>
         <div>
           <div style="font-size:var(--text-base);font-weight:700;color:${txtMain}">${d.name || ticker}</div>
-          <div style="color:${txtMuted};font-size:var(--text-xs)">${ticker} · ${d.sector || 'N/A'}</div>
+          <div style="color:${txtMuted};font-size:var(--text-xs)">${ticker} Â· ${d.sector || 'N/A'}</div>
         </div>
       </div>
 
@@ -2549,7 +2549,7 @@ function _tvLoadSection(btn, containerId, widgetType, tvSymbol) {
   if (container.dataset.loaded) return;
   container.dataset.loaded = '1';
 
-  // Extract raw ticker from tvSymbol (e.g. "NASDAQ:AAPL" → "AAPL")
+  // Extract raw ticker from tvSymbol (e.g. "NASDAQ:AAPL" â†’ "AAPL")
   const rawTicker = tvSymbol.includes(':') ? tvSymbol.split(':')[1] : tvSymbol;
 
   // For chart and financials, use custom built-in display (TV iframe doesn't render in sandboxed context)
@@ -2595,7 +2595,7 @@ function _injectTVWidget(containerId, widgetType, config) {
   iframe.setAttribute('frameborder', '0');
   iframe.setAttribute('scrolling', 'no');
   iframe.allow = 'clipboard-write';
-  // Do NOT add sandbox attribute — TradingView needs full access to render
+  // Do NOT add sandbox attribute â€” TradingView needs full access to render
 
   container.innerHTML = '';
   container.appendChild(iframe);
@@ -2674,7 +2674,7 @@ function renderPendingValidationPanel(orders) {
       ? '<span class="badge badge-green">PASS</span>'
       : riskOk === false
         ? '<span class="badge badge-red">FAIL</span>'
-        : '<span class="badge badge-gray">—</span>';
+        : '<span class="badge badge-gray">â€”</span>';
     const side = (o.side ?? '').toUpperCase();
     return `
       <tr id="pv-row-${o.id}">
@@ -2683,17 +2683,17 @@ function renderPendingValidationPanel(orders) {
         <td class="num mono">${fmtQty(o.quantity)}</td>
         <td class="text-muted">${esc(o.order_type ?? 'market')}</td>
         <td>${riskBadge}</td>
-        <td class="text-muted" style="font-size:var(--text-xs)">${o.thesis_id ? '#' + o.thesis_id : '—'}</td>
+        <td class="text-muted" style="font-size:var(--text-xs)">${o.thesis_id ? '#' + o.thesis_id : 'â€”'}</td>
         <td class="mono text-muted" style="font-size:var(--text-xs)">${fmtDate(o.created_at)}</td>
         <td style="white-space:nowrap">
-          <button class="btn-pass" onclick="approveOrder(${o.id})">✓ PASS</button>
-          <button class="btn-reject" onclick="showRejectForm(${o.id})">✗ REJETER</button>
+          <button class="btn-pass" onclick="approveOrder(${o.id})">âœ“ PASS</button>
+          <button class="btn-reject" onclick="showRejectForm(${o.id})">âœ— REJETER</button>
         </td>
       </tr>
       <tr id="pv-reject-form-${o.id}" style="display:none">
         <td colspan="8">
           <div class="reject-form">
-            <textarea id="pv-reason-${o.id}" placeholder="Motif de rejet obligatoire…"></textarea>
+            <textarea id="pv-reason-${o.id}" placeholder="Motif de rejet obligatoireâ€¦"></textarea>
             <div class="reject-actions">
               <button class="btn btn-ghost" style="font-size:12px" onclick="hideRejectForm(${o.id})">Annuler</button>
               <button class="btn-reject" onclick="confirmRejectOrder(${o.id})">Confirmer le rejet</button>
@@ -2708,20 +2708,20 @@ function renderPendingValidationPanel(orders) {
     <div class="pending-validation-panel">
       <div class="panel-header">
         <span class="panel-title">
-          ⏳ Ordres en attente de validation
+          â³ Ordres en attente de validation
           <span class="pending-count-badge">${orders.length}</span>
         </span>
         <div class="bulk-actions">
-          <button class="btn-approve-all" onclick="approveAllOrders()">✓ Tout valider</button>
-          <button class="btn-reject-all" onclick="showBulkRejectForm()">✗ Tout rejeter</button>
+          <button class="btn-approve-all" onclick="approveAllOrders()">âœ“ Tout valider</button>
+          <button class="btn-reject-all" onclick="showBulkRejectForm()">âœ— Tout rejeter</button>
         </div>
       </div>
       <div id="pvBulkRejectForm" style="display:none;margin-bottom:var(--space-3)">
         <div class="reject-form">
-          <textarea id="pvBulkReason" placeholder="Motif de rejet groupé obligatoire…"></textarea>
+          <textarea id="pvBulkReason" placeholder="Motif de rejet groupÃ© obligatoireâ€¦"></textarea>
           <div class="reject-actions">
             <button class="btn btn-ghost" style="font-size:12px" onclick="hideBulkRejectForm()">Annuler</button>
-            <button class="btn-reject" onclick="confirmRejectAll()">Confirmer le rejet groupé</button>
+            <button class="btn-reject" onclick="confirmRejectAll()">Confirmer le rejet groupÃ©</button>
           </div>
         </div>
       </div>
@@ -2732,11 +2732,11 @@ function renderPendingValidationPanel(orders) {
               <tr>
                 <th>Ticker</th>
                 <th>Sens</th>
-                <th class="num">Qté</th>
+                <th class="num">QtÃ©</th>
                 <th>Type</th>
                 <th>Risk Check</th>
-                <th>Source (thèse)</th>
-                <th>Créé</th>
+                <th>Source (thÃ¨se)</th>
+                <th>CrÃ©Ã©</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -2780,7 +2780,7 @@ async function confirmInlineReject(orderId) {
   }
   try {
     await apiPost(`/api/orders/${orderId}/reject`, { reason });
-    showToast('Ordre rejeté', 'info');
+    showToast('Ordre rejetÃ©', 'info');
     await loadOrders();
   } catch (err) {
     showToast('Erreur rejet : ' + err.message, 'error');
@@ -2790,7 +2790,7 @@ async function confirmInlineReject(orderId) {
 async function approveOrder(orderId) {
   try {
     await apiPost(`/api/orders/${orderId}/approve`, {});
-    showToast('Ordre validé et exécuté', 'success');
+    showToast('Ordre validÃ© et exÃ©cutÃ©', 'success');
     await Promise.all([loadOrders(), loadFills()]);
   } catch (err) {
     showToast('Erreur validation : ' + err.message, 'error');
@@ -2806,7 +2806,7 @@ async function confirmRejectOrder(orderId) {
   }
   try {
     await apiPost(`/api/orders/${orderId}/reject`, { reason });
-    showToast('Ordre rejeté', 'info');
+    showToast('Ordre rejetÃ©', 'info');
     await loadOrders();
   } catch (err) {
     showToast('Erreur rejet : ' + err.message, 'error');
@@ -2817,10 +2817,10 @@ async function approveAllOrders() {
   try {
     const result = await apiPost('/api/orders/approve-all', {});
     const n = result.total_approved ?? 0;
-    showToast(`${n} ordre(s) validé(s) et exécuté(s)`, 'success');
+    showToast(`${n} ordre(s) validÃ©(s) et exÃ©cutÃ©(s)`, 'success');
     await Promise.all([loadOrders(), loadFills()]);
   } catch (err) {
-    showToast('Erreur validation groupée : ' + err.message, 'error');
+    showToast('Erreur validation groupÃ©e : ' + err.message, 'error');
   }
 }
 
@@ -2834,10 +2834,10 @@ async function confirmRejectAll() {
   try {
     const result = await apiPost('/api/orders/reject-all', { reason });
     const n = result.total_rejected ?? 0;
-    showToast(`${n} ordre(s) rejeté(s)`, 'info');
+    showToast(`${n} ordre(s) rejetÃ©(s)`, 'info');
     await loadOrders();
   } catch (err) {
-    showToast('Erreur rejet groupé : ' + err.message, 'error');
+    showToast('Erreur rejet groupÃ© : ' + err.message, 'error');
   }
 }
 
@@ -2860,11 +2860,11 @@ function renderOrders(orders) {
     if (status === 'pending_validation') {
       statusDisplay = `<span class="badge" style="background:#f0a030;color:#fff">EN ATTENTE</span>
         <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
-          <button class="btn-pass" style="font-size:11px;padding:2px 8px" onclick="approveOrder(${o.id})">✓ PASS</button>
-          <button class="btn-reject" style="font-size:11px;padding:2px 8px" onclick="showInlineRejectForm(${o.id})">✗ REJETER</button>
+          <button class="btn-pass" style="font-size:11px;padding:2px 8px" onclick="approveOrder(${o.id})">âœ“ PASS</button>
+          <button class="btn-reject" style="font-size:11px;padding:2px 8px" onclick="showInlineRejectForm(${o.id})">âœ— REJETER</button>
         </div>
         <div id="inline-reject-${o.id}" style="display:none;margin-top:4px">
-          <textarea id="inline-reason-${o.id}" placeholder="Motif…" style="width:100%;font-size:11px;padding:4px;border-radius:4px;border:1px solid var(--color-border);background:var(--color-surface-2);color:var(--color-text);min-height:30px"></textarea>
+          <textarea id="inline-reason-${o.id}" placeholder="Motifâ€¦" style="width:100%;font-size:11px;padding:4px;border-radius:4px;border:1px solid var(--color-border);background:var(--color-surface-2);color:var(--color-text);min-height:30px"></textarea>
           <div style="display:flex;gap:4px;margin-top:2px">
             <button class="btn-reject" style="font-size:10px;padding:2px 6px" onclick="confirmInlineReject(${o.id})">Confirmer</button>
             <button class="btn btn-ghost" style="font-size:10px;padding:2px 6px" onclick="document.getElementById('inline-reject-${o.id}').style.display='none'">Annuler</button>
@@ -2877,7 +2877,7 @@ function renderOrders(orders) {
     // Rejection reason tooltip
     let rejectionNote = '';
     if (status === 'rejected' && o.rejection_reason) {
-      rejectionNote = `<br><span class="text-muted" style="font-size:10px" title="${esc(o.rejection_reason)}">&#128683; ${esc(o.rejection_reason.length > 30 ? o.rejection_reason.slice(0, 30) + '…' : o.rejection_reason)}</span>`;
+      rejectionNote = `<br><span class="text-muted" style="font-size:10px" title="${esc(o.rejection_reason)}">&#128683; ${esc(o.rejection_reason.length > 30 ? o.rejection_reason.slice(0, 30) + 'â€¦' : o.rejection_reason)}</span>`;
     }
 
     // Validated by info
@@ -2896,9 +2896,9 @@ function renderOrders(orders) {
         </td>
         <td class="num mono">${fmtQty(o.quantity ?? o.qty)}</td>
         <td class="text-muted">${esc(o.order_type ?? o.type ?? '')}</td>
-        <td class="num mono">${o.limit_price != null ? fmtUSD(o.limit_price) : '—'}</td>
+        <td class="num mono">${o.limit_price != null ? fmtUSD(o.limit_price) : 'â€”'}</td>
         <td>${statusDisplay}${rejectionNote}${validatedNote}</td>
-        <td>${typeof riskResult === 'object' && riskResult !== null ? `<span class="badge ${riskResult.approved ? 'badge-green' : 'badge-red'}">${riskResult.approved ? 'PASS' : 'FAIL'}</span>` : riskResult ? `<span class="badge ${riskClass}">${esc(String(riskResult))}</span>` : '—'}</td>
+        <td>${typeof riskResult === 'object' && riskResult !== null ? `<span class="badge ${riskResult.approved ? 'badge-green' : 'badge-red'}">${riskResult.approved ? 'PASS' : 'FAIL'}</span>` : riskResult ? `<span class="badge ${riskClass}">${esc(String(riskResult))}</span>` : 'â€”'}</td>
         <td class="mono text-muted" style="font-size:var(--text-xs)">${fmtDate(o.created_at)}</td>
       </tr>
     `;
@@ -2943,12 +2943,12 @@ function renderFills(fills) {
         </td>
         <td class="num mono">${fmtQty(f.fill_quantity ?? f.quantity ?? f.qty)}</td>
         <td class="num mono">${fmtUSD(f.fill_price ?? f.price)}</td>
-        <td class="num mono ${slippage != null && slippage > 0 ? 'text-negative' : ''}">${slippage != null ? fmtNum(slippage, 2) + ' bps' : '—'}</td>
-        <td class="num mono">${fees != null ? fmtUSD(fees) : '—'}</td>
+        <td class="num mono ${slippage != null && slippage > 0 ? 'text-negative' : ''}">${slippage != null ? fmtNum(slippage, 2) + ' bps' : 'â€”'}</td>
+        <td class="num mono">${fees != null ? fmtUSD(fees) : 'â€”'}</td>
         <td>
           ${memoId
             ? `<button class="btn btn-ghost" style="font-size:var(--text-xs);height:24px;padding:0 var(--space-2)" onclick="viewMemoById('${esc(memoId)}')">View Memo</button>`
-            : '<span class="text-muted">—</span>'}
+            : '<span class="text-muted">â€”</span>'}
         </td>
         <td class="mono text-muted" style="font-size:var(--text-xs)">${fmtDate(f.filled_at ?? f.fill_time ?? f.created_at)}</td>
       </tr>
@@ -3031,7 +3031,7 @@ async function selectMemo(id) {
   const header = document.getElementById('memoReaderHeader');
   const content = document.getElementById('memoContent');
   header.innerHTML = '<div class="skeleton skeleton-text w-3-4"></div>';
-  content.innerHTML = '<div class="empty-state">Loading…</div>';
+  content.innerHTML = '<div class="empty-state">Loadingâ€¦</div>';
 
   try {
     // Always fetch full detail (list endpoint doesn't include full_markdown)
@@ -3086,7 +3086,7 @@ function renderMemoReader(memo) {
 }
 
 /* =====================================================
-   NEW MEMO — Modal & On-demand Generation
+   NEW MEMO â€” Modal & On-demand Generation
    ===================================================== */
 
 let _memoIdCounter = 100; // start above existing IDs
@@ -3143,7 +3143,7 @@ function _genWeeklyMemo(conviction) {
     title: `IC Memo \u2014 Revue Hebdo S${weekNum}`,
     summary: `PnL total ${totalPnl >= 0 ? '+' : ''}${totalPnl.toLocaleString('en-US', {maximumFractionDigits:0})}$ (${totalPnlPct >= 0 ? '+' : ''}${totalPnlPct.toFixed(2)}%). PnL jour ${dailyPnl >= 0 ? '+' : ''}${dailyPnl.toLocaleString('en-US', {maximumFractionDigits:0})}$.`,
     tags: ['weekly', 'review', `S${weekNum}`],
-    body: `## Performance hebdomadaire \u2014 Semaine ${weekNum}\n\n### R\u00e9sum\u00e9 PnL\n\n| M\u00e9trique | Valeur |\n|---|---|\n| Portfolio Value | **$${(pf.total_value || 0).toLocaleString('en-US', {maximumFractionDigits:0})}** |\n| Cash disponible | $${(pf.cash || 0).toLocaleString('en-US', {maximumFractionDigits:0})} |\n| PnL total | **${totalPnl >= 0 ? '+' : ''}$${Math.abs(totalPnl).toLocaleString('en-US', {maximumFractionDigits:0})}** (${totalPnlPct >= 0 ? '+' : ''}${totalPnlPct.toFixed(2)}%) |\n| PnL jour | ${dailyPnl >= 0 ? '+' : ''}$${Math.abs(dailyPnl).toLocaleString('en-US', {maximumFractionDigits:0})} (${(pf.daily_pnl_pct || 0).toFixed(3)}%) |\n| VaR 95% | ${(pf.var_95 || 0).toFixed(2)}% |\n\n**Conviction : ${conviction}**\n\n### Performance par position\n\n${posTable}\n## Signaux actifs\n\n| Signal | Statut | Commentaire |\n|---|---|---|\n| GlobalScore > 5.5 | \u26a0\ufe0f ACTIF | Stress mod\u00e9r\u00e9, surveiller |\n| BTC Front-run | \ud83d\udfe0 ACTIF | Corr\u00e9lation n\u00e9gative |\n| TSLA Factor < 2.0 | \ud83d\udd34 ACTIF | R\u00e9duction recommand\u00e9e |\n\n## Actions recommand\u00e9es\n\n1. **Maintenir** la discipline de risk management\n2. **Surveiller** les prochaines publications macro\n3. **Réévaluer** les positions en perte latente > 10%\n4. **Pr\u00e9parer** les ajustements de couverture si n\u00e9cessaire`
+    body: `## Performance hebdomadaire \u2014 Semaine ${weekNum}\n\n### R\u00e9sum\u00e9 PnL\n\n| M\u00e9trique | Valeur |\n|---|---|\n| Portfolio Value | **$${(pf.total_value || 0).toLocaleString('en-US', {maximumFractionDigits:0})}** |\n| Cash disponible | $${(pf.cash || 0).toLocaleString('en-US', {maximumFractionDigits:0})} |\n| PnL total | **${totalPnl >= 0 ? '+' : ''}$${Math.abs(totalPnl).toLocaleString('en-US', {maximumFractionDigits:0})}** (${totalPnlPct >= 0 ? '+' : ''}${totalPnlPct.toFixed(2)}%) |\n| PnL jour | ${dailyPnl >= 0 ? '+' : ''}$${Math.abs(dailyPnl).toLocaleString('en-US', {maximumFractionDigits:0})} (${(pf.daily_pnl_pct || 0).toFixed(3)}%) |\n| VaR 95% | ${(pf.var_95 || 0).toFixed(2)}% |\n\n**Conviction : ${conviction}**\n\n### Performance par position\n\n${posTable}\n## Signaux actifs\n\n| Signal | Statut | Commentaire |\n|---|---|---|\n| GlobalScore > 5.5 | \u26a0\ufe0f ACTIF | Stress mod\u00e9r\u00e9, surveiller |\n| BTC Front-run | \ud83d\udfe0 ACTIF | Corr\u00e9lation n\u00e9gative |\n| TSLA Factor < 2.0 | \ud83d\udd34 ACTIF | R\u00e9duction recommand\u00e9e |\n\n## Actions recommand\u00e9es\n\n1. **Maintenir** la discipline de risk management\n2. **Surveiller** les prochaines publications macro\n3. **RÃ©Ã©valuer** les positions en perte latente > 10%\n4. **Pr\u00e9parer** les ajustements de couverture si n\u00e9cessaire`
   };
 }
 
@@ -3311,7 +3311,7 @@ async function runDecisionCycle() {
   // Daily guard: only allow one run per calendar day
   const todayStr = new Date().toISOString().slice(0, 10);
   if (_lastCycleDate === todayStr) {
-    showToast('Cycle déjà exécuté aujourd\'hui — 1 exécution par jour max.', 'warning');
+    showToast('Cycle dÃ©jÃ  exÃ©cutÃ© aujourd\'hui â€” 1 exÃ©cution par jour max.', 'warning');
     return;
   }
   const btn = document.getElementById('runCycleBtn');
@@ -3321,7 +3321,7 @@ async function runDecisionCycle() {
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="spin">
       <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
     </svg>
-    Running…
+    Runningâ€¦
   `;
 
   try {
@@ -3329,9 +3329,9 @@ async function runDecisionCycle() {
     const cycleResult = result.cycle_result ?? {};
     const pending = cycleResult.orders_pending ?? 0;
     if (pending > 0) {
-      showToast(`Cycle terminé — ${pending} ordre(s) en attente de validation`, 'info');
+      showToast(`Cycle terminÃ© â€” ${pending} ordre(s) en attente de validation`, 'info');
     } else {
-      showToast(result.message ?? 'Cycle de décision terminé', 'success');
+      showToast(result.message ?? 'Cycle de dÃ©cision terminÃ©', 'success');
     }
     // Refresh all data after cycle
     await loadTabData(state.activeTab);
@@ -3355,7 +3355,7 @@ async function runDecisionCycle() {
    MARKET INTEL TAB
    ===================================================== */
 
-// Sectors our portfolio is exposed to — used for row highlighting
+// Sectors our portfolio is exposed to â€” used for row highlighting
 const PORTFOLIO_SECTORS = new Set([
   'Technology',
   'Financials',
@@ -3385,9 +3385,9 @@ async function loadMarketIntel() {
 
 /** Return an analyst recommendation badge based on the 1-5 Finviz scale. */
 function analystBadge(recom) {
-  if (recom == null) return '<span class="badge badge-gray">—</span>';
+  if (recom == null) return '<span class="badge badge-gray">â€”</span>';
   const r = parseFloat(recom);
-  if (isNaN(r)) return '<span class="badge badge-gray">—</span>';
+  if (isNaN(r)) return '<span class="badge badge-gray">â€”</span>';
   if (r <= 1.5) return `<span class="badge badge-green" title="${r.toFixed(2)}">Strong Buy</span>`;
   if (r <= 2.5) return `<span class="badge badge-green" title="${r.toFixed(2)}" style="opacity:0.8">Buy</span>`;
   if (r <= 3.5) return `<span class="badge badge-gold" title="${r.toFixed(2)}">Hold</span>`;
@@ -3396,7 +3396,7 @@ function analystBadge(recom) {
 
 /** Format a Finviz percentage value with color span. */
 function fmtPctColored(val) {
-  if (val == null || isNaN(val)) return '<span class="text-muted">—</span>';
+  if (val == null || isNaN(val)) return '<span class="text-muted">â€”</span>';
   const color = val > 0 ? '#2ecc71' : val < 0 ? '#e74c3c' : 'inherit';
   const sign = val > 0 ? '+' : '';
   return `<span style="color:${color}">${sign}${Number(val).toFixed(2)}%</span>`;
@@ -3405,7 +3405,7 @@ function fmtPctColored(val) {
 function renderStockSignals(signals) {
   const tbody = document.getElementById('signalsBody');
   if (!signals.length) {
-    tbody.innerHTML = '<tr><td colspan="14" class="empty-state">Aucune donnée disponible</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14" class="empty-state">Aucune donnÃ©e disponible</td></tr>';
     return;
   }
 
@@ -3419,10 +3419,10 @@ function renderStockSignals(signals) {
     }
     const rsiCell = rsi != null
       ? `<span style="color:${rsiColor}">${rsi.toFixed(1)}</span>`
-      : '<span class="text-muted">—</span>';
+      : '<span class="text-muted">â€”</span>';
 
     // Target vs price coloring
-    let targetCell = '<span class="text-muted">—</span>';
+    let targetCell = '<span class="text-muted">â€”</span>';
     if (s.target != null) {
       const tColor = (s.price != null && s.target > s.price) ? '#2ecc71'
                    : (s.price != null && s.target < s.price) ? '#e74c3c'
@@ -3433,7 +3433,7 @@ function renderStockSignals(signals) {
     return `
       <tr>
         <td><a href="#" class="ticker-link" data-ticker="${esc(s.ticker)}" onclick="openTickerDetail('${esc(s.ticker)}');return false"><strong>${esc(s.ticker)}</strong></a></td>
-        <td class="mono">${s.price != null ? fmtUSD(s.price) : '—'}</td>
+        <td class="mono">${s.price != null ? fmtUSD(s.price) : 'â€”'}</td>
         <td>${fmtPctColored(s.change)}</td>
         <td class="mono">${rsiCell}</td>
         <td>${fmtPctColored(s.sma20)}</td>
@@ -3441,8 +3441,8 @@ function renderStockSignals(signals) {
         <td>${fmtPctColored(s.sma200)}</td>
         <td>${analystBadge(s.recom)}</td>
         <td class="mono">${targetCell}</td>
-        <td class="mono">${s.short_float != null ? fmtPct(s.short_float, 1) : '—'}</td>
-        <td class="mono">${s.rel_volume != null ? Number(s.rel_volume).toFixed(2) + 'x' : '—'}</td>
+        <td class="mono">${s.short_float != null ? fmtPct(s.short_float, 1) : 'â€”'}</td>
+        <td class="mono">${s.rel_volume != null ? Number(s.rel_volume).toFixed(2) + 'x' : 'â€”'}</td>
         <td>${fmtPctColored(s.perf_week)}</td>
         <td>${fmtPctColored(s.perf_month)}</td>
         <td>${fmtPctColored(s.perf_ytd)}</td>
@@ -3454,7 +3454,7 @@ function renderStockSignals(signals) {
 function renderSectorDynamics(sectors) {
   const tbody = document.getElementById('sectorsBody');
   if (!sectors.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Aucune donnée disponible</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Aucune donnÃ©e disponible</td></tr>';
     return;
   }
 
@@ -3463,9 +3463,9 @@ function renderSectorDynamics(sectors) {
     const rowStyle = isPortfolioSector
       ? 'border-left:3px solid var(--color-primary,#4db8bf); padding-left:var(--space-2)'
       : '';
-    const pe = s.pe != null ? Number(s.pe).toFixed(1) : '<span class="text-muted">—</span>';
-    const fwdPe = s.fwd_pe != null ? Number(s.fwd_pe).toFixed(1) : '<span class="text-muted">—</span>';
-    const div = s.dividend != null ? fmtPct(s.dividend, 2) : '<span class="text-muted">—</span>';
+    const pe = s.pe != null ? Number(s.pe).toFixed(1) : '<span class="text-muted">â€”</span>';
+    const fwdPe = s.fwd_pe != null ? Number(s.fwd_pe).toFixed(1) : '<span class="text-muted">â€”</span>';
+    const div = s.dividend != null ? fmtPct(s.dividend, 2) : '<span class="text-muted">â€”</span>';
 
     return `
       <tr style="${rowStyle}">
@@ -3485,7 +3485,7 @@ function renderSectorDynamics(sectors) {
 
 /** Format a large crypto market cap with T/B/M suffix. */
 function fmtCryptoMarketCap(n) {
-  if (n == null || isNaN(n)) return '<span class="text-muted">—</span>';
+  if (n == null || isNaN(n)) return '<span class="text-muted">â€”</span>';
   const abs = Math.abs(n);
   if (abs >= 1e12) return '$' + (abs / 1e12).toFixed(2) + 'T';
   if (abs >= 1e9)  return '$' + (abs / 1e9).toFixed(2) + 'B';
@@ -3496,7 +3496,7 @@ function fmtCryptoMarketCap(n) {
 function renderCryptoOverview(data) {
   const tbody = document.getElementById('cryptoBody');
   if (!data.length) {
-    tbody.innerHTML = '<tr><td colspan="14" class="empty-state">Aucune donnée disponible</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14" class="empty-state">Aucune donnÃ©e disponible</td></tr>';
     return;
   }
 
@@ -3509,13 +3509,13 @@ function renderCryptoOverview(data) {
     // Price
     const priceCell = c.price != null
       ? `<span class="mono">${fmtUSD(c.price)}</span>`
-      : '<span class="text-muted">—</span>';
+      : '<span class="text-muted">â€”</span>';
 
     // 24h change
     const chg24h = c.change_24h != null ? parseFloat(c.change_24h) : null;
     const chg24hCell = chg24h != null
       ? fmtPctColored(chg24h)
-      : '<span class="text-muted">—</span>';
+      : '<span class="text-muted">â€”</span>';
 
     // Market cap
     const mcapCell = fmtCryptoMarketCap(c.market_cap);
@@ -3523,7 +3523,7 @@ function renderCryptoOverview(data) {
     // Volume 24h
     const volCell = c.volume_24h != null
       ? fmtCryptoMarketCap(c.volume_24h)
-      : '<span class="text-muted">—</span>';
+      : '<span class="text-muted">â€”</span>';
 
     // RSI coloring: red >70, green <30
     const rsi = c.rsi != null ? parseFloat(c.rsi) : null;
@@ -3534,11 +3534,11 @@ function renderCryptoOverview(data) {
     }
     const rsiCell = rsi != null
       ? `<span class="mono" style="color:${rsiColor}">${rsi.toFixed(1)}</span>`
-      : '<span class="text-muted">—</span>';
+      : '<span class="text-muted">â€”</span>';
 
-    // Volatility — pass through as string
-    const volW = c.volatility_w != null ? `<span class="mono text-muted">${esc(String(c.volatility_w))}</span>` : '<span class="text-muted">—</span>';
-    const volM = c.volatility_m != null ? `<span class="mono text-muted">${esc(String(c.volatility_m))}</span>` : '<span class="text-muted">—</span>';
+    // Volatility â€” pass through as string
+    const volW = c.volatility_w != null ? `<span class="mono text-muted">${esc(String(c.volatility_w))}</span>` : '<span class="text-muted">â€”</span>';
+    const volM = c.volatility_m != null ? `<span class="mono text-muted">${esc(String(c.volatility_m))}</span>` : '<span class="text-muted">â€”</span>';
 
     return `
       <tr>
@@ -3814,7 +3814,7 @@ function renderCccOas(riskRegime) {
     { start: bpsToAngle(400),  end: bpsToAngle(700),  color: '#70AD47' },  // SAIN
     { start: bpsToAngle(700),  end: bpsToAngle(868),  color: '#FFD966' },  // ATTENTION
     { start: bpsToAngle(868),  end: bpsToAngle(944),  color: '#F4B942' },  // STRESS NAISSANT
-    { start: bpsToAngle(944),  end: bpsToAngle(1050), color: '#E05D6A' },  // STRESS MODÉRÉ
+    { start: bpsToAngle(944),  end: bpsToAngle(1050), color: '#E05D6A' },  // STRESS MODÃ‰RÃ‰
     { start: bpsToAngle(1050), end: bpsToAngle(1100), color: '#C00000' },  // RISK-OFF TOTAL
     { start: bpsToAngle(1100), end: bpsToAngle(1200), color: '#8B0000' },  // CRISE CCC
   ];
@@ -4035,7 +4035,7 @@ function renderSentiment(data) {
       else if (combined >= 45) label = 'Neutral';
       else if (combined >= 25) label = 'Fear';
       else label = 'Extreme Fear';
-      lbl.textContent = `${combined} — ${label}`;
+      lbl.textContent = `${combined} â€” ${label}`;
       lbl.style.color = color;
     }
   }
@@ -4068,7 +4068,7 @@ function renderMacroSubscores(subScores) {
     const score = s.value ?? s.score ?? 0;
     const color = s.color || macroScoreColor(score);
     const weightLabel = s.weight != null ? (typeof s.weight === 'number' ? (s.weight * 100).toFixed(0) + '%' : String(s.weight)) : '';
-    const barWidth = Math.min(score * 10, 100); // scale 0-10 → 0-100%
+    const barWidth = Math.min(score * 10, 100); // scale 0-10 â†’ 0-100%
 
     // Build KPI info from description or kpis array
     let kpisHtml = '';
@@ -4300,7 +4300,7 @@ function renderMacroCorrelations(summary, history) {
                 const sig = h.composite_ndx || h.signal_ndx_cross || '';
                 return sig ? `NDX Signal: ${_formatSignalLabel(sig)}` : null;
               }
-              return `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(3) : '—'}`;
+              return `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(3) : 'â€”'}`;
             },
           },
         },
@@ -4449,14 +4449,14 @@ function _renderFrontRunPriceChart(history) {
               const val = ctx.parsed.y;
               if (ctx.dataset.label === 'BUY Signal') {
                 const date = history[ctx.dataIndex]?.date || '';
-                return `▲ BUY Signal — BTC $${val != null ? val.toLocaleString('fr-FR') : '—'} (${date})`;
+                return `â–² BUY Signal â€” BTC $${val != null ? val.toLocaleString('fr-FR') : 'â€”'} (${date})`;
               }
               if (ctx.dataset.label === 'SELL Signal') {
                 const date = history[ctx.dataIndex]?.date || '';
-                return `▼ SELL Signal — BTC $${val != null ? val.toLocaleString('fr-FR') : '—'} (${date})`;
+                return `â–¼ SELL Signal â€” BTC $${val != null ? val.toLocaleString('fr-FR') : 'â€”'} (${date})`;
               }
-              if (ctx.dataset.label.startsWith('BTC')) return `BTC: $${val != null ? val.toLocaleString('fr-FR') : '—'}`;
-              return `QQQ: $${val != null ? val.toFixed(0) : '—'}`;
+              if (ctx.dataset.label.startsWith('BTC')) return `BTC: $${val != null ? val.toLocaleString('fr-FR') : 'â€”'}`;
+              return `QQQ: $${val != null ? val.toFixed(0) : 'â€”'}`;
             },
           },
         },
@@ -4502,7 +4502,7 @@ function _formatSignalLabel(sig) {
     'STRONG_INVERSE': 'Forte corr. inverse',
     'STRONG_POSITIVE': 'Forte corr. positive',
     'ROTATION_FAST_PLUS': 'Rotation rapide +',
-    'ROTATION_FAST_MINUS': 'Rotation rapide −',
+    'ROTATION_FAST_MINUS': 'Rotation rapide âˆ’',
   };
   return map[sig] || sig;
 }
@@ -4539,8 +4539,8 @@ function _renderCorrSignalLog(history) {
     const isBuy = ev.signal.includes('BULLISH') || ev.signal.includes('BUY');
     const isSell = ev.signal.includes('BEARISH') || ev.signal.includes('SELL');
     const badgeClass = isBuy ? 'badge-green' : isSell ? 'badge-red' : 'badge-gray';
-    const sideLabel = isBuy ? 'BUY' : isSell ? 'SELL' : '—';
-    const corrStr = ev.corr != null ? (ev.corr > 0 ? '+' : '') + ev.corr.toFixed(3) : '—';
+    const sideLabel = isBuy ? 'BUY' : isSell ? 'SELL' : 'â€”';
+    const corrStr = ev.corr != null ? (ev.corr > 0 ? '+' : '') + ev.corr.toFixed(3) : 'â€”';
     const corrColor = ev.corr > 0.3 ? 'color:#2ecc71' : ev.corr < -0.3 ? 'color:#e74c3c' : '';
 
     return `<div style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-1) 0;border-bottom:1px solid var(--border-subtle, rgba(255,255,255,0.06))">
@@ -4577,7 +4577,7 @@ function renderFrontRunChecklist(macroData) {
   const velocity = summary.signal_x_velocity || '';
   const c2 = velocity === 'ROTATION_FAST_MINUS';
 
-  // Criterion 3: GlobalScore en hausse sur 3 mois consécutifs
+  // Criterion 3: GlobalScore en hausse sur 3 mois consÃ©cutifs
   let c3 = false;
   if (history.length >= 3) {
     const last3 = history.slice(-3);
@@ -4588,7 +4588,7 @@ function renderFrontRunChecklist(macroData) {
   const debtScore = subScores.find(s => s.name === 'DebtScore');
   const c4 = debtScore ? debtScore.value > 6.0 : false;
 
-  // Criterion 5: DebtScore or PriceFXScore en accélération
+  // Criterion 5: DebtScore or PriceFXScore en accÃ©lÃ©ration
   let c5 = false;
   const priceFX = subScores.find(s => s.name === 'PriceFXScore');
   if (debtScore && debtScore.previous != null) {
@@ -4599,17 +4599,17 @@ function renderFrontRunChecklist(macroData) {
   }
 
   const checks = [
-    { label: 'Corr_BTC_24m ou Corr_NDX_24m < 0', detail: corrBtc != null ? `BTC: ${corrBtc > 0 ? '+' : ''}${corrBtc.toFixed(3)}, NDX: ${corrNdx > 0 ? '+' : ''}${corrNdx.toFixed(3)}` : '—', ok: c1 },
+    { label: 'Corr_BTC_24m ou Corr_NDX_24m < 0', detail: corrBtc != null ? `BTC: ${corrBtc > 0 ? '+' : ''}${corrBtc.toFixed(3)}, NDX: ${corrNdx > 0 ? '+' : ''}${corrNdx.toFixed(3)}` : 'â€”', ok: c1 },
     { label: 'Velocity = ROTATION_FAST_MINUS', detail: velocity || 'N/A', ok: c2 },
-    { label: 'GlobalScore hausse 3 mois consécutifs', detail: history.length >= 3 ? history.slice(-3).map(h => h.GlobalScore.toFixed(1)).join(' → ') : '—', ok: c3 },
-    { label: 'HY Spread > 400 bps (DebtScore > 6.0)', detail: debtScore ? debtScore.value.toFixed(1) : '—', ok: c4 },
-    { label: 'DebtScore ou PriceFXScore en accélération', detail: debtScore ? `Debt Δ${(debtScore.value - (debtScore.previous||0)).toFixed(1)}` : '—', ok: c5 },
+    { label: 'GlobalScore hausse 3 mois consÃ©cutifs', detail: history.length >= 3 ? history.slice(-3).map(h => h.GlobalScore.toFixed(1)).join(' â†’ ') : 'â€”', ok: c3 },
+    { label: 'HY Spread > 400 bps (DebtScore > 6.0)', detail: debtScore ? debtScore.value.toFixed(1) : 'â€”', ok: c4 },
+    { label: 'DebtScore ou PriceFXScore en accÃ©lÃ©ration', detail: debtScore ? `Debt Î”${(debtScore.value - (debtScore.previous||0)).toFixed(1)}` : 'â€”', ok: c5 },
   ];
 
   const count = checks.filter(c => c.ok).length;
 
   container.innerHTML = checks.map(c => {
-    const icon = c.ok ? '<span style="color:#2ecc71;font-weight:700">✓</span>' : '<span style="color:#e74c3c;font-weight:700">✗</span>';
+    const icon = c.ok ? '<span style="color:#2ecc71;font-weight:700">âœ“</span>' : '<span style="color:#e74c3c;font-weight:700">âœ—</span>';
     return `<div style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-1) var(--space-2);border-radius:var(--radius-sm);background:${c.ok ? 'rgba(46,204,113,0.06)' : 'rgba(231,76,60,0.04)'}">
       ${icon}
       <span style="font-size:var(--text-xs);flex:1">${esc(c.label)}</span>
@@ -4618,14 +4618,14 @@ function renderFrontRunChecklist(macroData) {
   }).join('');
 
   const statusColor = count >= 3 ? '#e74c3c' : count >= 1 ? '#F4B942' : '#2ecc71';
-  const statusText = count >= 3 ? `${count}/5 — SIGNAL CONFIRMÉ` : count >= 1 ? `${count}/5 — Surveillance` : `${count}/5 — Pas de signal`;
+  const statusText = count >= 3 ? `${count}/5 â€” SIGNAL CONFIRMÃ‰` : count >= 1 ? `${count}/5 â€” Surveillance` : `${count}/5 â€” Pas de signal`;
   scoreEl.innerHTML = `<span style="color:${statusColor}">${statusText}</span>`;
 }
 
 function renderMacroCalendar(events) {
   const tbody = document.getElementById('calendarBody');
   if (!events.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Aucun événement</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Aucun Ã©vÃ©nement</td></tr>';
     return;
   }
 
@@ -4654,7 +4654,7 @@ function renderMacroCalendar(events) {
       }
       actualDisplay = `<span style="${surpriseColor}">${esc(actualVal)}</span>`;
     } else {
-      actualDisplay = '<span class="text-muted">—</span>';
+      actualDisplay = '<span class="text-muted">â€”</span>';
     }
 
     return `
@@ -4762,7 +4762,7 @@ async function loadGeoRiskData() {
         renderGeoAlerts(geoData.alerts || []);
         renderGeoScoreChart(geoData.score_history || []);
       } catch (e2) {
-        if (msgEl) msgEl.textContent = 'Données temporairement indisponibles (GDELT). Rechargez dans 1 min.';
+        if (msgEl) msgEl.textContent = 'DonnÃ©es temporairement indisponibles (GDELT). Rechargez dans 1 min.';
       }
     }, 15000);
   }
@@ -4883,7 +4883,7 @@ function renderGeoSubscores(subScores) {
 function renderGeoChokepoints(chokepoints) {
   const container = document.getElementById('geoChokepointBars');
   if (!chokepoints.length) {
-    container.innerHTML = '<div class="empty-state">Aucune donnée</div>';
+    container.innerHTML = '<div class="empty-state">Aucune donnÃ©e</div>';
     return;
   }
   container.innerHTML = chokepoints.map(cp => {
@@ -4903,7 +4903,7 @@ function renderGeoChokepoints(chokepoints) {
 function renderGeoTheaters(theaters) {
   const container = document.getElementById('geoTheaterList');
   if (!theaters.length) {
-    container.innerHTML = '<div class="empty-state">Aucune donnée</div>';
+    container.innerHTML = '<div class="empty-state">Aucune donnÃ©e</div>';
     return;
   }
   container.innerHTML = theaters.map(t => {
@@ -4915,7 +4915,7 @@ function renderGeoTheaters(theaters) {
         <div class="geo-theater-bar">
           <div class="geo-theater-bar-fill" style="width:${t.score}%;background:${color}"></div>
         </div>
-        <div class="geo-theater-meta">${t.article_count} articles | Ton ${t.tone != null ? t.tone.toFixed(1) : '—'}</div>
+        <div class="geo-theater-meta">${t.article_count} articles | Ton ${t.tone != null ? t.tone.toFixed(1) : 'â€”'}</div>
       </div>
     `;
   }).join('');
@@ -4924,7 +4924,7 @@ function renderGeoTheaters(theaters) {
 function renderGeoAlerts(alerts) {
   const list = document.getElementById('geoAlertsList');
   if (!alerts.length) {
-    list.innerHTML = '<div class="empty-state">Aucune alerte géopolitique active</div>';
+    list.innerHTML = '<div class="empty-state">Aucune alerte gÃ©opolitique active</div>';
     return;
   }
   list.innerHTML = alerts.map(a => `
@@ -4987,7 +4987,7 @@ function renderGeoScoreChart(history) {
   const yOf = v => padT + chartH - ((v - scaleMin) / yRange) * chartH;
   const xOf = i => padL + (i / (history.length - 1)) * chartW;
 
-  /* Grid lines & Y labels — nice step */
+  /* Grid lines & Y labels â€” nice step */
   const rawStep = yRange / 5;
   const step = rawStep <= 2 ? 1 : rawStep <= 5 ? 2 : rawStep <= 12 ? 5 : 10;
   const firstTick = Math.ceil(scaleMin / step) * step;
@@ -5080,15 +5080,54 @@ function initFilters() {
    ===================================================== */
 
 function saveSession(token, user) {
+  if (!token || typeof token !== 'string') {
+    throw new Error('Token de session absent ou invalide.');
+  }
+
   state.token = token;
-  state.user = user;
+  state.user = user || null;
+
+  try {
+    localStorage.setItem('nextones_token', token);
+    if (state.user) {
+      localStorage.setItem('nextones_user', JSON.stringify(state.user));
+    } else {
+      localStorage.removeItem('nextones_user');
+    }
+  } catch (error) {
+    console.warn('[AUTH] Impossible de sauvegarder la session locale.', error);
+  }
+}
+
+function loadSession() {
+  try {
+    const token = localStorage.getItem('nextones_token');
+    const rawUser = localStorage.getItem('nextones_user');
+
+    state.token = token || null;
+    state.user = rawUser ? JSON.parse(rawUser) : null;
+  } catch (error) {
+    console.warn('[AUTH] Session locale invalide, nettoyage.', error);
+    state.token = null;
+    state.user = null;
+    try {
+      localStorage.removeItem('nextones_token');
+      localStorage.removeItem('nextones_user');
+    } catch (_) {}
+  }
 }
 
 function clearSession() {
   state.token = null;
   state.user = null;
-}
 
+  try {
+    localStorage.removeItem('nextones_token');
+    localStorage.removeItem('nextones_user');
+  } catch (error) {
+    console.warn('[AUTH] Impossible de supprimer la session locale.', error);
+  }
+}
 function isLoggedIn() {
   return !!state.token;
 }
@@ -5181,6 +5220,7 @@ async function validateSession() {
 
 async function init() {
   initTheme();
+  loadSession();
   initClock();
   initSidebar();
   initRouter();
@@ -5291,17 +5331,17 @@ function renderBacktestResults(data, benchTicker) {
   document.getElementById('btKPIs').innerHTML = [
     btKpi('Rendement total', fmtPctSigned(s.total_return_pct), s.total_return_pct),
     btKpi('Rendement ann.', fmtPctSigned(s.annualized_return_pct), s.annualized_return_pct),
-    btKpi('Volatilité ann.', (s.volatility_pct != null ? s.volatility_pct.toFixed(1) + '%' : '—'), null),
-    btKpi('Sharpe', s.sharpe != null ? s.sharpe.toFixed(2) : '—', s.sharpe > 1 ? 1 : s.sharpe < 0 ? -1 : 0),
-    btKpi('Max Drawdown', s.max_drawdown_pct != null ? '-' + s.max_drawdown_pct.toFixed(1) + '%' : '—', s.max_drawdown_pct > 20 ? -1 : 0),
-    btKpi('Valeur finale', s.final_value != null ? fmtUSD(s.final_value) : '—', s.total_return_pct),
+    btKpi('VolatilitÃ© ann.', (s.volatility_pct != null ? s.volatility_pct.toFixed(1) + '%' : 'â€”'), null),
+    btKpi('Sharpe', s.sharpe != null ? s.sharpe.toFixed(2) : 'â€”', s.sharpe > 1 ? 1 : s.sharpe < 0 ? -1 : 0),
+    btKpi('Max Drawdown', s.max_drawdown_pct != null ? '-' + s.max_drawdown_pct.toFixed(1) + '%' : 'â€”', s.max_drawdown_pct > 20 ? -1 : 0),
+    btKpi('Valeur finale', s.final_value != null ? fmtUSD(s.final_value) : 'â€”', s.total_return_pct),
   ].join('');
 
   // Stats comparison table
   const metrics = [
     ['Rendement total', 'total_return_pct', '%'],
-    ['Rendement annualisé', 'annualized_return_pct', '%'],
-    ['Volatilité', 'volatility_pct', '%'],
+    ['Rendement annualisÃ©', 'annualized_return_pct', '%'],
+    ['VolatilitÃ©', 'volatility_pct', '%'],
     ['Sharpe', 'sharpe', ''],
     ['Sortino', 'sortino', ''],
     ['Max Drawdown', 'max_drawdown_pct', '%'],
@@ -5313,8 +5353,8 @@ function renderBacktestResults(data, benchTicker) {
   document.getElementById('btStatsBody').innerHTML = metrics.map(([label, key, suffix]) => {
     const pv = s[key];
     const bv = b[key];
-    const pfmt = pv != null ? (suffix === '%' ? pv.toFixed(2) + '%' : pv.toFixed(2)) : '—';
-    const bfmt = bv != null ? (suffix === '%' ? bv.toFixed(2) + '%' : bv.toFixed(2)) : '—';
+    const pfmt = pv != null ? (suffix === '%' ? pv.toFixed(2) + '%' : pv.toFixed(2)) : 'â€”';
+    const bfmt = bv != null ? (suffix === '%' ? bv.toFixed(2) + '%' : bv.toFixed(2)) : 'â€”';
     return `<tr><td class="text-muted">${label}</td><td class="mono">${pfmt}</td><td class="mono">${bfmt}</td></tr>`;
   }).join('');
 
@@ -5333,7 +5373,7 @@ function renderBacktestResults(data, benchTicker) {
 
   // Meta
   const skipped = data.tickers_skipped || [];
-  let meta = `Période : ${data.start_date} → ${data.end_date} (${data.period_days} jours) | ${(data.tickers_used || []).length} actifs`;
+  let meta = `PÃ©riode : ${data.start_date} â†’ ${data.end_date} (${data.period_days} jours) | ${(data.tickers_used || []).length} actifs`;
   if (skipped.length) meta += ` | ${skipped.length} exclu(s) : ${skipped.join(', ')}`;
   document.getElementById('btMeta').textContent = meta;
 
@@ -5354,7 +5394,7 @@ function btKpi(label, value, sentiment) {
 }
 
 function fmtPctSigned(v) {
-  if (v == null) return '—';
+  if (v == null) return 'â€”';
   return (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
 }
 
@@ -5466,18 +5506,18 @@ function exportBacktestCsv() {
   rows.push('');
   rows.push('Statistiques Portfolio');
   rows.push(['Rendement Total (%)', stats.total_return_pct].join(sep));
-  rows.push(['Rendement Annualisé (%)', stats.annualized_return_pct].join(sep));
-  rows.push(['Volatilité (%)', stats.volatility_pct].join(sep));
+  rows.push(['Rendement AnnualisÃ© (%)', stats.annualized_return_pct].join(sep));
+  rows.push(['VolatilitÃ© (%)', stats.volatility_pct].join(sep));
   rows.push(['Sharpe', stats.sharpe].join(sep));
   rows.push(['Sortino', stats.sortino].join(sep));
   rows.push(['Max Drawdown (%)', stats.max_drawdown_pct].join(sep));
   rows.push(['Win Rate (%)', stats.win_rate_pct].join(sep));
-  rows.push(['Période', _lastBacktestData.start_date + ' → ' + _lastBacktestData.end_date].join(sep));
+  rows.push(['PÃ©riode', _lastBacktestData.start_date + ' â†’ ' + _lastBacktestData.end_date].join(sep));
   rows.push(['Jours de trading', stats.trading_days].join(sep));
   rows.push(['Valeur finale', stats.final_value].join(sep));
 
   // BOM for UTF-8 Excel compatibility
-  const bom = '﻿';
+  const bom = 'ï»¿';
   const csvContent = bom + rows.join('\n');
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -5493,7 +5533,7 @@ function exportBacktestCsv() {
     URL.revokeObjectURL(url);
   }, 100);
 
-  showToast('Journal de trading exporté en CSV', 'success');
+  showToast('Journal de trading exportÃ© en CSV', 'success');
 }
 
 /* =====================================================
@@ -5514,13 +5554,13 @@ async function loadAdminUsers() {
       const statusBadge = u.is_active
         ? '<span class="badge" style="background:#2ecc71;color:#fff;font-size:10px">Actif</span>'
         : '<span class="badge" style="background:#e74c3c;color:#fff;font-size:10px">Inactif</span>';
-      const lastLogin = u.last_login ? u.last_login.replace('T', ' ').slice(0, 16) : '—';
+      const lastLogin = u.last_login ? u.last_login.replace('T', ' ').slice(0, 16) : 'â€”';
       const isSelf = state.user && state.user.id === u.id;
       return `<tr style="${!u.is_active ? 'opacity:0.5' : ''}">
         <td class="mono" style="font-size:var(--text-xs)">${u.id}</td>
         <td><strong>${esc(u.username)}</strong></td>
         <td class="text-muted" style="font-size:var(--text-xs)">${esc(u.email)}</td>
-        <td style="font-size:var(--text-xs)">${esc(u.full_name || '—')}</td>
+        <td style="font-size:var(--text-xs)">${esc(u.full_name || 'â€”')}</td>
         <td>${roleBadge}</td>
         <td>${statusBadge}</td>
         <td class="mono" style="font-size:var(--text-xs)">${lastLogin}</td>
@@ -5535,7 +5575,7 @@ async function loadAdminUsers() {
             </select>
             ${!isSelf ? `<button class="btn" style="font-size:10px;padding:2px 6px;border:1px solid var(--border)" 
               onclick="adminToggleActive(${u.id}, ${u.is_active ? 0 : 1})">
-              ${u.is_active ? 'Désactiver' : 'Réactiver'}
+              ${u.is_active ? 'DÃ©sactiver' : 'RÃ©activer'}
             </button>` : '<span class="text-muted" style="font-size:10px">(vous)</span>'}
           </div>
         </td>
@@ -5544,7 +5584,7 @@ async function loadAdminUsers() {
   } catch (e) {
     // If 403 (not admin), show message
     const tbody = document.getElementById('adminUsersBody');
-    tbody.innerHTML = '<tr><td colspan="8" class="text-muted" style="text-align:center;padding:var(--space-4);color:#e74c3c">Accès refusé — rôle admin requis</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="text-muted" style="text-align:center;padding:var(--space-4);color:#e74c3c">AccÃ¨s refusÃ© â€” rÃ´le admin requis</td></tr>';
   }
 }
 
@@ -5562,7 +5602,7 @@ async function adminChangeRole(userId, newRole) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role: newRole }),
     });
-    showToast('Rôle mis à jour', 'success');
+    showToast('RÃ´le mis Ã  jour', 'success');
     await loadAdminUsers();
   } catch (e) {
     showToast('Erreur : ' + e.message, 'error');
@@ -5577,7 +5617,7 @@ async function adminToggleActive(userId, newState) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ is_active: !!newState }),
     });
-    showToast(newState ? 'Utilisateur réactivé' : 'Utilisateur désactivé', 'success');
+    showToast(newState ? 'Utilisateur rÃ©activÃ©' : 'Utilisateur dÃ©sactivÃ©', 'success');
     await loadAdminUsers();
   } catch (e) {
     showToast('Erreur : ' + e.message, 'error');
@@ -5603,12 +5643,12 @@ async function adminCreateUser(e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    showToast('Utilisateur créé : ' + data.username, 'success');
+    showToast('Utilisateur crÃ©Ã© : ' + data.username, 'success');
     document.getElementById('adminCreateForm').style.display = 'none';
     document.getElementById('adminNewUserForm').reset();
     await loadAdminUsers();
   } catch (e) {
-    errEl.textContent = e.message || 'Erreur lors de la création';
+    errEl.textContent = e.message || 'Erreur lors de la crÃ©ation';
     errEl.hidden = false;
   }
 }
@@ -5618,10 +5658,10 @@ async function adminCreateUser(e) {
 // ---------------------------------------------------------------------------
 
 const _schedulerJobLabels = {
-  refresh_prices: { label: 'Prix (Yahoo Finance)', icon: '📊' },
-  refresh_macro: { label: 'Macro US (FRED)', icon: '🏛️' },
-  refresh_sentiment: { label: 'Sentiment (FG + VIX)', icon: '😰' },
-  refresh_geo: { label: 'Géopolitique (GDELT)', icon: '🌍' },
+  refresh_prices: { label: 'Prix (Yahoo Finance)', icon: 'ðŸ“Š' },
+  refresh_macro: { label: 'Macro US (FRED)', icon: 'ðŸ›ï¸' },
+  refresh_sentiment: { label: 'Sentiment (FG + VIX)', icon: 'ðŸ˜°' },
+  refresh_geo: { label: 'GÃ©opolitique (GDELT)', icon: 'ðŸŒ' },
 };
 
 async function loadSchedulerStatus() {
@@ -5633,24 +5673,24 @@ async function loadSchedulerStatus() {
 
     const statusColor = data.status === 'running' ? '#70AD47' : '#e74c3c';
     const statusLabel = data.status === 'running' ? 'Actif' : data.status;
-    indicator.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};margin-right:6px"></span>Scheduler : <strong style="color:${statusColor}">${statusLabel}</strong> — ${data.jobs?.length || 0} jobs`;
+    indicator.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};margin-right:6px"></span>Scheduler : <strong style="color:${statusColor}">${statusLabel}</strong> â€” ${data.jobs?.length || 0} jobs`;
 
     if (!data.jobs || data.jobs.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" class="text-muted" style="text-align:center;padding:var(--space-4)">Aucun job planifié</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4" class="text-muted" style="text-align:center;padding:var(--space-4)">Aucun job planifiÃ©</td></tr>';
       return;
     }
 
     tbody.innerHTML = data.jobs.map(job => {
-      const meta = _schedulerJobLabels[job.id] || { label: job.id, icon: '⚙️' };
-      const nextRun = job.next_run ? new Date(job.next_run).toLocaleString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: '2-digit' }) : '—';
-      const trigger = job.trigger || '—';
+      const meta = _schedulerJobLabels[job.id] || { label: job.id, icon: 'âš™ï¸' };
+      const nextRun = job.next_run ? new Date(job.next_run).toLocaleString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: '2-digit' }) : 'â€”';
+      const trigger = job.trigger || 'â€”';
       // Map job id to refresh target
       const target = job.id.replace('refresh_', '');
       return `<tr>
         <td style="white-space:nowrap">${meta.icon} ${meta.label}</td>
         <td class="text-muted" style="font-size:var(--text-xs)">${trigger}</td>
         <td style="font-size:var(--text-xs)">${nextRun}</td>
-        <td><button class="btn" onclick="schedulerForceRefresh('${target}')" style="font-size:10px;padding:2px 8px;border:1px solid var(--border)">▶ Run</button></td>
+        <td><button class="btn" onclick="schedulerForceRefresh('${target}')" style="font-size:10px;padding:2px 8px;border:1px solid var(--border)">â–¶ Run</button></td>
       </tr>`;
     }).join('');
   } catch (e) {
@@ -5663,7 +5703,7 @@ async function schedulerForceRefresh(target) {
   try {
     showToast(`Refresh ${target} en cours...`, 'info', 2000);
     await apiFetch(`/api/scheduler/refresh?target=${target}`, { method: 'POST' });
-    showToast(`Refresh ${target} terminé`, 'success', 3000);
+    showToast(`Refresh ${target} terminÃ©`, 'success', 3000);
     await loadSchedulerStatus();
   } catch (e) {
     showToast(`Erreur refresh ${target}: ${e.message}`, 'error');
@@ -6035,8 +6075,8 @@ document.addEventListener('DOMContentLoaded', () => {
 // /[PPLX_THESIS_PANEL_V2_JS]
 
 // === [PPLX_PANEL_JS_MOVE_V1] ===
-// Déplace #pplx-insights-panel dans <section id="tab-today"> au chargement,
-// pour qu'il s'affiche sous "Recent Activity" et suive l'état actif/inactif de l'onglet.
+// DÃ©place #pplx-insights-panel dans <section id="tab-today"> au chargement,
+// pour qu'il s'affiche sous "Recent Activity" et suive l'Ã©tat actif/inactif de l'onglet.
 (function pplxPanelMoveIntoToday(){
   function doMove(){
     try {
@@ -6045,15 +6085,15 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!panel || !today) {
         return false;
       }
-      // Déjà dans Today ? rien à faire
+      // DÃ©jÃ  dans Today ? rien Ã  faire
       if (panel.parentElement === today) {
         return true;
       }
       today.appendChild(panel);
-      console.log('[pplx] panel déplacé dans tab-today');
+      console.log('[pplx] panel dÃ©placÃ© dans tab-today');
       return true;
     } catch (e) {
-      console.warn('[pplx] erreur déplacement panel:', e);
+      console.warn('[pplx] erreur dÃ©placement panel:', e);
       return false;
     }
   }
@@ -6062,7 +6102,7 @@ document.addEventListener('DOMContentLoaded', () => {
   } else {
     doMove();
   }
-  // Sécurité : retry après 500ms si le panel est injecté tardivement
+  // SÃ©curitÃ© : retry aprÃ¨s 500ms si le panel est injectÃ© tardivement
   setTimeout(doMove, 500);
   setTimeout(doMove, 2000);
 })();
@@ -6087,7 +6127,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function pplxFormatTs(iso){
-    if(!iso) return '—';
+    if(!iso) return 'â€”';
     try {
       const d = new Date(iso);
       return d.toLocaleString('fr-FR', {dateStyle:'short', timeStyle:'short'});
@@ -6114,7 +6154,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="pplx-tag">${pplxEscape(r.horizon || '')}</span>
           <span class="pplx-tag">${pplxEscape(r.type || '')}</span>
         </div>
-        <div class="pplx-risk-narrative">${pplxEscape((r.narrative || '').substring(0, 320))}${(r.narrative && r.narrative.length > 320) ? '…' : ''}</div>
+        <div class="pplx-risk-narrative">${pplxEscape((r.narrative || '').substring(0, 320))}${(r.narrative && r.narrative.length > 320) ? 'â€¦' : ''}</div>
         <div class="pplx-risk-tickers">
           ${(r.tickers || []).map(t => `<span class="pplx-ticker-chip">${pplxEscape(t)}</span>`).join('')}
         </div>
@@ -6127,14 +6167,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if(!root) return;
     if(!exposure || !exposure.length){
       root.className = 'pplx-empty';
-      root.innerHTML = 'Aucune position exposée.';
+      root.innerHTML = 'Aucune position exposÃ©e.';
       return;
     }
     const maxScore = Math.max.apply(null, exposure.map(e => e.exposure_score_weighted || 0));
     root.className = '';
     root.innerHTML = exposure.map(e => {
       const pct = maxScore > 0 ? ((e.exposure_score_weighted || 0) / maxScore) * 100 : 0;
-      const riskList = (e.risks || []).map(r => `R${r.risk_id}`).join(' · ');
+      const riskList = (e.risks || []).map(r => `R${r.risk_id}`).join(' Â· ');
       return `
         <div class="pplx-exp-row">
           <div class="pplx-exp-ticker">${pplxEscape(e.ticker)}</div>
@@ -6151,9 +6191,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const sum = document.getElementById('pplxGeoSummary');
     const ts = document.getElementById('pplxGeoTimestamp');
     if(sum) sum.textContent = reason === 'no_snapshot'
-      ? 'Aucun snapshot Perplexity disponible. Le scheduler le générera dans quelques minutes.'
+      ? 'Aucun snapshot Perplexity disponible. Le scheduler le gÃ©nÃ©rera dans quelques minutes.'
       : 'Snapshot Perplexity indisponible.';
-    if(ts) ts.textContent = '—';
+    if(ts) ts.textContent = 'â€”';
     pplxRenderRisks([]);
     pplxRenderExposure([]);
   }
@@ -6170,16 +6210,16 @@ document.addEventListener('DOMContentLoaded', () => {
       const h = data.header || {};
       const score = h.global_score;
       const regime = h.regime;
-      document.getElementById('pplxGeoScoreValue').textContent = (score != null) ? Math.round(score) : '—';
+      document.getElementById('pplxGeoScoreValue').textContent = (score != null) ? Math.round(score) : 'â€”';
       const badge = document.getElementById('pplxGeoRegimeBadge');
       if(badge){
-        badge.textContent = regime || '—';
+        badge.textContent = regime || 'â€”';
         badge.className = 'pplx-regime-badge ' + pplxRegimeClass(regime);
       }
       const sum = document.getElementById('pplxGeoSummary');
       if(sum) sum.textContent = h.summary || '';
       const ts = document.getElementById('pplxGeoTimestamp');
-      if(ts) ts.textContent = 'Snapshot : ' + pplxFormatTs(h.generated_at) + ' · ' + (h.model || '');
+      if(ts) ts.textContent = 'Snapshot : ' + pplxFormatTs(h.generated_at) + ' Â· ' + (h.model || '');
       pplxRenderRisks(data.risks || []);
       pplxRenderExposure(data.book_exposure || []);
     } catch(e){
@@ -6214,7 +6254,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* === [PPLX_MEMO_JS_V1] : MemoAgent UI (modal + injection bouton) === */
 (function() {
-  if (window.pplxMemoOpen) { return; }  // dejà injecte
+  if (window.pplxMemoOpen) { return; }  // dejÃ  injecte
 
   // Etat du modal courant
   let _currentSymbol = null;
@@ -6253,7 +6293,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const cached = data.cached ? `Cache ${Math.round((data.age_seconds||0)/60)} min` : 'Frais';
 
     body.innerHTML = `
-      <h3 id="pplxMemoTitle">${_escapeHtml(data.symbol)} — ${_escapeHtml(p.headline || '')}</h3>
+      <h3 id="pplxMemoTitle">${_escapeHtml(data.symbol)} â€” ${_escapeHtml(p.headline || '')}</h3>
       <div class="pplx-memo-header-row">
         <span class="pplx-memo-stance ${stance}">${stance}</span>
         ${conf ? `<span class="pplx-memo-confidence">Confiance ${conf}</span>` : ''}
@@ -6280,11 +6320,11 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>` : ''}
       <div class="pplx-memo-meta">
         <span>${_escapeHtml(_fmtTs(data.generated_at))}</span>
-        <span>·</span>
+        <span>Â·</span>
         <span>${_escapeHtml(data.model || '')}</span>
-        <span>·</span>
+        <span>Â·</span>
         <span>${cached}</span>
-        ${data.elapsed_s ? `<span>·</span><span>${Number(data.elapsed_s).toFixed(1)}s</span>` : ''}
+        ${data.elapsed_s ? `<span>Â·</span><span>${Number(data.elapsed_s).toFixed(1)}s</span>` : ''}
       </div>
       ${cits.length ? `<div class="pplx-memo-citations">Sources : ${cits.map((u, i) => `<a href="${_escapeHtml(u)}" target="_blank" rel="noopener">[${i+1}]</a>`).join('')}</div>` : ''}
       <div class="pplx-memo-actions">
@@ -6304,7 +6344,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     bd.classList.add('open');
-    body.innerHTML = `<div class="pplx-memo-loading">Chargement du memo IA pour ${_escapeHtml(symbol)}…</div>`;
+    body.innerHTML = `<div class="pplx-memo-loading">Chargement du memo IA pour ${_escapeHtml(symbol)}â€¦</div>`;
     try {
       const url = `/api/pplx/memo?symbol=${encodeURIComponent(symbol)}${force ? '&force=true' : ''}`;
       const res = await fetch(url);
@@ -7053,7 +7093,7 @@ window.deleteCapitalFlow = deleteCapitalFlow;
 
 
 /* [PATCH_UI_PENDING_APPROVALS_V2] */
-// Pending Approvals card : fetch /api/orders/pending_approval + buttons Execute/Reject
+// Pending Approvals card : fetch /api/orders/pending-validation + buttons Execute/Reject
 (function(){
   function _fmtPrice(p) {
     if (p === null || p === undefined || isNaN(p)) return "-";
@@ -7089,7 +7129,7 @@ window.deleteCapitalFlow = deleteCapitalFlow;
     if (!list) return;
 
     try {
-      const data = await _paFetch("/api/orders/pending_approval");
+      const data = await _paFetch("/api/orders/pending-validation");
       const orders = (data && data.orders) ? data.orders : [];
 
       if (cnt) cnt.textContent = "(" + orders.length + ")";
@@ -7305,10 +7345,19 @@ window.deleteCapitalFlow = deleteCapitalFlow;
   window.renderPendingApprovals = renderPendingApprovals;
 
   function _init() {
-    var btn = document.getElementById("pa-refresh-btn");
-    if (btn) btn.addEventListener("click", renderPendingApprovals);
-    renderPendingApprovals();
-    setInterval(renderPendingApprovals, 10000);
+    /*
+      [LEGACY_PENDING_RENDERER_DISABLED_V1]
+
+      Cette carte est maintenant pilotÃ©e exclusivement par le module
+      Paper Approvals plus bas dans app.js :
+
+      GET /api/approvals/pending
+
+      Ne pas rÃ©attacher pa-refresh-btn Ã  renderPendingApprovals().
+      Ne pas relancer setInterval(renderPendingApprovals, 10000).
+      L'ancien endpoint /api/orders/pending-validation reste disponible
+      pour l'onglet Orders, mais ne doit plus Ã©crire dans #pa-list.
+    */
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", _init);
@@ -7687,4 +7736,463 @@ function renderBacktestRegime(data){
   }
 })();
 /* [SHADOW_UI_V1] END */
+/* PAPER_APPROVALS_UI_V2_ASCII_BEGIN */
+/* PAPER_APPROVALS_UI_V3_PAPER_BEGIN */
+(function () {
+  'use strict';
+
+  var CARD_ID = 'pending-approvals-card';
+  var LIST_ID = 'pa-list';
+  var COUNT_ID = 'pa-count';
+  var REFRESH_ID = 'pa-refresh-btn';
+  var MODE_ID = 'pa-execution-mode-v3';
+
+  function esc(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function toast(message, type) {
+    if (typeof window.showToast === 'function') return window.showToast(message, type || 'info');
+    window.alert(message);
+  }
+
+  async function request(path, method, body) {
+    var options = { method: method || 'GET', headers: {} };
+    if (body !== undefined) {
+      options.headers['Content-Type'] = 'application/json';
+      options.body = JSON.stringify(body);
+    }
+    if (typeof apiFetch !== 'function') throw new Error('apiFetch is not available');
+    return apiFetch(path, options);
+  }
+
+  function norm(item) {
+    item = item || {};
+    return {
+      id: item.id || '-', orderId: item.order_id,
+      ticker: String(item.ticker || 'N/A').toUpperCase(),
+      side: String(item.side || 'BUY').toUpperCase() === 'SELL' ? 'SELL' : 'BUY',
+      quantity: Number(item.quantity || 0),
+      status: String(item.status || 'pending').toLowerCase(),
+      executionStatus: String(item.paper_execution_status || 'not_executed').toLowerCase(),
+      rationale: item.rationale || 'No rationale available',
+      createdAt: item.created_at || '',
+      isTest: item.source === 'manual_test'
+    };
+  }
+
+  function modeBadge(mode) {
+    var card = document.getElementById(CARD_ID);
+    if (!card) return;
+    var badge = document.getElementById(MODE_ID);
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = MODE_ID;
+      badge.style.cssText = 'margin:0 0 10px;font-size:11px;font-weight:800;letter-spacing:.04em';
+      card.insertBefore(badge, card.firstChild);
+    }
+    var live = mode && mode.mode === 'live';
+    badge.textContent = live ? 'LIVE MODE - real broker execution' : 'PAPER MODE - simulated portfolio';
+    badge.style.color = live ? '#ef8179' : '#5fbdcb';
+  }
+
+  function renderEmpty(message) {
+    var list = document.getElementById(LIST_ID);
+    if (list) list.innerHTML = '<div style="opacity:.72;font-size:12px;padding:8px 0">' + esc(message) + '</div>';
+  }
+
+  function render(items, mode) {
+    var list = document.getElementById(LIST_ID);
+    if (!list) return;
+    items = Array.isArray(items) ? items : [];
+    var count = document.getElementById(COUNT_ID);
+    if (count) count.textContent = '(' + items.length + ')';
+    modeBadge(mode);
+    if (!items.length) return renderEmpty('No paper approval is pending or ready for paper execution.');
+
+    list.innerHTML = items.map(function (raw) {
+      var x = norm(raw);
+      var sideColor = x.side === 'BUY' ? '#48c774' : '#ef8179';
+      var statusText = x.status === 'approved' ? 'APPROVED - READY TO EXECUTE' : 'PENDING VALIDATION';
+      var buttons = '';
+      if (x.status === 'pending') {
+        buttons += '<button type="button" class="btn btn-primary" data-pa-action="approve" data-pa-id="' + esc(x.id) + '" style="font-size:12px;padding:5px 9px">Approve</button>';
+        buttons += '<button type="button" class="btn" data-pa-action="reject" data-pa-id="' + esc(x.id) + '" style="font-size:12px;padding:5px 9px;border:1px solid rgba(231,76,60,.7);color:#ef8179;background:transparent">Reject</button>';
+      } else if (x.status === 'approved' && (x.executionStatus === 'approved_not_executed' || x.executionStatus === 'not_executed')) {
+        buttons += '<button type="button" class="btn btn-primary" data-pa-action="execute-paper" data-pa-id="' + esc(x.id) + '" style="font-size:12px;padding:5px 9px;background:#267f8e">Execute Paper Trade</button>';
+      }
+      return '<article class="pa-item" style="border:1px solid rgba(95,189,203,.25);border-radius:8px;padding:10px 12px;background:rgba(255,255,255,.025);margin-bottom:8px">'
+        + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">'
+        + '<div><strong style="font-size:14px">#' + esc(x.id) + ' ' + esc(x.ticker) + '</strong> '
+        + '<span style="font-size:11px;font-weight:700;color:' + sideColor + ';padding:2px 7px;border-radius:4px">' + esc(x.side) + '</span>'
+        + '<div style="margin-top:5px;font-size:12px;opacity:.88">Quantity: ' + esc(x.quantity > 0 ? x.quantity.toLocaleString(undefined, {maximumFractionDigits: 4}) : 'N/A') + ' | Order: ' + esc(x.orderId || 'N/A') + '</div>'
+        + '<div style="margin-top:4px;font-size:11px;color:#5fbdcb;font-weight:700">' + esc(statusText) + '</div></div></div>'
+        + '<div style="margin-top:8px;font-size:12px;line-height:1.45;opacity:.88">Thesis / rationale: ' + esc(x.rationale) + '</div>'
+        + '<div style="margin-top:8px;display:flex;gap:7px;flex-wrap:wrap">' + buttons + '</div>'
+        + '</article>';
+    }).join('');
+
+    list.querySelectorAll('[data-pa-action]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        window.paperApprovalAction(button.dataset.paAction, button.dataset.paId);
+      });
+    });
+  }
+
+  window.loadPaperApprovals = async function () {
+    if (!document.getElementById(CARD_ID)) return;
+    var list = document.getElementById(LIST_ID);
+    if (list) list.innerHTML = '<div style="opacity:.62;font-size:12px">Loading approvals...</div>';
+    try {
+      var results = await Promise.all([
+        request('/api/approvals/pending', 'GET'),
+        request('/api/approvals/history?status=approved&limit=100', 'GET').catch(function () { return { approvals: [] }; }),
+        request('/api/approvals/execution-mode', 'GET')
+      ]);
+      var pending = results[0] && Array.isArray(results[0].approvals) ? results[0].approvals : [];
+      var approved = results[1] && Array.isArray(results[1].approvals) ? results[1].approvals : [];
+      approved = approved.filter(function (x) {
+        return x && String(x.paper_execution_status || '').toLowerCase() === 'approved_not_executed';
+      });
+      render(pending.concat(approved), results[2] || { mode: 'paper' });
+    } catch (error) {
+      var count = document.getElementById(COUNT_ID);
+      if (count) count.textContent = '(0)';
+      renderEmpty('Unable to load paper approvals.');
+      console.error('PAPER_APPROVALS_UI_V3_PAPER load error', error);
+    }
+  };
+
+  window.paperApprovalAction = async function (action, approvalId) {
+    if (!approvalId || approvalId === '-') return toast('Invalid paper approval id.', 'error');
+    try {
+      if (action === 'approve') {
+        if (!window.confirm('Approve proposal #' + approvalId + '? This does not execute a trade.')) return;
+        await request('/api/approvals/' + encodeURIComponent(approvalId) + '/approve', 'POST');
+        toast('Proposal approved. Execute Paper Trade is now available.', 'success');
+      } else if (action === 'reject') {
+        var reason = window.prompt('Reason for rejecting proposal #' + approvalId + ':', 'Not approved');
+        if (reason === null) return;
+        reason = String(reason).trim();
+        if (!reason) return toast('A rejection reason is required.', 'error');
+        await request('/api/approvals/' + encodeURIComponent(approvalId) + '/reject', 'POST', { reason: reason });
+        toast('Proposal rejected.', 'info');
+      } else if (action === 'execute-paper') {
+        if (!window.confirm('Execute PAPER trade #' + approvalId + '? This creates a simulated fill and updates the simulated portfolio cash and positions.')) return;
+        await request('/api/approvals/' + encodeURIComponent(approvalId) + '/execute-paper', 'POST');
+        toast('Paper trade executed. Simulated portfolio updated.', 'success');
+        if (typeof window.loadDashboard === 'function') window.loadDashboard();
+        if (typeof window.loadPortfolio === 'function') window.loadPortfolio();
+      } else {
+        return toast('Unknown approval action.', 'error');
+      }
+      await window.loadPaperApprovals();
+    } catch (error) {
+      toast('Paper approval action failed: ' + (error && error.message ? error.message : error), 'error');
+      console.error('PAPER_APPROVALS_UI_V3_PAPER action error', error);
+    }
+  };
+
+  function boot() {
+    var refresh = document.getElementById(REFRESH_ID);
+    if (refresh && !refresh.dataset.paperApprovalsV3Bound) {
+      refresh.dataset.paperApprovalsV3Bound = '1';
+      refresh.addEventListener('click', window.loadPaperApprovals);
+    }
+    if (document.getElementById(CARD_ID)) window.loadPaperApprovals();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+}());
+/* PAPER_APPROVALS_UI_V3_PAPER_END */
+/* PAPER_APPROVALS_UI_V2_ASCII_END */
+/* LEGACY_ORDER_REJECT_FIX_V1_BEGIN */
+(function () {
+  'use strict';
+
+  function legacyRejectJsonBody(reason) {
+    return { reason: String(reason == null ? '' : reason).trim() };
+  }
+
+  async function legacyPostReject(orderId, reason) {
+    const payload = legacyRejectJsonBody(reason);
+    if (!payload.reason) throw new Error('Le motif de rejet est obligatoire');
+    if (typeof window.apiPost === 'function') {
+      return window.apiPost('/api/orders/' + encodeURIComponent(orderId) + '/reject', payload);
+    }
+    const response = await fetch('/api/orders/' + encodeURIComponent(orderId) + '/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      let message = 'HTTP ' + response.status;
+      try {
+        const data = await response.json();
+        message = data.detail || data.message || message;
+      } catch (_) {}
+      throw new Error(message);
+    }
+    return response.json();
+  }
+
+  window.confirmRejectOrder = async function confirmRejectOrder(orderId) {
+    const reasonEl = document.getElementById('pv-reason-' + orderId);
+    const reason = reasonEl ? reasonEl.value.trim() : '';
+    if (!reason) {
+      if (typeof window.showToast === 'function') window.showToast('Le motif de rejet est obligatoire', 'error');
+      return;
+    }
+    try {
+      await legacyPostReject(orderId, reason);
+      if (typeof window.showToast === 'function') window.showToast('Ordre rejetÃ©', 'info');
+      if (typeof window.loadOrders === 'function') await window.loadOrders();
+      if (typeof window.loadPendingValidation === 'function') await window.loadPendingValidation();
+    } catch (error) {
+      if (typeof window.showToast === 'function') window.showToast('Erreur rejet : ' + error.message, 'error');
+      console.error('LEGACY_ORDER_REJECT_FIX confirmRejectOrder', error);
+    }
+  };
+
+  window.confirmInlineReject = async function confirmInlineReject(orderId) {
+    const reasonEl = document.getElementById('inline-reason-' + orderId);
+    const reason = reasonEl ? reasonEl.value.trim() : '';
+    if (!reason) {
+      if (typeof window.showToast === 'function') window.showToast('Le motif de rejet est obligatoire', 'error');
+      return;
+    }
+    try {
+      await legacyPostReject(orderId, reason);
+      if (typeof window.showToast === 'function') window.showToast('Ordre rejetÃ©', 'info');
+      if (typeof window.loadOrders === 'function') await window.loadOrders();
+      if (typeof window.loadPendingValidation === 'function') await window.loadPendingValidation();
+    } catch (error) {
+      if (typeof window.showToast === 'function') window.showToast('Erreur rejet : ' + error.message, 'error');
+      console.error('LEGACY_ORDER_REJECT_FIX confirmInlineReject', error);
+    }
+  };
+}());
+/* LEGACY_ORDER_REJECT_FIX_V1_END */
+
+
+
+
+
+
+;
+
+
+/* PAPER_APPROVALS_UI_FIX_DIAG_V3_2_BEGIN */
+(function () {
+  'use strict';
+
+  var CARD_ID = 'pending-approvals-card';
+  var LIST_ID = 'pa-list';
+  var COUNT_ID = 'pa-count';
+  var REFRESH_ID = 'pa-refresh-btn';
+  var MODE_ID = 'pa-execution-mode-v3';
+  var DIAG_ID = 'pa-last-cycle-diagnostic-v3-2';
+
+  function esc(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function apiBase() {
+    return (typeof API_BASE !== 'undefined' ? API_BASE : '') || '';
+  }
+
+  async function request(path, options) {
+    var opts = Object.assign({ headers: { 'Content-Type': 'application/json' } }, options || {});
+    var token = null;
+    try { token = localStorage.getItem('token') || localStorage.getItem('access_token'); } catch (_) {}
+    if (token) opts.headers.Authorization = 'Bearer ' + token;
+    var response = await fetch(apiBase() + path, opts);
+    var body = null;
+    try { body = await response.json(); } catch (_) {}
+    if (!response.ok) throw new Error((body && (body.detail || body.message)) || ('HTTP ' + response.status));
+    return body || {};
+  }
+
+  function isTest(item) {
+    var snap = item && item.risk_snapshot;
+    return !item.order_id || item.source === 'manual_test' || (snap && snap.mode === 'test');
+  }
+
+  function statusText(value) {
+    return String(value || '').replace(/_/g, ' ').toUpperCase();
+  }
+
+  function findHost() {
+    return document.getElementById(CARD_ID) || document.getElementById('pendingApprovalsCard');
+  }
+
+  function installCard() {
+    var host = findHost();
+    if (!host) return null;
+    if (!document.getElementById(LIST_ID)) {
+      host.innerHTML = '' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">' +
+          '<div style="font-weight:700">Pending Approvals <span id="' + COUNT_ID + '" style="color:#f0a030">(0)</span></div>' +
+          '<button id="' + REFRESH_ID + '" class="btn btn-ghost" type="button">Refresh</button>' +
+        '</div>' +
+        '<div id="' + MODE_ID + '" style="font-size:12px;margin-bottom:10px;color:#5bc0de">PAPER MODE — no live execution</div>' +
+        '<div id="' + LIST_ID + '"></div>' +
+        '<div id="' + DIAG_ID + '" style="margin-top:14px"></div>';
+    } else if (!document.getElementById(DIAG_ID)) {
+      var diag = document.createElement('div');
+      diag.id = DIAG_ID;
+      diag.style.marginTop = '14px';
+      host.appendChild(diag);
+    }
+    var refresh = document.getElementById(REFRESH_ID);
+    if (refresh && !refresh.dataset.v32Bound) {
+      refresh.dataset.v32Bound = '1';
+      refresh.addEventListener('click', refreshAll);
+    }
+    return host;
+  }
+
+  function renderApproval(item) {
+    var pending = String(item.status || '').toLowerCase() === 'pending';
+    var test = isTest(item);
+    var sideColor = String(item.side || '').toUpperCase() === 'BUY' ? '#38d996' : '#ff6b6b';
+    var testLabel = test
+      ? '<div style="font-size:11px;color:#f0a030;font-weight:700;margin-top:5px">TEST APPROVAL — NO LINKED ORDER — NEVER EXECUTABLE</div>'
+      : '<div style="font-size:11px;color:#5bc0de;font-weight:700;margin-top:5px">REAL PAPER PROPOSAL — ORDER #' + esc(item.order_id) + '</div>';
+    var state = pending ? 'PENDING MANAGER DECISION' : statusText(item.status);
+    var actions = '';
+    if (pending) {
+      actions = '' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">' +
+          '<button type="button" class="btn btn-pass pa-v32-approve" data-id="' + esc(item.id) + '">Approve Proposal</button>' +
+          '<button type="button" class="btn btn-reject pa-v32-reject-open" data-id="' + esc(item.id) + '">Reject</button>' +
+        '</div>' +
+        '<div id="pa-v32-reject-' + esc(item.id) + '" style="display:none;margin-top:10px">' +
+          '<textarea id="pa-v32-reason-' + esc(item.id) + '" placeholder="Motif de rejet obligatoire" style="width:100%;min-height:54px"></textarea>' +
+          '<div style="display:flex;gap:8px;margin-top:7px">' +
+            '<button type="button" class="btn btn-ghost pa-v32-reject-cancel" data-id="' + esc(item.id) + '">Cancel</button>' +
+            '<button type="button" class="btn btn-reject pa-v32-reject-confirm" data-id="' + esc(item.id) + '">Confirm rejection</button>' +
+          '</div>' +
+        '</div>';
+    }
+    return '' +
+      '<article class="pending-approval-item" style="border:1px solid var(--color-border,#36506b);border-radius:8px;padding:12px;margin-bottom:10px">' +
+        '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><strong>#' + esc(item.id) + ' ' + esc(item.ticker) + '</strong><span style="color:' + sideColor + ';font-weight:700;font-size:12px">' + esc(item.side) + '</span></div>' +
+        '<div style="margin-top:7px;font-size:13px">Quantity: ' + esc(item.quantity) + ' · Order: ' + (item.order_id ? '#' + esc(item.order_id) : 'N/A') + '</div>' +
+        '<div style="margin-top:7px;color:' + (pending ? '#f0a030' : '#5bc0de') + ';font-size:12px;font-weight:700">' + esc(state) + '</div>' +
+        testLabel +
+        '<div style="margin-top:8px;font-size:13px">Thesis / rationale: ' + esc(item.rationale || '—') + '</div>' +
+        (item.rejection_reason ? '<div style="margin-top:7px;color:#ff8c8c;font-size:12px">Rejection reason: ' + esc(item.rejection_reason) + '</div>' : '') +
+        actions +
+      '</article>';
+  }
+
+  function bindApprovalActions() {
+    document.querySelectorAll('.pa-v32-approve').forEach(function (button) {
+      button.addEventListener('click', async function () {
+        var id = button.dataset.id;
+        button.disabled = true;
+        try {
+          await apiPost('/api/approvals/' + encodeURIComponent(id) + '/approve', {});
+          if (typeof showToast === 'function') showToast('Proposal approved. No execution was triggered.', 'success');
+          await refreshAll();
+        } catch (error) {
+          if (typeof showToast === 'function') showToast('Approval error: ' + error.message, 'error'); else alert(error.message);
+          button.disabled = false;
+        }
+      });
+    });
+    document.querySelectorAll('.pa-v32-reject-open').forEach(function (button) {
+      button.addEventListener('click', function () {
+        var form = document.getElementById('pa-v32-reject-' + button.dataset.id);
+        if (form) form.style.display = 'block';
+      });
+    });
+    document.querySelectorAll('.pa-v32-reject-cancel').forEach(function (button) {
+      button.addEventListener('click', function () {
+        var form = document.getElementById('pa-v32-reject-' + button.dataset.id);
+        if (form) form.style.display = 'none';
+      });
+    });
+    document.querySelectorAll('.pa-v32-reject-confirm').forEach(function (button) {
+      button.addEventListener('click', async function () {
+        var id = button.dataset.id;
+        var field = document.getElementById('pa-v32-reason-' + id);
+        var reason = field ? field.value.trim() : '';
+        if (!reason) {
+          if (typeof showToast === 'function') showToast('Le motif de rejet est obligatoire.', 'error'); else alert('Le motif de rejet est obligatoire.');
+          return;
+        }
+        button.disabled = true;
+        try {
+          await apiPost('/api/approvals/' + encodeURIComponent(id) + '/reject', { reason: reason });
+          if (typeof showToast === 'function') showToast('Proposal rejected. No execution was triggered.', 'info');
+          await refreshAll();
+        } catch (error) {
+          if (typeof showToast === 'function') showToast('Rejection error: ' + error.message, 'error'); else alert(error.message);
+          button.disabled = false;
+        }
+      });
+    });
+  }
+
+  function renderDiagnostic(diagnostic) {
+    var target = document.getElementById(DIAG_ID);
+    if (!target || !diagnostic) return;
+    var theses = diagnostic.theses || {};
+    var orders = diagnostic.orders || {};
+    var approvals = diagnostic.paper_approvals || {};
+    target.innerHTML = '' +
+      '<section style="border-top:1px solid var(--color-border,#36506b);padding-top:12px">' +
+        '<div style="font-weight:700;margin-bottom:8px">Last Decision Cycle <span style="font-size:11px;color:#5bc0de">V3.2 READ-ONLY</span></div>' +
+        '<div style="font-size:12px;line-height:1.7">' +
+          'Macro stance: <strong>' + esc(diagnostic.macro_stance || '—') + '</strong><br>' +
+          'Theses: Factor ' + esc(theses.factor || 0) + ' · Micro ' + esc(theses.micro || 0) + ' · Alt ' + esc(theses.alt || 0) + ' · Total <strong>' + esc(theses.total || 0) + '</strong><br>' +
+          'Orders submitted to execution: <strong>' + esc(orders.submitted_to_execution || 0) + '</strong> · Pending validation: <strong>' + esc(orders.pending_validation || 0) + '</strong><br>' +
+          'Paper approvals created: <strong>' + esc(approvals.created || 0) + '</strong><br>' +
+          '<span style="color:#f0a030">Primary reason: ' + esc(diagnostic.primary_reason || '—') + '</span>' +
+        '</div>' +
+      '</section>';
+  }
+
+  async function refreshAll() {
+    installCard();
+    var list = document.getElementById(LIST_ID);
+    var count = document.getElementById(COUNT_ID);
+    if (!list) return;
+    try {
+      var data = await request('/api/approvals/pending');
+      var approvals = Array.isArray(data.approvals) ? data.approvals : [];
+      var pending = approvals.filter(function (item) { return String(item.status || '').toLowerCase() === 'pending'; });
+      if (count) count.textContent = '(' + pending.length + ')';
+      list.innerHTML = pending.length
+        ? pending.map(renderApproval).join('')
+        : '<div class="empty-state" style="padding:12px 0">No pending approvals. Approved, rejected, and test decisions are not shown in this queue.</div>';
+      bindApprovalActions();
+    } catch (error) {
+      list.innerHTML = '<div class="inline-error">Unable to load pending approvals: ' + esc(error.message) + '</div>';
+    }
+    try {
+      var diagnosticResponse = await request('/api/approvals/last-cycle-diagnostic');
+      renderDiagnostic(diagnosticResponse.diagnostic);
+    } catch (_) {
+      renderDiagnostic({ primary_reason: 'Diagnostic unavailable until the API server is restarted and a decision cycle is run.' });
+    }
+  }
+
+  function boot() {
+    if (!installCard()) return;
+    refreshAll();
+    window.refreshPaperApprovalsV32 = refreshAll;
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+}());
+/* PAPER_APPROVALS_UI_FIX_DIAG_V3_2_END */
+
 

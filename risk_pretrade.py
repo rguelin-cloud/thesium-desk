@@ -445,6 +445,33 @@ def _nx_broker_precheck(ticker, qty, price, side, db_path, conn=None):
     if result.get("ok"):
         return None  # broker OK -> on laisse pretrade continuer
 
+        # [BROKER_POLICY_PAPER_V1] Mode degrade paper-trading.
+        # ActivTrades ne propose pas ARM, HYPE, ZEC, JNJ, TMO, LIN, GE,
+        # GS, JPM, KO, MS, SBUX, UNP, XLB, XLRE, LLY (156 359 USD).
+        # A_strict_refuse a genere 87 rejets ARM sans capital engage.
+        # En paper on journalise sans bloquer ; en live rien ne change.
+        import os as _os_pol
+        import sqlite3 as _sql_pol
+        _live_pol = str(_os_pol.getenv('LIVE_TRADING', 'false')).lower() in (
+            '1', 'true', 'yes', 'on')
+        if not _live_pol:
+            try:
+                _dbp_pol = db_path or _os_pol.environ.get(
+                    'THESIUM_DB',
+                    _os_pol.path.join(
+                        _os_pol.path.dirname(_os_pol.path.abspath(__file__)),
+                        'thesium.db'))
+                _cp_pol = _sql_pol.connect(_dbp_pol, timeout=10.0)
+                _rp_pol = _cp_pol.execute(
+                    'SELECT blocks_order FROM broker_policy_config'
+                    " WHERE mode='paper' AND active=1").fetchone()
+                _cp_pol.close()
+                if _rp_pol is not None and int(_rp_pol[0]) == 0:
+                    return None  # PAPER_WARN : la simulation continue
+            except Exception:
+                pass  # fail-safe : on poursuit vers le refus strict
+
+
     # Broker refuse : trace dans risk_pretrade_log + retour format V2
     import json as _json
     import sqlite3 as _sql
@@ -629,6 +656,12 @@ def run_pretrade_checks(
     # [RISK_V2_DBLOCK_FIX_V2] reutilise la conn existante pour eviter le 2e writer lock
     _own_conn = conn is None
     c = conn if conn is not None else _conn(db_path)
+    if conn is not None:
+        # [ROW_FACTORY_GUARD_V1] l'appelant peut ne pas avoir configure row_factory
+        try:
+            c.row_factory = sqlite3.Row
+        except Exception:
+            pass
     try:
         _ensure_log_table(c)
 

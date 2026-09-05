@@ -1,10 +1,105 @@
-﻿venv/
-__pycache__/
+﻿# ============================================================================
+# THESIUM DESK — repository hygiene
+# Never commit active databases, secrets, credentials, backups, logs or local
+# generated artifacts. Keep source code, migrations, schemas and docs in Git.
+# ============================================================================
+
+# Databases, SQLite journals and local backups
 *.db
-*.db-wal
-*.db-shm
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*_backup*.db
+*_backups*/
+_backup*/
+_backups*/
+backup_*/
+backups*/
+*.bak
+*.backup
+*.before_*.py
+
+# Secrets, credentials and local environment
 .env
-_backups_*/
-lots*/
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials/
+bridge_config.local.py
+config/local/
+config/secrets/
+
+# Python bytecode and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Runtime data, caches, logs and generated exports
+.geo_cache.json
+data/
 export/
-*.backup-*
+output/
+logs/
+router_logs/
+router_logs_selftest/
+starvation_logs/
+differentiation_logs/
+*.log
+*.jsonl
+*.zip
+*.csv
+*.xlsx
+*.parquet
+
+# Experimental batches, reports and local work directories
+lots/
+lots*/
+benchmarks/
+benchmark_output/
+reports/
+tmp/
+temp/
+
+# Local diagnostics, probes and throwaway fragments
+diag_*
+diagnose_*
+probe_*
+purge_*
+verif_*
+zone_*.txt
+*_snippet.py
+*_block.txt
+*_tail.txt
+*_return_*.txt
+
+# Local one-off installers, fixes, patches and repair scripts
+add_*.ps1
+apply_*.ps1
+consolidate_*.ps1
+disable_*.ps1
+fix_*.ps1
+install_*.ps1
+patch_*.ps1
+repair_*.ps1
+restart_*.ps1
+upgrade_*.ps1
+
+# Python backups / pre-patch variants
+*_pre_*.py
+*_before_*.py
+*_corrected.py
+*_backup.py
+*.bak.py
+
+# OS, editor and local artifacts
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

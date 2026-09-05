@@ -673,16 +673,54 @@ def _build_market_regime_section(conn) -> str:
             (cid,)
         ).fetchall()
         # Helpers
-        def _impact(asset_class, regime):
-            if regime == "STRESS":
-                if asset_class == "crypto":
-                    return "DCA crypto autoris\u00e9 (BUY x1.8), SELL frein\u00e9s (x0.5)"
-                return "Acheter la baisse equity (BUY x1.8), SELL frein\u00e9s (x0.5)"
-            if regime == "CALM":
-                if asset_class == "crypto":
-                    return "Take profit crypto facilit\u00e9 (SELL x1.5), BUY prudents (x0.7)"
-                return "Take profit equity facilit\u00e9 (SELL x1.5), BUY prudents (x0.7)"
-            return "R\u00e9gime neutre - aucune amplification"
+        # [MEMO_REGIME_TEXT_V1] Texte genere depuis les multiplicateurs reels.
+        # Avant ce patch, _impact() annoncait 'SELL x1.5 / BUY x0.7' en
+        # CALM quel que soit le contenu de market_regime_log, et ne gerait
+        # pas le regime ALERT. Le tableau affichait x1.00 pendant que la
+        # phrase adjacente affirmait x1.5 : contradiction dans une piece
+        # d'audit. Les valeurs proviennent maintenant de la ligne rendue.
+        def _impact(asset_class, regime, buy_mult=None, sell_mult=None):
+            _lib = "crypto" if str(asset_class).lower() == "crypto" else "equity"
+            try:
+                _bm = float(buy_mult) if buy_mult is not None else None
+            except (TypeError, ValueError):
+                _bm = None
+            try:
+                _sm = float(sell_mult) if sell_mult is not None else None
+            except (TypeError, ValueError):
+                _sm = None
+            if _bm is None or _sm is None:
+                return "Multiplicateurs indisponibles pour ce cycle"
+            _eps = 1e-9
+            _neutre = abs(_bm - 1.0) < _eps and abs(_sm - 1.0) < _eps
+            if _neutre:
+                return "Aucune amplification : sizing nominal {} "\
+                       "(BUY x1.00, SELL x1.00)".format(_lib)
+            _parts = []
+            if _bm > 1.0 + _eps:
+                _parts.append("achats amplifies (BUY x{:.2f})".format(_bm))
+            elif _bm < 1.0 - _eps:
+                _parts.append("achats reduits (BUY x{:.2f})".format(_bm))
+            else:
+                _parts.append("achats nominaux (BUY x1.00)")
+            if _sm > 1.0 + _eps:
+                _parts.append("ventes facilitees (SELL x{:.2f})".format(_sm))
+            elif _sm < 1.0 - _eps:
+                _parts.append("ventes freinees (SELL x{:.2f})".format(_sm))
+            else:
+                _parts.append("ventes nominales (SELL x1.00)")
+            _rg = str(regime or "").upper()
+            if _rg == "STRESS":
+                _tag = "protection du capital"
+            elif _rg == "ALERT":
+                _tag = "vigilance"
+            elif _rg == "CALM":
+                _tag = "conditions favorables"
+            elif _rg == "NORMAL":
+                _tag = "biais neutre"
+            else:
+                _tag = "regime {}".format(_rg or "inconnu")
+            return "{} : {} - {}".format(_tag, _parts[0], _parts[1])
         out = ["## R\u00e9gime de March\u00e9 [MARKET_REGIME_V1]\n"]
         out.append(
             f"**Cycle :** {cid}  -  **Portfolio regime :** {row['regime']} "
@@ -707,7 +745,7 @@ def _build_market_regime_section(conn) -> str:
             dd_str = f"{dd:.2f}%" if dd is not None else "-"
             bm_str = f"x{bm:.2f}" if bm is not None else "-"
             sm_str = f"x{sm:.2f}" if sm is not None else "-"
-            impact = _impact(ac, rg)
+            impact = _impact(ac, rg, bm, sm)
             out.append(
                 f"| {ac} | **{rg}** | {vix_str} | {vol_str} | {dd_str} | "
                 f"{bm_str} | {sm_str} | {impact} |"
@@ -734,10 +772,37 @@ def _build_market_regime_section(conn) -> str:
             )
         out.append("")
         # Note methodologique courte
+        # [MEMO_REGIME_TEXT_V1] Note methodologique lue depuis regime_multiplier_config.
+        _note_mult = ""
+        try:
+            _rows_note = conn.execute(
+                "SELECT asset_class, regime, buy_mult, sell_mult"
+                " FROM regime_multiplier_config WHERE active = 1"
+                " ORDER BY asset_class,"
+                " CASE regime WHEN 'CALM' THEN 1 WHEN 'NORMAL' THEN 2"
+                " WHEN 'ALERT' THEN 3 WHEN 'STRESS' THEN 4 ELSE 5 END"
+            ).fetchall()
+            _by_ac = {}
+            for _rn in _rows_note:
+                _ac_n = _rn[0] if not hasattr(_rn, 'keys') else _rn['asset_class']
+                _rg_n = _rn[1] if not hasattr(_rn, 'keys') else _rn['regime']
+                _bm_n = _rn[2] if not hasattr(_rn, 'keys') else _rn['buy_mult']
+                _sm_n = _rn[3] if not hasattr(_rn, 'keys') else _rn['sell_mult']
+                _by_ac.setdefault(_ac_n, []).append(
+                    "{} {:.2f}/{:.2f}".format(_rg_n, float(_bm_n), float(_sm_n)))
+            _seg = []
+            for _ac_n in sorted(_by_ac):
+                _seg.append("{} : {}".format(_ac_n, ", ".join(_by_ac[_ac_n])))
+            if _seg:
+                _note_mult = ("Grille BUY/SELL en vigueur (regime_multiplier_config) - "
+                              + " | ".join(_seg) + ".")
+        except Exception:
+            _note_mult = ""
         out.append(
             "_Equity : majorit\u00e9 simple sur 3 signaux (VIX, vol 20j, drawdown 5j). "
             "Crypto : 1 seul signal STRESS suffit (plus r\u00e9actif). "
-            "Multiplicateurs : CALM 0.7/1.5, NORMAL 1.0/1.0, STRESS 1.8/0.5._"
+            + (_note_mult if _note_mult else "Grille de multiplicateurs indisponible.")
+            + "_"
         )
         return "\n".join(out) + "\n\n"
     except Exception as _e_mr:
