@@ -2513,6 +2513,20 @@ def approve_order(order_id: int, user: dict = Depends(require_manager)):
     from execution_engine import DEFAULT_BROKER
     conn = db()
     try:
+        paper_approval = conn.execute(
+            "SELECT id FROM paper_approvals WHERE order_id = ? LIMIT 1",
+            (order_id,),
+        ).fetchone()
+        if paper_approval is not None:
+            approval_id = int(paper_approval[0])
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Order {order_id} is governed by Paper Approval {approval_id}. "
+                    f"Use /api/approvals/{approval_id}/execute-paper."
+                ),
+            )
+
         row = conn.execute(
             """
             SELECT o.*, i.ticker
@@ -2628,63 +2642,11 @@ def reject_order(order_id: int, req: OrderRejectRequest, user: dict = Depends(re
 
 @app.post("/api/orders/approve-all")
 def approve_all_orders(user: dict = Depends(require_manager)):
-    """Approve ALL pending_validation orders and execute each via PaperBroker."""
-    from execution_engine import DEFAULT_BROKER
-    conn = db()
-    try:
-        rows = conn.execute(
-            """
-            SELECT o.*, i.ticker
-            FROM orders o
-            JOIN instruments i ON i.id = o.instrument_id
-            WHERE o.status = 'pending_validation'
-            ORDER BY o.created_at ASC
-            """
-        ).fetchall()
-        orders = [dict(r) for r in rows]
-
-        username = user.get("username", "unknown")
-        results = []
-        for order in orders:
-            try:
-                price_row = conn.execute(
-                    "SELECT close FROM prices WHERE instrument_id = ? ORDER BY date DESC LIMIT 1",
-                    (order["instrument_id"],)
-                ).fetchone()
-                if not price_row:
-                    results.append({"order_id": order["id"], "success": False, "reason": "No price data"})
-                    continue
-                current_price = price_row[0]
-                validated_at = datetime.utcnow().isoformat()
-
-                conn.execute(
-                    """UPDATE orders SET status='approved', validated_by=?, validated_at=? WHERE id=?""",
-                    (username, validated_at, order["id"])
-                )
-                fill_result = DEFAULT_BROKER.execute_order(
-                    conn, order["id"], order["instrument_id"], order["side"],
-                    order["quantity"], order["order_type"], order["limit_price"], current_price
-                )
-                from models import log_event
-                log_event(conn, "order_approved", "order", order["id"], {
-                    "validated_by": username,
-                    "ticker": order["ticker"],
-                    "bulk": True,
-                }, agent="UserAction")
-                results.append({"order_id": order["id"], "ticker": order["ticker"], "success": True, "fill": fill_result})
-            except Exception as ex:
-                results.append({"order_id": order["id"], "success": False, "reason": str(ex)})
-
-        conn.commit()
-        return {"success": True, "results": results, "total_approved": len([r for r in results if r["success"]])}
-    except HTTPException:
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
+    """Disabled: bulk legacy approval bypasses Paper Approval governance."""
+    raise HTTPException(
+        status_code=410,
+        detail="Bulk legacy approval is disabled in V3.3. Use individual Paper Approvals.",
+    )
 
 @app.post("/api/orders/reject-all")
 def reject_all_orders(req: BulkRejectRequest, user: dict = Depends(require_manager)):
@@ -5797,32 +5759,5 @@ def _pa_v33_ready_to_execute_rows(conn):
 
 
 
-@app.post("/api/orders/{order_id}/approve")
-def approve_order_v33_guard(order_id: int, user: dict = Depends(require_manager)):
-    conn = db()
-    try:
-        approval_id = _pa_v33_is_paper_governed_order(conn, order_id)
-        if approval_id is not None:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"Order {order_id} is governed by Paper Approval {approval_id}. "
-                    f"Approve it via /api/approvals/{approval_id}/approve, then execute it "
-                    f"via /api/approvals/{approval_id}/execute-paper."
-                ),
-            )
-        raise HTTPException(
-            status_code=410,
-            detail="Legacy order approval is disabled in V3.3. Use the Paper Approvals workflow.",
-        )
-    finally:
-        conn.close()
 
-
-@app.post("/api/orders/approve-all")
-def approve_all_orders_v33_guard(user: dict = Depends(require_manager)):
-    raise HTTPException(
-        status_code=410,
-        detail="Bulk legacy approval is disabled in V3.3. Use individual Paper Approvals.",
-    )
 # PAPER_EXECUTION_V33_END
