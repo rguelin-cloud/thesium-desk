@@ -8196,3 +8196,243 @@ function renderBacktestRegime(data){
 /* PAPER_APPROVALS_UI_FIX_DIAG_V3_2_END */
 
 
+/* PAPER_EXECUTION_V33_READY_UI_BEGIN */
+(function () {
+  "use strict";
+
+  var sectionId = "paper-execution-v33-ready-section";
+  var loading = false;
+  var executing = new Set();
+
+  function escapeHtml(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function notify(message, type) {
+    if (typeof window.showToast === "function") {
+      window.showToast(message, type || "info");
+    } else {
+      window.alert(message);
+    }
+  }
+
+  async function requestJson(path, options) {
+    if (typeof window.apiFetch !== "function") {
+      throw new Error("apiFetch is unavailable");
+    }
+    return window.apiFetch(path, options || { method: "GET" });
+  }
+
+  function findCard() {
+    return document.getElementById("pending-approvals-card");
+  }
+
+  function getSection() {
+    return document.getElementById(sectionId);
+  }
+
+  function renderEmpty(root, message) {
+    root.innerHTML =
+      "<div style='font-size:12px;opacity:.72;padding:8px 0'>" +
+      escapeHtml(message) +
+      "</div>";
+  }
+
+  function formatNumber(value, digits) {
+    var number = Number(value);
+    if (!Number.isFinite(number)) return "?";
+    return number.toLocaleString(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: digits == null ? 4 : digits
+    });
+  }
+
+  function renderReady(root, approvals) {
+    if (!Array.isArray(approvals) || !approvals.length) {
+      renderEmpty(root, "No approved Paper order is ready to execute.");
+      return;
+    }
+
+    var rows = approvals.map(function (approval) {
+      var side = String(approval.side || "").toUpperCase();
+      var sideColor = side === "BUY" ? "#48c774" : "#ef8179";
+      var orderType = String(approval.order_type || "market").toUpperCase();
+      var limit = approval.limit_price == null
+        ? "Market"
+        : "Limit " + formatNumber(approval.limit_price, 4);
+      var reference = approval.reference_close == null
+        ? "Reference price unavailable"
+        : "Reference close " + formatNumber(approval.reference_close, 4) +
+          (approval.reference_price_date ? " ? " + escapeHtml(approval.reference_price_date) : "");
+
+      return (
+        "<article style='border:1px solid rgba(95,189,203,.42);border-radius:8px;" +
+        "padding:11px 12px;background:rgba(38,127,142,.08);margin:8px 0'>" +
+          "<div style='display:flex;justify-content:space-between;gap:12px;" +
+          "align-items:flex-start;flex-wrap:wrap'>" +
+            "<div>" +
+              "<div style='font-size:14px;font-weight:800'>" +
+                "Approval #" + escapeHtml(approval.id) +
+                " ? Order #" + escapeHtml(approval.order_id) +
+                " ? " + escapeHtml(approval.ticker) +
+                " <span style='font-size:11px;color:" + sideColor + "'>" +
+                escapeHtml(side) + "</span>" +
+              "</div>" +
+              "<div style='margin-top:5px;font-size:12px;opacity:.88'>" +
+                "Quantity " + escapeHtml(formatNumber(approval.quantity, 4)) +
+                " ? " + escapeHtml(orderType) +
+                " ? " + escapeHtml(limit) +
+              "</div>" +
+              "<div style='margin-top:4px;font-size:12px;color:#5fbdcb'>" +
+                reference +
+              "</div>" +
+            "</div>" +
+            "<button type='button' class='btn btn-primary' " +
+              "data-paper-v33-execute='" + escapeHtml(approval.id) + "' " +
+              "style='font-size:12px;padding:6px 10px;background:#267f8e'>" +
+              "Execute Paper Trade" +
+            "</button>" +
+          "</div>" +
+        "</article>"
+      );
+    }).join("");
+
+    root.innerHTML = rows;
+
+    root.querySelectorAll("[data-paper-v33-execute]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        executePaper(Number(button.dataset.paperV33Execute), button);
+      });
+    });
+  }
+
+  async function loadReady() {
+    var root = getSection();
+    if (!root || loading) return;
+    loading = true;
+
+    var content = root.querySelector("[data-paper-v33-content]");
+    if (!content) {
+      loading = false;
+      return;
+    }
+
+    content.innerHTML =
+      "<div style='font-size:12px;opacity:.62;padding:8px 0'>Loading approved Paper orders?</div>";
+
+    try {
+      var payload = await requestJson(
+        "/api/approvals/ready-to-execute",
+        { method: "GET" }
+      );
+      renderReady(
+        content,
+        payload && Array.isArray(payload.approvals) ? payload.approvals : []
+      );
+    } catch (error) {
+      console.error("PAPER_EXECUTION_V33_READY_UI load error", error);
+      renderEmpty(content, "Unable to load approved Paper orders.");
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function executePaper(approvalId, button) {
+    if (!Number.isInteger(approvalId) || approvalId <= 0 || executing.has(approvalId)) {
+      return;
+    }
+
+    var accepted = window.confirm(
+      "Execute PAPER trade for approval #" + approvalId + "?\n\n" +
+      "This will create exactly one simulated fill and update simulated cash " +
+      "and positions. No live broker order will be sent."
+    );
+    if (!accepted) return;
+
+    executing.add(approvalId);
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Executing?";
+    }
+
+    try {
+      var result = await requestJson(
+        "/api/approvals/" + encodeURIComponent(approvalId) + "/execute-paper",
+        { method: "POST" }
+      );
+      var execution = result && result.execution ? result.execution : {};
+      notify(
+        "Paper trade executed" +
+        (execution.fill_id ? " ? Fill #" + execution.fill_id : "") +
+        ".",
+        "success"
+      );
+      await loadReady();
+      if (typeof window.loadPaperApprovals === "function") {
+        await window.loadPaperApprovals();
+      }
+      if (typeof window.loadDashboard === "function") {
+        window.loadDashboard();
+      }
+      if (typeof window.loadPortfolio === "function") {
+        window.loadPortfolio();
+      }
+    } catch (error) {
+      console.error("PAPER_EXECUTION_V33_READY_UI execute error", error);
+      notify(
+        "Paper execution failed: " +
+        (error && error.message ? error.message : String(error)),
+        "error"
+      );
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Execute Paper Trade";
+      }
+    } finally {
+      executing.delete(approvalId);
+    }
+  }
+
+  function mount() {
+    var card = findCard();
+    if (!card || getSection()) return;
+
+    var section = document.createElement("section");
+    section.id = sectionId;
+    section.style.cssText =
+      "margin-top:16px;padding-top:12px;border-top:1px solid rgba(95,189,203,.25)";
+
+    section.innerHTML =
+      "<div style='display:flex;justify-content:space-between;gap:12px;" +
+        "align-items:center;flex-wrap:wrap'>" +
+        "<div style='font-size:12px;font-weight:800;letter-spacing:.04em;color:#5fbdcb'>" +
+          "APPROVED PAPER ORDERS ? READY TO EXECUTE" +
+        "</div>" +
+        "<button type='button' class='btn' data-paper-v33-refresh " +
+          "style='font-size:11px;padding:4px 8px'>Refresh</button>" +
+      "</div>" +
+      "<div data-paper-v33-content style='margin-top:6px'></div>";
+
+    card.appendChild(section);
+
+    var refresh = section.querySelector("[data-paper-v33-refresh]");
+    if (refresh) refresh.addEventListener("click", loadReady);
+
+    loadReady();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", mount);
+  } else {
+    mount();
+  }
+}());
+/* PAPER_EXECUTION_V33_READY_UI_END */
+
+
+
