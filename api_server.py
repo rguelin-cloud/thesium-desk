@@ -1255,7 +1255,18 @@ def execute_paper_approval(
         except ValueError as exc:
             raise HTTPException(
                 status_code=409,
-                detail=f"Paper execution failed: {exc}",
+                detail=f"Paper execution rejected: {exc}",
+            ) from exc
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise HTTPException(
+                status_code=500,
+                detail=f"Paper execution internal error: {type(exc).__name__}: {exc}",
             ) from exc
         if not isinstance(result, dict) or not result.get("success"):
             try:

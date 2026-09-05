@@ -2790,7 +2790,7 @@ def approve_and_fill_order_v33(conn, order_id, validated_by="manager"):
 
         from models import log_event
 
-        fill_price = float(DEFAULT_BROKER.calculate_fill_price(reference_price, side))
+        fill_price = float(DEFAULT_BROKER._calculate_fill_price(reference_price, side))
         slippage = round(abs(fill_price - reference_price) * quantity, 4)
         fees = round(quantity * float(DEFAULT_BROKER.fee_per_share), 4)
         filled_at = _dt.utcnow().isoformat()
@@ -2815,7 +2815,7 @@ def approve_and_fill_order_v33(conn, order_id, validated_by="manager"):
         if updated != 1:
             raise ValueError("order_state_changed")
 
-        DEFAULT_BROKER.update_position(conn, order["instrument_id"], side, quantity, fill_price)
+        DEFAULT_BROKER._update_position(conn, order["instrument_id"], side, quantity, fill_price)
         trade_value = quantity * fill_price
         if side == "BUY":
             conn.execute("UPDATE portfolio_state SET cash = cash - ? - ? WHERE id = 1", (trade_value, fees))

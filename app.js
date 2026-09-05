@@ -70,7 +70,13 @@ function _addFillRecord(order, fillPrice) {
 }
 
 window.fetch = async function(url, opts) {
-  if (!window.MOCK_API_DATA) return _originalFetch(url, opts);
+  const isLocalRuntime =
+    window.location.hostname === "127.0.0.1" ||
+    window.location.hostname === "localhost";
+
+  if (!window.MOCK_API_DATA || isLocalRuntime) {
+    return _originalFetch(url, opts);
+  }
 
   const s = typeof url === 'string' ? url : '';
   const method = (opts && opts.method) ? opts.method.toUpperCase() : 'GET';
