@@ -1467,10 +1467,10 @@
         <!-- Pending Validation Panel (populated by JS) -->
         <div id="pendingValidationPanel"></div>
 
-        <!-- Order History -->
+        <!-- Recent Fills: execution audit -->
         <div>
           <div class="section-header" style="margin-bottom: var(--space-3)">
-            <span class="section-title">Order History</span>
+            <span class="section-title">Recent Fills</span>
           </div>
           <div class="table-section">
             <div class="table-scroll">
@@ -1495,8 +1495,16 @@
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
 
-<div class="table-scroll">
+        <!-- Order History: last 20 orders -->
+        <div>
+          <div class="section-header" style="margin-top: var(--space-6); margin-bottom: var(--space-3)">
+            <span class="section-title">Order History</span>
+          </div>
+          <div class="table-section">
+            <div class="table-scroll">
               <table id="ordersTable">
                 <thead>
                   <tr>
