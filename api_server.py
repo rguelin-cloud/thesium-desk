@@ -1245,8 +1245,18 @@ def execute_paper_approval(
         actor = _pa_get_actor(current_user)
         # Existing local paper-fill function: fills + positions + paper cash/P&L.
         # It does not use the automatic cycle router/shadow path disabled by V3.
-        from execution_engine import approve_and_fill_order
-        result = approve_and_fill_order(conn, int(row["order_id"]), validated_by=actor)
+        from execution_engine import approve_and_fill_order_v33
+        try:
+            result = approve_and_fill_order_v33(
+                conn,
+                int(row["order_id"]),
+                validated_by=actor,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Paper execution failed: {exc}",
+            ) from exc
         if not isinstance(result, dict) or not result.get("success"):
             try:
                 conn.rollback()
@@ -1359,6 +1369,39 @@ def get_paper_approval_last_cycle_diagnostic():
         },
     }
 # PAPER_APPROVAL_DIAGNOSTICS_V3_2_END
+
+@app.get("/api/approvals/ready-to-execute")
+def get_paper_approvals_ready_to_execute(
+    current_user: dict = Depends(require_manager),
+):
+    """Return only approvals eligible for an explicit Paper execution."""
+    conn = db()
+    try:
+        conn.row_factory = sqlite3.Row
+        approvals = []
+        for row in _pa_v33_ready_to_execute_rows(conn):
+            item = dict(row)
+            raw_snapshot = item.get("risk_snapshot")
+            if isinstance(raw_snapshot, str) and raw_snapshot:
+                try:
+                    item["risk_snapshot"] = json.loads(raw_snapshot)
+                except Exception:
+                    pass
+            approvals.append(item)
+        return {"status": "ok", "count": len(approvals), "approvals": approvals}
+    finally:
+        conn.close()
+
+
+def _pa_v33_is_paper_governed_order(conn, order_id: int):
+    row = conn.execute(
+        "SELECT id FROM paper_approvals WHERE order_id = ? LIMIT 1",
+        (order_id,),
+    ).fetchone()
+    return int(row[0]) if row else None
+
+
+# V3.3: legacy order approval routes must never bypass Paper Approval governance.
 
 @app.get("/api/approvals/{approval_id}")
 def get_paper_approval(approval_id: int):
@@ -5722,9 +5765,64 @@ def universe_scan(
         raise HTTPException(status_code=500, detail=str(e))
 # [API_UNIVERSE_V2_END]
 
+# PAPER_EXECUTION_V33_BEGIN
+# V3.3: strict, read-only queue for approvals that can still be executed in Paper.
+def _pa_v33_ready_to_execute_rows(conn):
+    return conn.execute(
+        """
+        SELECT
+            pa.*,
+            o.status AS linked_order_status,
+            o.created_at AS linked_order_created_at,
+            p.close AS reference_close,
+            p.date AS reference_price_date
+        FROM paper_approvals pa
+        JOIN orders o ON o.id = pa.order_id
+        LEFT JOIN fills f ON f.order_id = o.id
+        LEFT JOIN prices p ON p.id = (
+            SELECT p2.id
+            FROM prices p2
+            WHERE p2.instrument_id = o.instrument_id
+            ORDER BY p2.date DESC, p2.id DESC
+            LIMIT 1
+        )
+        WHERE pa.status = 'approved'
+          AND pa.paper_execution_status = 'approved_not_executed'
+          AND pa.order_id IS NOT NULL
+          AND o.status = 'approved'
+          AND f.id IS NULL
+        ORDER BY pa.created_at ASC, pa.id ASC
+        """
+    ).fetchall()
 
 
 
+@app.post("/api/orders/{order_id}/approve")
+def approve_order_v33_guard(order_id: int, user: dict = Depends(require_manager)):
+    conn = db()
+    try:
+        approval_id = _pa_v33_is_paper_governed_order(conn, order_id)
+        if approval_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Order {order_id} is governed by Paper Approval {approval_id}. "
+                    f"Approve it via /api/approvals/{approval_id}/approve, then execute it "
+                    f"via /api/approvals/{approval_id}/execute-paper."
+                ),
+            )
+        raise HTTPException(
+            status_code=410,
+            detail="Legacy order approval is disabled in V3.3. Use the Paper Approvals workflow.",
+        )
+    finally:
+        conn.close()
 
 
-
+@app.post("/api/orders/approve-all")
+def approve_all_orders_v33_guard(user: dict = Depends(require_manager)):
+    raise HTTPException(
+        status_code=410,
+        detail="Bulk legacy approval is disabled in V3.3. Use individual Paper Approvals.",
+    )
+# PAPER_EXECUTION_V33_END

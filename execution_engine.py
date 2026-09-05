@@ -2722,3 +2722,145 @@ def risk_v2_gate(ticker, qty, price, side, db_path=None):
         return bool(res.get("passed")), res.get("blocked_by"), res.get("details", {})
     except Exception as _e:
         return True, "risk_v2_error:" + str(_e)[:80], {}
+
+# PAPER_EXECUTION_V33_BEGIN
+# V3.3: strict execution helper. This path is called only by the Paper Approval endpoint.
+def approve_and_fill_order_v33(conn, order_id, validated_by="manager"):
+    """Atomically execute one approved Paper order and return its simulated fill.
+
+    The function does not call the decision-cycle, router, Shadow, or live-broker paths.
+    It requires an already-approved order and relies on uq_fills_order_id as the final
+    idempotency barrier.
+    """
+    from datetime import datetime as _dt
+    import sqlite3 as _sqlite3
+
+    conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute(
+            """
+            SELECT id, instrument_id, side, quantity, order_type, limit_price, status
+            FROM orders
+            WHERE id = ?
+            """,
+            (order_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("order_not_found")
+
+        keys = ("id", "instrument_id", "side", "quantity", "order_type", "limit_price", "status")
+        order = dict(zip(keys, row))
+        if str(order["status"]).lower() != "approved":
+            raise ValueError(f"order_not_approved:{order['status']}")
+
+        existing = conn.execute("SELECT id FROM fills WHERE order_id = ?", (order_id,)).fetchone()
+        if existing:
+            raise ValueError("order_already_filled")
+
+        price_row = conn.execute(
+            """
+            SELECT close
+            FROM prices
+            WHERE instrument_id = ?
+            ORDER BY date DESC, id DESC
+            LIMIT 1
+            """,
+            (order["instrument_id"],),
+        ).fetchone()
+        if not price_row or price_row[0] is None:
+            raise ValueError("no_reference_price")
+
+        reference_price = float(price_row[0])
+        side = str(order["side"]).upper()
+        quantity = float(order["quantity"])
+        order_type = str(order["order_type"] or "market").lower()
+        limit_price = order["limit_price"]
+
+        if quantity <= 0:
+            raise ValueError("invalid_quantity")
+        if side not in {"BUY", "SELL"}:
+            raise ValueError("invalid_side")
+        if order_type == "limit" and limit_price is not None:
+            limit_price = float(limit_price)
+            if side == "BUY" and reference_price > limit_price:
+                raise ValueError("limit_price_not_reached_buy")
+            if side == "SELL" and reference_price < limit_price:
+                raise ValueError("limit_price_not_reached_sell")
+
+        from models import log_event
+
+        fill_price = float(DEFAULT_BROKER.calculate_fill_price(reference_price, side))
+        slippage = round(abs(fill_price - reference_price) * quantity, 4)
+        fees = round(quantity * float(DEFAULT_BROKER.fee_per_share), 4)
+        filled_at = _dt.utcnow().isoformat()
+
+        cursor = conn.execute(
+            """
+            INSERT INTO fills (order_id, fill_price, fill_quantity, slippage, fees, filled_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (order_id, fill_price, quantity, slippage, fees, filled_at),
+        )
+        fill_id = int(cursor.lastrowid)
+
+        updated = conn.execute(
+            """
+            UPDATE orders
+            SET status = 'filled', validated_by = ?, validated_at = ?
+            WHERE id = ? AND status = 'approved'
+            """,
+            (validated_by, filled_at, order_id),
+        ).rowcount
+        if updated != 1:
+            raise ValueError("order_state_changed")
+
+        DEFAULT_BROKER.update_position(conn, order["instrument_id"], side, quantity, fill_price)
+        trade_value = quantity * fill_price
+        if side == "BUY":
+            conn.execute("UPDATE portfolio_state SET cash = cash - ? - ? WHERE id = 1", (trade_value, fees))
+        else:
+            conn.execute("UPDATE portfolio_state SET cash = cash + ? - ? WHERE id = 1", (trade_value, fees))
+        refresh_portfolio_state(conn)
+
+        log_event(
+            conn,
+            "order_filled_human_v33",
+            "fill",
+            fill_id,
+            {
+                "order_id": order_id,
+                "instrument_id": order["instrument_id"],
+                "side": side,
+                "quantity": quantity,
+                "reference_price": reference_price,
+                "fill_price": fill_price,
+                "slippage": slippage,
+                "fees": fees,
+                "validated_by": validated_by,
+                "mode": "paper",
+                "version": "v3.3",
+            },
+            agent="PaperExecutionV33",
+        )
+        conn.commit()
+        return {
+            "success": True,
+            "order_id": order_id,
+            "fill_id": fill_id,
+            "reference_price": reference_price,
+            "fill_price": fill_price,
+            "fill_quantity": quantity,
+            "slippage": slippage,
+            "fees": fees,
+            "filled_at": filled_at,
+        }
+    except _sqlite3.IntegrityError as exc:
+        conn.rollback()
+        if "fills.order_id" in str(exc).lower() or "uq_fills_order_id" in str(exc).lower():
+            raise ValueError("order_already_filled") from exc
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+# PAPER_EXECUTION_V33_END
