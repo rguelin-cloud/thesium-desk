@@ -121,6 +121,8 @@ thesium.db.backup*
 backup_*.py
 differentiation_report_*.json
 starvation_report_*.json
-p0_e0_*
+/p0_e0_*
 _p0_baseline/
 _p0_tools/
+
+!Documentation/P0_E0_*.md
