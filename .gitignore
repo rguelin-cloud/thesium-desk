@@ -103,3 +103,13 @@ upgrade_*.ps1
 .idea/
 .DS_Store
 Thumbs.db
+
+# --- P0 hygiene ---
+*.bak.*
+*.bak-*
+*.bak_*
+thesium.db
+*.db-wal
+*.db-shm
+.pytest_cache/
+*.pyc
