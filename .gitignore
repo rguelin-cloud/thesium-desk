@@ -113,3 +113,14 @@ thesium.db
 *.db-shm
 .pytest_cache/
 *.pyc
+
+# --- P0 hygiene v2 ---
+thesium.db.backup*
+*.db.backup*
+*.backup-*
+backup_*.py
+differentiation_report_*.json
+starvation_report_*.json
+p0_e0_*
+_p0_baseline/
+_p0_tools/
